@@ -6,6 +6,10 @@ yarn-debug.log*
 yarn-error.log*
 lerna-debug.log*
 
+# Mac OSX file exclusions
+.DS_Store
+
+
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
@@ -27,6 +31,12 @@ coverage
 
 # Grunt intermediate storage (https://gruntjs.com/creating-plugins#storing-task-files)
 .grunt
+
+# Ephemera
+README_files/
+.claude
+.memory/
+analysis_target_repo/
 
 # Bower dependency directory (https://bower.io/)
 bower_components
