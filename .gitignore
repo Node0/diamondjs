@@ -32,8 +32,11 @@ coverage
 # Grunt intermediate storage (https://gruntjs.com/creating-plugins#storing-task-files)
 .grunt
 
-# Ephemera
+# README preview Ephemera
+README.html
 README_files/
+
+# Ephemera
 .claude
 .memory/
 analysis_target_repo/
