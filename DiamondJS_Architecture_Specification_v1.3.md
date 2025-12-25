@@ -113,11 +113,11 @@ DiamondCore.on(buttonEl, 'click', () => vm.save());
 ```
 ┌─────────────────────────────────────────────────────────┐
 │  Layer 1: Write-Time (Human + LLM Friendly)             │
-│  ──────────────────────────────────────────────────────  │
-│  • Vanilla ES2022+ JavaScript/TypeScript                 │
-│  • Aurelia-inspired template syntax (.bind, etc)         │
-│  • Explicit imports, no magic constructors               │
-│  • File triplets: .ts + .html + .css                     │
+│  ────────────────────────────────────────────────────── │
+│  • Vanilla ES2022+ JavaScript/TypeScript                │
+│  • Aurelia-inspired template syntax (.bind, etc)        │
+│  • Explicit imports, no magic constructors              │
+│  • File triplets: .ts + .html + .css                    │
 └──────────────────┬──────────────────────────────────────┘
                    │
                    ▼
@@ -138,12 +138,12 @@ DiamondCore.on(buttonEl, 'click', () => vm.save());
                    ▼
 ┌─────────────────────────────────────────────────────────┐
 │  Layer 3: Debug-Time (LLM Comprehensible)               │
-│  ──────────────────────────────────────────────────────  │
-│  • Explicit runtime class method calls                   │
-│  • No hidden state, no DI container                      │
-│  • Modern ES6+ with clear semantics                      │
-│  • ~2,200 LOC runtime library                            │
-│  • Source maps link back to write-time code              │
+│  ────────────────────────────────────────────────────── │
+│  • Explicit runtime class method calls                  │
+│  • No hidden state, no DI container                     │
+│  • Modern ES6+ with clear semantics                     │
+│  • ~2,200 LOC runtime library                           │
+│  • Source maps link back to write-time code             │
 └─────────────────────────────────────────────────────────┘
 ```
 
