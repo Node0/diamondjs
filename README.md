@@ -342,7 +342,7 @@ DiamondJS provides everything you need for serious application development:
 - Component-scoped styles
 
 ### **F. Build & Delivery**
-- Vite plugin for seamless integration
+- Parcel plugin for seamless integration
 - Fast HMR (< 100ms for component updates)
 - Source maps for debugging
 - Tree-shakeable runtime (~20KB gzipped)
