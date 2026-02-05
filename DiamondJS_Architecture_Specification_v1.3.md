@@ -1,13 +1,15 @@
 # DiamondJS Architecture & Design Specification v1.2
 
-**Date**: December 25, 2025
-**Status**: Working Draft
-**Author**: Joe Hacobian
+**Date**: December 25, 2025<br>
+**Status**: Working Draft<br>
+**Author**: Joe Hacobian<br>
 
-**Revision History**:
-- v1.0 (Nov 2, 2025) - Initial comprehensive specification
-- v1.1 (Nov 2, 2025) - **FIX**: Corrected tendency of codegen to drift out of OOP patterns.
-- v1.2 (Nov 6, 2025) - **PERFORMANCE OPTIMIZATION**: Introduced hybrid reactivity system with class-based architecture and Collection class for large datasets. Addressed reactive proxy degradation on append-heavy workloads.
+<!-- markdownlint-disable MD033 -->
+
+**Revision History**:<br>
+- v1.0 (Nov 2, 2025) - Initial comprehensive specification<br>
+- v1.1 (Nov 2, 2025) - **FIX**: Corrected tendency of codegen to drift out of OOP patterns.<br>
+- v1.2 (Nov 6, 2025) - **PERFORMANCE OPTIMIZATION**: Introduced hybrid reactivity system with class-based architecture and Collection class for large datasets. Addressed reactive proxy degradation on append-heavy workloads.<br>
 - v1.3 (December 25, 2025) - Added `with.bind` & required aliasing which enables ergonomic composition of complex state.
 
 ---
@@ -25,7 +27,8 @@ DiamondJS is the first JavaScript framework explicitly designed for the LLM-assi
 
 **Validation**: 6-phase archaeology of Aurelia 2.0 confirms feasibility - ~2,000 LOC runtime, ~3,700 LOC compiler.
 
----
+<div class="page-break"></div>
+
 
 ## Table of Contents
 
@@ -44,9 +47,9 @@ DiamondJS is the first JavaScript framework explicitly designed for the LLM-assi
 13. [Implementation Roadmap](#implementation-roadmap)
 14. [Performance Analysis](#performance-analysis)
 
----
+<div class="page-break"></div>
 
-## Design Philosophy
+# Design Philosophy
 
 ### The Three Principles
 
@@ -70,7 +73,7 @@ import { httpClient } from './services/http';
 
 export class MyApp {
   private http = httpClient; // Clear provenance
-  
+
   constructor() {
     // Explicit initialization
   }
@@ -85,6 +88,8 @@ Developers spend their time on:
 - Component plumbing (~10% of cognitive effort)
 
 LLMs excel at the plumbing. Humans (and LLMs) should write beautiful templates using intuitive syntax.
+
+<div class="page-break"></div>
 
 **3. Build-Time Magic, Runtime Simplicity**
 
@@ -104,48 +109,69 @@ DiamondCore.bind(inputEl, 'value', () => vm.name, (val) => vm.name = val);
 DiamondCore.on(buttonEl, 'click', () => vm.save());
 ```
 
----
+
+<div class="page-break"></div>
 
 ## Architecture Overview
 
 ### The Three-Layer Model
 
-```
-┌─────────────────────────────────────────────────────────┐
-│  Layer 1: Write-Time (Human + LLM Friendly)             │
-│  ────────────────────────────────────────────────────── │
-│  • Vanilla ES2022+ JavaScript/TypeScript                │
-│  • Aurelia-inspired template syntax (.bind, etc)        │
-│  • Explicit imports, no magic constructors              │
-│  • File triplets: .ts + .html + .css                    │
-└──────────────────┬──────────────────────────────────────┘
-                   │
-                   ▼
-         ┌─────────────────────┐
-         │  Layer 2: Build-Time │
-         │  (Compiler)          │
-         │  ──────────────────  │
-         │  diamond-compiler    │
-         │  ~3,700 LOC          │
-         │  ──────────────────  │
-         │  • Parse HTML        │
-         │  • Transform syntax  │
-         │  • Generate manifest │
-         │  • Emit clean JS     │
-         │  • Source maps       │
-         └──────────┬───────────┘
-                   │
-                   ▼
-┌─────────────────────────────────────────────────────────┐
-│  Layer 3: Debug-Time (LLM Comprehensible)               │
-│  ────────────────────────────────────────────────────── │
-│  • Explicit runtime class method calls                  │
-│  • No hidden state, no DI container                     │
-│  • Modern ES6+ with clear semantics                     │
-│  • ~2,200 LOC runtime library                           │
-│  • Source maps link back to write-time code             │
-└─────────────────────────────────────────────────────────┘
-```
+<br>
+<!-- Three-Layer Architecture -->
+<div style="display: flex; flex-direction: column; gap: 20px; max-width: 800px; margin: 0 auto;">
+
+<!-- Layer 1 -->
+<div style="border: 2px solid #8676ff; border-radius: 8px; padding: 12px 16px; background: #f9f9ff; text-align: left; min-width: 340px;">
+<strong style="color: #6858dd; font-size: 1.1em;">Layer 1: Write-Time (Human + LLM Friendly)</strong>
+
+<ul style="margin: 4px 0 0 0; padding-left: 20px; font-size: 0.95em; line-height: 1.4;">
+<li>Vanilla ES2022+ JavaScript/TypeScript</li>
+<li>Aurelia-inspired template syntax (.bind, etc)</li>
+<li>Explicit imports, no magic constructors</li>
+<li>File triplets: .ts + .html + .css</li>
+</ul>
+
+</div>
+
+<!-- Arrow -->
+<div style="font-size: 16px; color: #6858dd; text-align: center;">⬇️</div>
+
+<!-- Layer 2 -->
+<div style="border: 2px solid #8676ff; border-radius: 8px; padding: 12px 16px; background: #f9f9ff; text-align: left; min-width: 340px;">
+<strong style="color: #6858dd; font-size: 1.1em;">Layer 2: Build-Time (Compiler)</strong>
+
+<span style="color:#666; font-size:0.9em; border-bottom:1px solid #ddd; display:block; margin:6px 0;"></span>
+
+<ul style="margin: 4px 0 0 0; padding-left: 20px; font-size: 0.95em; line-height: 1.4;">
+<li>Explicit runtime class method calls</li>
+<li>No hidden state, no DI container</li>
+<li>Modern ES6+ with clear semantics</li>
+<li>~2,200 LOC runtime library</li>
+<li>Source maps link back to write-time code</li>
+</ul>
+</div>
+
+<!-- Arrow -->
+<div style="font-size: 16px; color: #6858dd; text-align: center;">⬇️</div>
+
+<!-- Layer 3 -->
+<div style="border: 2px solid #8676ff; border-radius: 8px; padding: 12px 16px; background: #f9f9ff; text-align: left; min-width: 340px;">
+<strong style="color: #6858dd; font-size: 1.1em;">Layer 3: Debug-Time (LLM Comprehensible)</strong>
+
+<ul style="margin: 4px 0 0 0; padding-left: 20px; font-size: 0.95em; line-height: 1.4;">
+<li>Explicit runtime class method calls</li>
+<li>No hidden state, no DI container</li>
+<li>Modern ES6+ with clear semantics</li>
+<li>~2,200 LOC runtime library</li>
+<li>Source maps link back to write-time code</li>
+</ul>
+</div>
+
+</div>
+
+<br>
+
+<div class="page-break"></div>
 
 ### What Gets Eliminated
 
@@ -160,7 +186,7 @@ Based on Aurelia 2.0 archaeology:
 | Decorator Metadata System | 1,500 | Static manifest | 0 |
 | **TOTAL ELIMINATED** | **11,600** | **TOTAL RUNTIME** | **~2,200** |
 
----
+<div class="page-break"></div>
 
 ## Core Constraints
 
@@ -192,6 +218,7 @@ export class MyComponent extends Component {
 // LLM generates: class MyHelper extends Base { ... }  ← Correct paradigm
 ```
 
+<div class="page-break"></div>
 
 ### Hard Constraints (Non-Negotiable)
 
@@ -223,7 +250,7 @@ export class MyComponent extends Component {
 | **Append-Heavy** (logs, chat, terminal) | Collection Class | ~24 MB | 0.005ms (constant) |
 | **Update-Heavy** (datagrid, forms) | Reactive Proxy | ~81 MB | 0.01ms |
 
----
+<div class="page-break"></div>
 
 ## Component System
 
@@ -238,7 +265,7 @@ export default {
     mode: 'flat',
     directory: './src/components',
     // Results in: ./src/components/my-component.ts|html|css
-    
+
     // Option 2: One directory per component
     // mode: 'nested',
     // directory: './src/components',
@@ -252,6 +279,8 @@ export default {
 - Scales from small to large projects
 - Clear organizational strategy
 - LLMs understand both patterns
+
+<div class="page-break"></div>
 
 ### Component Structure
 
@@ -305,6 +334,8 @@ export class MyComponent extends Component {
   }
 }
 ```
+
+<div class="page-break"></div>
 
 **Key Design Decisions**:
 
@@ -2666,3 +2697,16 @@ DiamondJS v1.3 represents a significant evolution in framework design:
 3. **Collection Class** - Solves append-heavy performance degradation
 4. **LLM-First Design** - Every architectural decision optimized for comprehension
 
+
+
+Appendix S (CSS styles):
+
+<style>
+@media print {
+  .page-break {
+    page-break-after: always;
+    break-after: page;
+  }
+}
+
+</style>
