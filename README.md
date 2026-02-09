@@ -271,7 +271,7 @@ These are non-negotiable architectural rules, not aspirational targets:
 
 ```bash
 # Clone the repo
-git clone https://github.com/AncientEntity/diamondjs.git
+git clone https://github.com/Node0/diamondjs.git
 cd diamondjs
 
 # Install dependencies
