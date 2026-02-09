@@ -1,4 +1,4 @@
-# DiamondJS Architecture & Design Specification v1.2
+# DiamondJS Architecture & Design Specification v1.3
 
 **Date**: December 25, 2025<br>
 **Status**: Working Draft<br>

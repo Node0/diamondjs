@@ -1,0 +1,49 @@
+{
+  "name": "@diamondjs/parcel-transformer-diamond",
+  "version": "0.1.0",
+  "description": "Parcel 2 transformer for DiamondJS template compilation",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs --dts --clean",
+    "dev": "tsup src/index.ts --format cjs --dts --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint src --ext .ts",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "parcel",
+    "parcel-plugin",
+    "parcel-transformer",
+    "diamondjs"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Node0/diamondjs.git",
+    "directory": "packages/parcel-plugin"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@diamondjs/compiler": "*",
+    "@parcel/plugin": "^2.12.0"
+  },
+  "devDependencies": {
+    "tsup": "^8.0.0",
+    "parcel": "^2.12.0"
+  },
+  "peerDependencies": {
+    "@parcel/core": "^2.12.0"
+  },
+  "engines": {
+    "parcel": "2.x"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

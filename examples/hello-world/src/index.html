@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DiamondJS Hello World</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 800px;
+      margin: 50px auto;
+      padding: 20px;
+    }
+    h1 {
+      color: #2563eb;
+    }
+    .counter {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin: 20px 0;
+    }
+    .counter button {
+      width: 40px;
+      height: 40px;
+      font-size: 20px;
+      cursor: pointer;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      background: #f5f5f5;
+    }
+    .counter button:hover {
+      background: #e5e5e5;
+    }
+    .counter span {
+      font-size: 24px;
+      min-width: 60px;
+      text-align: center;
+    }
+    .greeting {
+      margin: 20px 0;
+      padding: 20px;
+      background: #f0f9ff;
+      border-radius: 8px;
+    }
+    .greeting input {
+      padding: 8px 12px;
+      font-size: 16px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      margin-right: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h1>DiamondJS Hello World</h1>
+  <p>A demonstration of DiamondJS reactive components.</p>
+
+  <div id="app"></div>
+
+  <script type="module" src="./main.ts"></script>
+</body>
+</html>

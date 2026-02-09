@@ -1,0 +1,19 @@
+{
+  "name": "@diamondjs/hello-world",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DiamondJS Hello World Example",
+  "source": "src/index.html",
+  "scripts": {
+    "start": "parcel serve src/index.html",
+    "build": "parcel build src/index.html",
+    "test": "echo 'No tests for example - run npm run build to verify'",
+    "clean": "rm -rf dist .parcel-cache"
+  },
+  "devDependencies": {
+    "@diamondjs/parcel-transformer-diamond": "*",
+    "@diamondjs/runtime": "*",
+    "@diamondjs/compiler": "*",
+    "parcel": "^2.12.0"
+  }
+}

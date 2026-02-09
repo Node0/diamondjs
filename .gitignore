@@ -151,3 +151,6 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 DiamondJS_Architecture_Specification_v1.3_files
+
+# Build outputs (but keep impl_docs for tracking)
+packages/*/dist/
