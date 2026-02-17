@@ -163,6 +163,21 @@ describe('CodeGenerator', () => {
       expect(result.code).toContain('// [Diamond] Two-way binding')
     })
 
+    it('generates explicit unsafe binding', () => {
+      const nodes: NodeInfo[] = [createElement('div', {
+        bindings: [{
+          type: 'unsafe-bind',
+          property: 'innerHTML',
+          expression: 'trustedHtml',
+          location: null,
+        }],
+      })]
+      const result = generator.generate(nodes)
+
+      expect(result.code).toContain("DiamondCore.bindUnsafe(div0, 'innerHTML', () => this.trustedHtml, (v) => this.trustedHtml = v)")
+      expect(result.code).toContain('// [Diamond] UNSAFE two-way binding (opt-in)')
+    })
+
     it('handles property paths', () => {
       const nodes: NodeInfo[] = [createElement('span', {
         bindings: [{

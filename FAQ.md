@@ -15,6 +15,9 @@ TypeScript is optional but encouraged! Since we use modern JavaScript features n
 ## **Q: Which browsers are supported?**
 Chrome/Edge 90+, Firefox 90+, Safari 15+, and all mobile browsers from 2023+. We target browsers with native support for private class fields, optional chaining, nullish coalescing, and other ES2022+ features.
 
+## **Q: How does DiamondJS prevent XSS from template bindings?**
+By default, DiamondJS blocks bindings to unsafe DOM sinks (`innerHTML`, `outerHTML`, `srcdoc`) during compilation and again at runtime. If you need raw HTML assignment, use `.unsafe-bind` (or `DiamondCore.bindUnsafe()`) only with trusted, sanitized content.
+
 ## **Q: When should I use `collection()` vs `reactive()`?**
 Use `reactive()` for small UI state (< 1,000 items, update-heavy workloads like forms). Use `collection()` for large datasets (> 1,000 items, append-heavy workloads like logs, chat, terminals). The performance difference is dramatic: constant 0.005ms appends with Collection vs. degrading to 0.2ms at 100K items with reactive.
 

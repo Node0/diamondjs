@@ -214,6 +214,17 @@ export class CodeGenerator {
         )
         break
 
+      case 'unsafe-bind':
+        // [Diamond] hint
+        this.emitLine(
+          `// [Diamond] UNSAFE two-way binding (opt-in): ${binding.property} ↔ this.${binding.expression}`
+        )
+        this.emitLine(
+          `DiamondCore.bindUnsafe(${varName}, '${binding.property}', () => ${expr}, (v) => ${expr} = v);`,
+          binding.location
+        )
+        break
+
       case 'from-view':
         // [Diamond] hint
         this.emitLine(

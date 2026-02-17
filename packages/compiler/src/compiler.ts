@@ -8,7 +8,10 @@
 
 import { TemplateParser } from './parser'
 import { CodeGenerator } from './generator'
-import type { CompilerOptions, CompileResult } from './types'
+import type { CompilerOptions, CompileResult, NodeInfo, ElementInfo } from './types'
+import { isElementInfo } from './types'
+
+const UNSAFE_DOM_SINK_PROPERTIES = new Set(['innerhtml', 'outerhtml', 'srcdoc'])
 
 /**
  * DiamondCompiler - The main template compiler
@@ -38,9 +41,51 @@ export class DiamondCompiler {
     // Parse the template
     const nodes = this.parser.parse(template)
 
+    // Security validation
+    this.validateBindingSecurity(nodes)
+
     // Generate code
     const generator = new CodeGenerator(options)
     return generator.generate(nodes)
+  }
+
+  /**
+   * Block unsafe DOM sink bindings unless explicitly opted in with .unsafe-bind
+   */
+  private validateBindingSecurity(nodes: NodeInfo[]): void {
+    for (const node of nodes) {
+      if (!isElementInfo(node)) continue
+      this.validateElementBindingSecurity(node)
+    }
+  }
+
+  private validateElementBindingSecurity(element: ElementInfo): void {
+    for (const binding of element.bindings) {
+      if (binding.type === 'unsafe-bind') {
+        continue
+      }
+
+      if (!this.isUnsafeDomSinkProperty(binding.property)) {
+        continue
+      }
+
+      const location = binding.location || element.location || { line: 1, column: 0 }
+      throw new CompileError(
+        `Unsafe DOM sink "${binding.property}" is blocked by default. ` +
+          `Use .unsafe-bind only with trusted, sanitized content.`,
+        { line: location.line, column: location.column }
+      )
+    }
+
+    for (const child of element.children) {
+      if (isElementInfo(child)) {
+        this.validateElementBindingSecurity(child)
+      }
+    }
+  }
+
+  private isUnsafeDomSinkProperty(property: string): boolean {
+    return UNSAFE_DOM_SINK_PROPERTIES.has(property.toLowerCase())
   }
 
   /**

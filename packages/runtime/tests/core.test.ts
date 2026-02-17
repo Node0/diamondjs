@@ -114,6 +114,24 @@ describe('DiamondCore', () => {
       expect(div.textContent).toBe('Hello')
     })
 
+    it('should block unsafe DOM sink bindings by default', () => {
+      const div = document.createElement('div')
+
+      expect(() => {
+        DiamondCore.bind(div, 'innerHTML', () => '<img src=x onerror=alert(1)>')
+      }).toThrow('Refused unsafe binding')
+    })
+
+    it('should allow unsafe DOM sink bindings with explicit bindUnsafe', async () => {
+      const state = DiamondCore.reactive({ html: '<strong>trusted</strong>' })
+      const div = document.createElement('div')
+
+      DiamondCore.bindUnsafe(div, 'innerHTML', () => state.html)
+      await vi.runAllTimersAsync()
+
+      expect(div.innerHTML).toBe('<strong>trusted</strong>')
+    })
+
     it('should use change event for checkboxes', async () => {
       const state = DiamondCore.reactive({ checked: false })
       const input = document.createElement('input')

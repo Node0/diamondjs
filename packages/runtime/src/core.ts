@@ -9,6 +9,8 @@ import { reactivityEngine } from './reactivity'
 
 type CleanupFn = () => void
 
+const UNSAFE_DOM_SINK_PROPERTIES = new Set(['innerhtml', 'outerhtml', 'srcdoc'])
+
 /**
  * DiamondCore - The main runtime API class
  * 
@@ -96,6 +98,34 @@ export class DiamondCore {
     getter: () => unknown,
     setter?: (value: unknown) => void
   ): CleanupFn {
+    return this.bindInternal(element, property, getter, setter, false)
+  }
+
+  /**
+   * Bind to an unsafe DOM sink (innerHTML/outerHTML/srcdoc).
+   * Use only with trusted, sanitized content.
+   */
+  static bindUnsafe(
+    element: HTMLElement,
+    property: string,
+    getter: () => unknown,
+    setter?: (value: unknown) => void
+  ): CleanupFn {
+    return this.bindInternal(element, property, getter, setter, true)
+  }
+
+  /**
+   * Shared binding implementation for safe and explicit-unsafe paths.
+   */
+  private static bindInternal(
+    element: HTMLElement,
+    property: string,
+    getter: () => unknown,
+    setter: ((value: unknown) => void) | undefined,
+    allowUnsafe: boolean
+  ): CleanupFn {
+    this.assertSafeBindingProperty(property, allowUnsafe)
+
     // Cast element for dynamic property access
     const el = element as unknown as Record<string, unknown>
 
@@ -122,6 +152,21 @@ export class DiamondCore {
       cleanupEffect()
       cleanupListener?.()
     }
+  }
+
+  private static assertSafeBindingProperty(
+    property: string,
+    allowUnsafe: boolean
+  ): void {
+    const normalized = property.toLowerCase()
+    if (allowUnsafe || !UNSAFE_DOM_SINK_PROPERTIES.has(normalized)) {
+      return
+    }
+
+    throw new Error(
+      `[Diamond] Refused unsafe binding to "${property}". ` +
+        'Use .unsafe-bind in templates or DiamondCore.bindUnsafe() with trusted, sanitized content.'
+    )
   }
 
   /**

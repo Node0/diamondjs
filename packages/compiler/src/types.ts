@@ -18,6 +18,7 @@ export interface SourceLocation {
  */
 export type BindingType =
   | 'bind'      // Two-way binding (default)
+  | 'unsafe-bind' // Two-way binding to unsafe DOM sinks (explicit opt-in)
   | 'one-time'  // One-time binding (no updates)
   | 'to-view'   // One-way to view
   | 'from-view' // One-way from view

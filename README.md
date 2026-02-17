@@ -171,6 +171,9 @@ Aurelia-inspired binding commands on standard HTML attributes:
 <!-- Interpolation -->
 <p>Hello, ${name}!</p>
 
+<!-- Explicit unsafe HTML binding (trusted/sanitized content only) -->
+<div innerhtml.unsafe-bind="trustedHtml"></div>
+
 <!-- Conditional rendering -->
 <div if.bind="isLoggedIn">Welcome back</div>
 
@@ -179,6 +182,8 @@ Aurelia-inspired binding commands on standard HTML attributes:
   <li repeat.for="item of items">${item.name}</li>
 </ul>
 ```
+
+Security defaults: DiamondJS blocks unsafe DOM sink bindings (`innerHTML`, `outerHTML`, `srcdoc`) for normal `.bind`/`.to-view`/`.two-way` usage. Use `.unsafe-bind` only for trusted, sanitized content.
 
 ---
 

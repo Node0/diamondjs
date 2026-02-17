@@ -60,7 +60,7 @@ export function reactive(
       return store ? store.value : undefined
     },
     set(this: Record<symbol, { value: unknown }>, newValue: unknown) {
-      let store = this[storageKey]
+      const store = this[storageKey]
       if (!store) {
         // First assignment (field initializer) — create reactive backing store
         this[storageKey] = reactivityEngine.createProxy({ value: newValue })

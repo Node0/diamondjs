@@ -119,6 +119,17 @@ describe('TemplateParser', () => {
       }
     })
 
+    it('parses unsafe-bind binding', () => {
+      const nodes = parser.parse('<div innerhtml.unsafe-bind="trustedHtml"></div>')
+      expect(nodes).toHaveLength(1)
+      if (isElementInfo(nodes[0])) {
+        expect(nodes[0].bindings).toHaveLength(1)
+        expect(nodes[0].bindings[0].type).toBe('unsafe-bind')
+        expect(nodes[0].bindings[0].property).toBe('innerHTML')
+        expect(nodes[0].bindings[0].expression).toBe('trustedHtml')
+      }
+    })
+
     it('parses property paths', () => {
       const nodes = parser.parse('<span textContent.bind="user.profile.name"></span>')
       expect(nodes).toHaveLength(1)
