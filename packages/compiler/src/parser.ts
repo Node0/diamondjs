@@ -179,6 +179,7 @@ export class TemplateParser {
   private parseBindingCommand(command: string): BindingType {
     const commandMap: Record<string, BindingType> = {
       bind: 'bind',
+      'unsafe-bind': 'unsafe-bind',
       'one-time': 'one-time',
       'to-view': 'to-view',
       'from-view': 'from-view',

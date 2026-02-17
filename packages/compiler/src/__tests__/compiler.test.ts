@@ -36,6 +36,22 @@ describe('DiamondCompiler', () => {
       expect(result.code).toContain('this.message')
     })
 
+    it('blocks unsafe DOM sink bindings by default', () => {
+      expect(() => {
+        compiler.compile('<div innerhtml.bind="userContent"></div>')
+      }).toThrow(CompileError)
+    })
+
+    it('allows unsafe DOM sink bindings with explicit unsafe-bind', () => {
+      const result = compiler.compile(
+        '<div innerhtml.unsafe-bind="trustedHtml"></div>'
+      )
+
+      expect(result.code).toContain(
+        "DiamondCore.bindUnsafe(div0, 'innerHTML', () => this.trustedHtml, (v) => this.trustedHtml = v)"
+      )
+    })
+
     it('emits [Diamond] hint comments', () => {
       const result = compiler.compile('<input value.bind="name">')
 

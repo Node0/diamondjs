@@ -13,6 +13,12 @@ describe('isDiamondTemplate', () => {
     expect(isDiamondTemplate('<input value.bind="name">')).toBe(true)
   })
 
+  it('detects .unsafe-bind syntax', () => {
+    expect(
+      isDiamondTemplate('<div innerhtml.unsafe-bind="trustedHtml"></div>')
+    ).toBe(true)
+  })
+
   it('detects .one-time syntax', () => {
     expect(isDiamondTemplate('<span textContent.one-time="title"></span>')).toBe(
       true

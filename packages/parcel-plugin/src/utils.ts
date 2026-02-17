@@ -11,7 +11,7 @@ import { DiamondCompiler, type CompileResult } from '@diamondjs/compiler'
 export function isDiamondTemplate(code: string): boolean {
   // Check for binding syntax: property.command="expression"
   const bindingPattern =
-    /\.\s*(bind|one-time|to-view|from-view|two-way|trigger|delegate|capture)\s*=/
+    /\.\s*(bind|unsafe-bind|one-time|to-view|from-view|two-way|trigger|delegate|capture)\s*=/
   // Check for interpolation syntax: ${...}
   const interpolationPattern = /\$\{[^}]+\}/
 
