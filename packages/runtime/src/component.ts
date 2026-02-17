@@ -1,32 +1,29 @@
 /**
- * Component - Base class for DiamondJS components
- * 
- * Provides the template factory pattern and lifecycle management.
- * Component classes extend this and have a static createTemplate()
- * method injected by the compiler.
+ * Component — Base class for all DiamondJS components
+ *
+ * Provides lifecycle management and DOM mounting.
+ * Subclasses have a createTemplate() instance method injected by the compiler.
+ * Uses 'this' to reference component properties and methods — no 'vm' indirection.
  */
-
-type TemplateFactory<T> = (vm: T) => HTMLElement
 
 /**
  * Component base class
- * 
+ *
  * Provides:
- * - Static template factory caching (one factory per component class)
+ * - Instance template method (createTemplate uses 'this')
  * - 4-hook lifecycle (constructor/mount/update/unmount)
  * - DOM element management
- * 
+ * - Cleanup registration for bindings
+ *
  * @example
  * export class MyComponent extends Component {
  *   name = 'World'
- *   
- *   // Compiler-generated from .html template
- *   static createTemplate() {
- *     return (vm: MyComponent) => {
- *       const div = document.createElement('div')
- *       DiamondCore.bind(div, 'textContent', () => `Hello, ${vm.name}!`)
- *       return div
- *     }
+ *
+ *   // Compiler-generated from .html template (instance method)
+ *   createTemplate() {
+ *     const div = document.createElement('div')
+ *     DiamondCore.bind(div, 'textContent', () => `Hello, ${this.name}!`)
+ *     return div
  *   }
  * }
  */
@@ -34,52 +31,36 @@ export abstract class Component {
   /** The root DOM element for this component instance */
   protected element: HTMLElement | null = null
 
-  /** Cleanup functions from bindings */
+  /** Cleanup functions from bindings and effects */
   private cleanups: Array<() => void> = []
 
-  /** Cached template factory (one per component class) */
-  private static _templateFactory: TemplateFactory<unknown> | null = null
-
   /**
-   * Get the cached template factory for this component class
-   * Creates and caches on first call (flyweight pattern)
+   * Compiler-generated instance method that builds the DOM tree.
+   * Uses 'this' to reference component properties and methods.
+   *
+   * @returns The root HTMLElement for this component
    */
-  static getTemplateFactory<T>(): TemplateFactory<T> {
-    if (!this._templateFactory) {
-      this._templateFactory = this.createTemplate()
-    }
-    return this._templateFactory as TemplateFactory<T>
-  }
-
-  /**
-   * Compiler-generated method that returns a template factory
-   * Subclasses implement this (compiler injects it)
-   * 
-   * @throws Error if not implemented (missing template)
-   */
-  static createTemplate(): TemplateFactory<unknown> {
+  createTemplate(): HTMLElement {
     throw new Error(
-      `${this.name} must implement static createTemplate() method. ` +
+      `${this.constructor.name} must implement createTemplate(). ` +
         'This should be compiler-generated from the .html template.'
     )
   }
 
   /**
    * Mount the component to a host element
-   * 
+   *
    * @param hostElement - Parent DOM element to append to
    */
   mount(hostElement: HTMLElement): void {
-    const ComponentClass = this.constructor as typeof Component
-    const factory = ComponentClass.getTemplateFactory()
-    this.element = factory(this)
+    this.element = this.createTemplate()
     hostElement.appendChild(this.element)
   }
 
   /**
    * Update component with new props
    * Override in subclass to handle prop changes
-   * 
+   *
    * @param newProps - Partial props to update
    */
   update(newProps: Partial<this>): void {
@@ -90,25 +71,21 @@ export abstract class Component {
    * Unmount the component and clean up resources
    */
   unmount(): void {
-    // Run all cleanup functions
     for (const cleanup of this.cleanups) {
       try {
         cleanup()
       } catch (error) {
-        console.error('[DiamondJS] Cleanup error:', error)
+        console.error('[Diamond] Cleanup error:', error)
       }
     }
     this.cleanups = []
-
-    // Remove from DOM
     this.element?.remove()
     this.element = null
   }
 
   /**
    * Register a cleanup function to run on unmount
-   * Used internally by bindings
-   * 
+   *
    * @param cleanup - Function to call on unmount
    */
   protected registerCleanup(cleanup: () => void): void {
@@ -116,8 +93,7 @@ export abstract class Component {
   }
 
   /**
-   * Get the component's root element
-   * Returns null if not mounted
+   * Get the component's root element (null if not mounted)
    */
   getElement(): HTMLElement | null {
     return this.element

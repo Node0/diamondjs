@@ -26,20 +26,30 @@ export class ReactivityEngine {
   /** Track which dependency sets each effect belongs to (for cleanup) */
   private effectDeps = new WeakMap<EffectFn, Set<Set<EffectFn>>>()
 
+  /** Proxy cache — ensures referential identity for deep reactivity */
+  private proxyCache = new WeakMap<object, object>()
+
   /**
-   * Create a reactive proxy for an object
-   * 
+   * Create a reactive proxy for an object.
+   * Uses WeakMap cache to ensure the same proxy is returned for
+   * the same underlying object (referential identity).
+   *
    * @param obj - Plain object to make reactive
    * @returns Proxy that tracks reads and triggers updates on writes
    */
   createProxy<T extends object>(obj: T): T {
-    return new Proxy(obj, {
+    // Return cached proxy if one exists
+    if (this.proxyCache.has(obj)) {
+      return this.proxyCache.get(obj) as T
+    }
+
+    const proxy = new Proxy(obj, {
       get: (target, prop, receiver) => {
         this.trackDependency(target, prop)
         const value = Reflect.get(target, prop, receiver)
-        // Deep reactivity: wrap nested objects
-        if (value !== null && typeof value === 'object' && !this.isProxy(value)) {
-          return this.createProxy(value)
+        // Deep reactivity: lazily wrap nested objects
+        if (value !== null && typeof value === 'object') {
+          return this.createProxy(value) // Cache handles dedup
         }
         return value
       },
@@ -52,6 +62,10 @@ export class ReactivityEngine {
         return result
       }
     })
+
+    // Cache for referential identity
+    this.proxyCache.set(obj, proxy)
+    return proxy
   }
 
   /**
@@ -169,13 +183,6 @@ export class ReactivityEngine {
     }
   }
 
-  /**
-   * Check if a value is already a proxy (simple check)
-   */
-  private isProxy(value: unknown): boolean {
-    // In a full implementation, we'd use a WeakSet to track proxies
-    return false
-  }
 }
 
 // Singleton instance

@@ -38,7 +38,7 @@ export class Scheduler {
       try {
         effect()
       } catch (error) {
-        console.error('[DiamondJS] Effect execution error:', error)
+        console.error('[Diamond] Effect execution error:', error)
       }
     }
   }

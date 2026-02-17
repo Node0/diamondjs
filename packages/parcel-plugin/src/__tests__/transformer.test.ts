@@ -77,10 +77,25 @@ describe('compileTemplate', () => {
     const { outputCode, result } = compileTemplate(template, 'test.html', true)
 
     expect(outputCode).toContain("import { DiamondCore } from '@diamondjs/runtime'")
-    expect(outputCode).toContain('// Compiled from: test.html')
+    expect(outputCode).toContain('// [Diamond] Compiled from: test.html')
     expect(outputCode).toContain('export function createTemplate()')
     expect(result.code).toContain("DiamondCore.bind(input0, 'value'")
     expect(result.map).toBeDefined()
+  })
+
+  it('uses this. instead of vm. in compiled output', () => {
+    const template = '<input value.bind="name">'
+    const { outputCode } = compileTemplate(template, 'test.html', true)
+
+    expect(outputCode).toContain('this.name')
+    expect(outputCode).not.toContain('vm.name')
+  })
+
+  it('includes [Diamond] hint comments', () => {
+    const template = '<input value.bind="name">'
+    const { outputCode } = compileTemplate(template, 'test.html', true)
+
+    expect(outputCode).toContain('// [Diamond]')
   })
 
   it('compiles without source maps when disabled', () => {
@@ -102,9 +117,9 @@ describe('compileTemplate', () => {
 
     expect(outputCode).toContain("document.createElement('div')")
     expect(outputCode).toContain("div0.className = 'counter'")
-    expect(outputCode).toContain('vm.decrement()')
-    expect(outputCode).toContain('vm.increment()')
-    expect(outputCode).toContain('vm.count')
+    expect(outputCode).toContain('this.decrement()')
+    expect(outputCode).toContain('this.increment()')
+    expect(outputCode).toContain('this.count')
   })
 
   it('generates valid ES module syntax', () => {
@@ -120,6 +135,6 @@ describe('compileTemplate', () => {
   it('includes file path comment', () => {
     const { outputCode } = compileTemplate('<div></div>', 'my-component.html')
 
-    expect(outputCode).toContain('// Compiled from: my-component.html')
+    expect(outputCode).toContain('// [Diamond] Compiled from: my-component.html')
   })
 })

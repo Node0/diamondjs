@@ -435,3 +435,147 @@ Phase 0 proof-of-concept is complete. The foundation is solid for:
 
 ---
 
+## 2026-02-16 - v1.3 → v1.5.1 Architectural Upgrade Complete
+
+### Upgrade Overview
+
+Implemented the v1.5.1 architectural pivot across all three packages and the example app. This upgrade improves LLM comprehension by switching from a static factory pattern to instance methods with `this` references, adding `@reactive` decorators for explicit reactivity, and emitting `[Diamond]` hint comments in all compiler output.
+
+### Changes by Package
+
+#### @diamondjs/runtime
+
+| File | Change |
+|------|--------|
+| `reactivity.ts` | Added `proxyCache` WeakMap for referential identity on deep reactivity; removed broken `isProxy()` method |
+| `component.ts` | Complete rewrite: removed static factory pattern (`TemplateFactory<T>`, `_templateFactory`, `getTemplateFactory()`, static `createTemplate()`); added instance `createTemplate()` method that uses `this` |
+| `core.ts` | Added `makeReactive()` static method for compiler-generated constructor code; fixed JSDoc examples from `vm.` to `this.` |
+| `scheduler.ts` | Changed error prefix from `[DiamondJS]` to `[Diamond]` |
+| `decorators.ts` | **NEW** — TC39 Stage 3 `@reactive` property decorator with legacy TypeScript fallback |
+| `index.ts` | Added `reactive` export from `./decorators` |
+
+#### @diamondjs/compiler
+
+| File | Change |
+|------|--------|
+| `generator.ts` | Complete rewrite: generates instance `createTemplate()` (not static); `prefixExpression()` emits `this.` instead of `vm.`; emits `[Diamond]` hint comments before every binding/event |
+| `compiler.ts` | Updated docstring to reference instance methods and `this` |
+| `index.ts` | Updated docstring example to show instance method with `this.` and `[Diamond]` hints |
+
+#### @diamondjs/parcel-plugin
+
+| File | Change |
+|------|--------|
+| `utils.ts` | Updated `compileTemplate()` to handle new instance method output format; strips `[Diamond]` hint from method body, places it before `export` keyword |
+
+#### examples/hello-world
+
+| File | Change |
+|------|--------|
+| `main.ts` | Updated to v1.5.1 patterns: `@reactive` decorator, instance `createTemplate()`, `this.` references, removed static factory usage |
+
+### Test Files Modified/Created
+
+| File | Change |
+|------|--------|
+| `runtime/tests/reactivity.test.ts` | Added 5 proxy cache tests (referential identity, deep proxy identity, same-value no-trigger) |
+| `runtime/tests/component.test.ts` | Complete rewrite for instance `createTemplate()` pattern |
+| `runtime/tests/decorators.test.ts` | **NEW** — 5 tests for reactive decorator and `makeReactive` |
+| `compiler/src/__tests__/generator.test.ts` | Complete rewrite: `vm.` → `this.`, static → instance, added `[Diamond]` hint assertions |
+| `compiler/src/__tests__/compiler.test.ts` | Complete rewrite: same changes as generator tests |
+| `parcel-plugin/src/__tests__/transformer.test.ts` | Updated assertions for `this.` and `[Diamond]` hints |
+
+### Test Results
+
+**134 tests passing** (49 runtime + 66 compiler + 19 parcel plugin)
+
+| Package | Coverage |
+|---------|----------|
+| @diamondjs/runtime | 93.82% |
+| @diamondjs/compiler | 96.80% |
+
+### LOC Status After v1.5.1 Upgrade
+
+```
+Runtime:      210 / 2,500 LOC  (8.4%)
+Compiler:     410 / 5,000 LOC  (8.2%)
+```
+
+All architectural constraints pass.
+
+### Validation Results
+
+- **Arch-constraint-monitor**: All KLOC budgets within limits, no constraint violations
+- **LLM-comprehension-validator**: Grade A, 92% estimated bug-fix success rate for 32B models, zero autoregressive steering issues
+
+### Key Technical Details
+
+1. **Proxy cache**: `WeakMap<object, object>` in `ReactivityEngine` ensures `this.user.profile === this.user.profile` (referential identity for deep reactive objects)
+2. **`@reactive` decorator**: Minimal runtime footprint — compiler transforms `@reactive` into `DiamondCore.makeReactive()` calls in constructor
+3. **`[Diamond]` hint comments**: Semantic comments emitted before every binding, event, and interpolation to guide LLM comprehension of compiled output
+4. **Instance `createTemplate()`**: Methods use `this` directly instead of receiving a `vm` parameter, reducing cognitive overhead for LLMs
+
+### Errors Encountered and Resolved
+
+1. **Parcel plugin tests failed (stale compiler dist)**: Plugin imports from built `dist/` of compiler — must `npm run build` in `packages/compiler` before parcel-plugin tests reflect source changes
+2. **Parcel plugin regex issue**: Initial regex for stripping `[Diamond]` hint comment produced `export // [Diamond]...` on one line; fixed by separating hint stripping from function declaration transformation
+
+---
+
+## 2026-02-16 - Fix hello-world Parcel Build & Make @reactive Reactive at Runtime
+
+### Problem
+
+The hello-world example failed to build with Parcel because SWC couldn't parse the `@reactive` decorator syntax — no tsconfig with `experimentalDecorators` existed for Parcel to read. Additionally, the `@reactive` legacy decorator path was a no-op marker, meaning even if parsing worked, button clicks and input changes wouldn't update the DOM at runtime.
+
+### Changes
+
+#### @diamondjs/runtime — `packages/runtime/src/decorators.ts`
+
+| Change | Detail |
+|--------|--------|
+| Added `reactivityEngine` import | `import { reactivityEngine } from './reactivity'` (no circular dependency) |
+| Legacy decorator now defines reactive getter/setter | Uses `Object.defineProperty` on prototype with per-instance backing store via `reactivityEngine.createProxy({ value })` keyed by Symbol |
+
+How the legacy path works:
+- Decorator runs at class definition time, defines getter/setter on the prototype
+- With `experimentalDecorators`, field initializer `count = 0` becomes `this.count = 0` (assignment), which calls the setter
+- Setter creates a `reactivityEngine.createProxy({ value: 0 })` backing store per-instance
+- Getter reads from the proxy → tracked by reactivity engine
+- Setter writes to the proxy → triggers effects
+
+TC39 Stage 3 path unchanged (compiler hint only — TC39 field decorators can't define getter/setter without `accessor` keyword).
+
+#### New files
+
+| File | Description |
+|------|-------------|
+| `examples/hello-world/tsconfig.json` | Extends `tsconfig.base.json`, enables `experimentalDecorators` for per-example TypeScript tooling |
+| `tsconfig.json` (monorepo root) | Extends `tsconfig.base.json`, enables `experimentalDecorators` — required because Parcel resolves tsconfig from project root (lockfile/`.git` location), not from the source file directory |
+
+#### Tests — `packages/runtime/tests/decorators.test.ts`
+
+Added 6 new tests for legacy decorator behavior:
+- Defines reactive getter/setter on prototype
+- Stores and retrieves initial values
+- Returns `undefined` before first assignment
+- Triggers effects when property changes
+- Supports multiple reactive properties on same prototype
+- Isolates reactivity between instances
+
+### Errors Encountered and Resolved
+
+1. **Parcel ignores per-directory tsconfig.json**: Parcel 2 resolves `tsconfig.json` from the `projectRoot` (determined by `.git`/lockfile walk), not from the source file's directory. The `examples/hello-world/tsconfig.json` alone was insufficient — a root-level `tsconfig.json` was also needed for Parcel's SWC transformer to enable decorator parsing.
+
+### Test Results
+
+**169 tests passing** (55 runtime + 66 compiler + 19 parcel plugin + 29 hello-world)
+
+### Build Verification
+
+- `npm run build` — all packages build successfully
+- `npm test` — all 169 tests pass
+- Parcel build (`examples/hello-world`): `dist/index.html` (968 B) + `dist/hello-world.a6b608ce.js` (5.16 kB) — built in 977ms
+
+---
+

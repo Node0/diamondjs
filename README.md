@@ -228,20 +228,22 @@ The entire framework fits in an LLM context window. That's not an accident — i
 
 **Specification**: v1.5.1 ([Architecture & Design Specification](docs/DiamondJS_Architecture_Specification_v1_5_1.md))
 
-**Implementation**: Phase 0 complete — proof of concept with end-to-end compilation pipeline.
+**Implementation**: v1.5.1 — architectural upgrade complete with instance template methods, `@reactive` decorator, `[Diamond]` compiler hints, and proxy cache for referential identity.
 
 | Package | LOC | Tests | Coverage |
 |---------|-----|-------|----------|
-| @diamondjs/runtime | 256 | 39 | 94.77% |
-| @diamondjs/compiler | 1,268 | 64 | 97.26% |
-| parcel-transformer-diamond | 139 | 17 | 100% |
-| **Total** | **1,663** | **120** | **>80%** |
+| @diamondjs/runtime | 210 | 49 | 93.82% |
+| @diamondjs/compiler | 410 | 66 | 96.80% |
+| parcel-transformer-diamond | 139 | 19 | 100% |
+| **Total** | **759** | **134** | **>80%** |
 
-**What works today**: Reactive state, property bindings, event handlers, text interpolation, two-way input binding, Parcel build pipeline, HMR support.
+**LLM Comprehension**: Grade A — 92% estimated bug-fix success rate for 32B models, zero autoregressive steering issues.
 
-**What's next**: v1.5.1 architectural upgrade (instance template methods, `@reactive` decorator, `[Diamond]` compiler hints, proxy cache fix), followed by conditional rendering, list rendering, router, and scaffolding CLI.
+**What works today**: Reactive state with `@reactive` decorator, property bindings, event handlers, text interpolation, two-way input binding, `[Diamond]` hint comments in all compiled output, proxy cache for deep reactivity, Parcel build pipeline, HMR support.
 
-> ⚠️ DiamondJS is in active early development. The API will change. Use it to explore, experiment, and contribute — not yet for production.
+**What's next**: Conditional rendering (`if.bind`), list rendering (`repeat.for`), `Collection<T>` for large datasets, router, and scaffolding CLI.
+
+> DiamondJS is in active early development. The API will change. Use it to explore, experiment, and contribute — not yet for production.
 
 ---
 
@@ -311,6 +313,6 @@ AGPL v3
 
 ## Author
 
-**Joe Hacobian** — JPL'er engineer turned framework architect.
+**Joe Hacobian** — ex-JPL engineer turned framework architect.
 
 *"The highest praise for DiamondJS is that the developer barely noticed it was there."*

@@ -28,6 +28,55 @@ describe('ReactivityEngine', () => {
 
       expect(proxy.user.name).toBe('Alice')
     })
+
+    it('should return same proxy for same object (referential identity)', () => {
+      const engine = new ReactivityEngine()
+      const obj = { count: 0 }
+      const proxy1 = engine.createProxy(obj)
+      const proxy2 = engine.createProxy(obj)
+
+      expect(proxy1).toBe(proxy2)
+    })
+
+    it('should maintain deep proxy referential identity', () => {
+      const engine = new ReactivityEngine()
+      const obj = { user: { profile: { name: 'Alice' } } }
+      const proxy = engine.createProxy(obj)
+
+      // Same nested access should return the same proxy
+      expect(proxy.user.profile).toBe(proxy.user.profile)
+      expect(proxy.user).toBe(proxy.user)
+    })
+
+    it('should not trigger effects when same value is set', async () => {
+      const engine = new ReactivityEngine()
+      const obj = { count: 5 }
+      const proxy = engine.createProxy(obj)
+      const effect = vi.fn(() => proxy.count)
+
+      engine.createEffect(effect)
+      expect(effect).toHaveBeenCalledTimes(1)
+
+      proxy.count = 5 // Same value
+      await vi.runAllTimersAsync()
+
+      expect(effect).toHaveBeenCalledTimes(1)
+    })
+
+    it('should trigger effects when different value is set', async () => {
+      const engine = new ReactivityEngine()
+      const obj = { count: 5 }
+      const proxy = engine.createProxy(obj)
+      const effect = vi.fn(() => proxy.count)
+
+      engine.createEffect(effect)
+      expect(effect).toHaveBeenCalledTimes(1)
+
+      proxy.count = 10 // Different value
+      await vi.runAllTimersAsync()
+
+      expect(effect).toHaveBeenCalledTimes(2)
+    })
   })
 
   describe('createEffect', () => {

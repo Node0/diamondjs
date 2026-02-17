@@ -1,8 +1,9 @@
 /**
  * CodeGenerator - Generates JavaScript code from parsed templates
  *
- * Generates a static createTemplate() method that creates DOM
- * and sets up DiamondCore bindings.
+ * Generates an instance createTemplate() method that creates DOM
+ * and sets up DiamondCore bindings. Uses 'this' to reference the
+ * component instance — no 'vm' parameter.
  */
 
 import type {
@@ -46,10 +47,9 @@ export class CodeGenerator {
   generate(nodes: NodeInfo[]): CompileResult {
     this.reset()
 
-    // Generate the createTemplate method
-    this.emitLine('static createTemplate() {')
-    this.indent++
-    this.emitLine('return (vm) => {')
+    // [Diamond] hint: instance template method
+    this.emitLine('// [Diamond] Compiler-generated instance template method')
+    this.emitLine('createTemplate() {')
     this.indent++
 
     // Generate code for root nodes
@@ -73,8 +73,6 @@ export class CodeGenerator {
     // Return the root element
     this.emitLine(`return ${rootVar};`)
 
-    this.indent--
-    this.emitLine('};')
     this.indent--
     this.emitLine('}')
 
@@ -174,6 +172,10 @@ export class CodeGenerator {
 
       // Build template string for interpolation
       const templateExpr = this.buildInterpolationExpr(text.content)
+      // [Diamond] hint for interpolation binding
+      this.emitLine(
+        `// [Diamond] Text interpolation binding`
+      )
       this.emitLine(
         `DiamondCore.bind(${varName}, 'textContent', () => ${templateExpr});`,
         text.interpolations[0]?.location
@@ -191,7 +193,10 @@ export class CodeGenerator {
 
     switch (binding.type) {
       case 'one-time':
-        // One-time: just set the value directly
+        // [Diamond] hint
+        this.emitLine(
+          `// [Diamond] One-time binding: ${binding.property} ← ${binding.expression}`
+        )
         this.emitLine(
           `${varName}.${binding.property} = ${expr};`,
           binding.location
@@ -199,7 +204,10 @@ export class CodeGenerator {
         break
 
       case 'to-view':
-        // One-way to view
+        // [Diamond] hint
+        this.emitLine(
+          `// [Diamond] One-way binding: ${binding.property} ← this.${binding.expression}`
+        )
         this.emitLine(
           `DiamondCore.bind(${varName}, '${binding.property}', () => ${expr});`,
           binding.location
@@ -207,7 +215,10 @@ export class CodeGenerator {
         break
 
       case 'from-view':
-        // One-way from view (input to state)
+        // [Diamond] hint
+        this.emitLine(
+          `// [Diamond] From-view binding: ${binding.property} → this.${binding.expression}`
+        )
         this.emitLine(
           `DiamondCore.bind(${varName}, '${binding.property}', () => ${expr}, (v) => ${expr} = v);`,
           binding.location
@@ -217,7 +228,10 @@ export class CodeGenerator {
       case 'bind':
       case 'two-way':
       default:
-        // Two-way binding
+        // [Diamond] hint
+        this.emitLine(
+          `// [Diamond] Two-way binding: ${binding.property} ↔ this.${binding.expression}`
+        )
         this.emitLine(
           `DiamondCore.bind(${varName}, '${binding.property}', () => ${expr}, (v) => ${expr} = v);`,
           binding.location
@@ -234,7 +248,10 @@ export class CodeGenerator {
 
     switch (event.type) {
       case 'delegate':
-        // Event delegation (not fully implemented for Phase 0)
+        // [Diamond] hint
+        this.emitLine(
+          `// [Diamond] Event delegation: ${event.property} → this.${event.expression}`
+        )
         this.emitLine(
           `DiamondCore.on(${varName}, '${event.property}', ${handler});`,
           event.location
@@ -242,6 +259,10 @@ export class CodeGenerator {
         break
 
       case 'capture':
+        // [Diamond] hint
+        this.emitLine(
+          `// [Diamond] Capture event: ${event.property} → this.${event.expression}`
+        )
         this.emitLine(
           `DiamondCore.on(${varName}, '${event.property}', ${handler}, true);`,
           event.location
@@ -250,6 +271,10 @@ export class CodeGenerator {
 
       case 'trigger':
       default:
+        // [Diamond] hint
+        this.emitLine(
+          `// [Diamond] Event binding: ${event.property} → this.${event.expression}`
+        )
         this.emitLine(
           `DiamondCore.on(${varName}, '${event.property}', ${handler});`,
           event.location
@@ -290,7 +315,7 @@ export class CodeGenerator {
    * Build interpolation template expression
    */
   private buildInterpolationExpr(content: string): string {
-    // Replace ${expr} with ${vm.expr}
+    // Replace ${expr} with ${this.expr}
     const escaped = content
       .replace(/`/g, '\\`')
       .replace(/\$\{([^}]+)\}/g, (_match, expr) => {
@@ -300,7 +325,7 @@ export class CodeGenerator {
   }
 
   /**
-   * Prefix an expression with vm.
+   * Prefix an expression with this.
    */
   private prefixExpression(expr: string): string {
     // Handle property paths like user.name
@@ -309,12 +334,12 @@ export class CodeGenerator {
       /^['"`]/.test(expr) || // String literal
       /^\d/.test(expr) || // Number literal
       /^(true|false|null|undefined)$/.test(expr) || // Keywords
-      /^vm\./.test(expr) // Already prefixed
+      /^this\./.test(expr) // Already prefixed
     ) {
       return expr
     }
 
-    return `vm.${expr}`
+    return `this.${expr}`
   }
 
   /**

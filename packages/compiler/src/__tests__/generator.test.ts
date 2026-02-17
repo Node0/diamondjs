@@ -40,9 +40,17 @@ describe('CodeGenerator', () => {
       const nodes: NodeInfo[] = [createElement('div')]
       const result = generator.generate(nodes)
 
-      expect(result.code).toContain('static createTemplate()')
-      expect(result.code).toContain('return (vm) =>')
+      expect(result.code).toContain('createTemplate()')
+      expect(result.code).not.toContain('static createTemplate()')
+      expect(result.code).not.toContain('return (vm) =>')
       expect(result.code).toContain("document.createElement('div')")
+    })
+
+    it('generates [Diamond] hint comment for instance method', () => {
+      const nodes: NodeInfo[] = [createElement('div')]
+      const result = generator.generate(nodes)
+
+      expect(result.code).toContain('// [Diamond] Compiler-generated instance template method')
     })
 
     it('generates code for multiple root elements', () => {
@@ -104,8 +112,9 @@ describe('CodeGenerator', () => {
       })]
       const result = generator.generate(nodes)
 
-      expect(result.code).toContain('span0.textContent = vm.title')
+      expect(result.code).toContain('span0.textContent = this.title')
       expect(result.code).not.toContain('DiamondCore.bind')
+      expect(result.code).toContain('// [Diamond] One-time binding')
     })
 
     it('generates to-view binding', () => {
@@ -119,8 +128,9 @@ describe('CodeGenerator', () => {
       })]
       const result = generator.generate(nodes)
 
-      expect(result.code).toContain("DiamondCore.bind(span0, 'textContent', () => vm.message)")
+      expect(result.code).toContain("DiamondCore.bind(span0, 'textContent', () => this.message)")
       expect(result.code).not.toContain('(v) =>')
+      expect(result.code).toContain('// [Diamond] One-way binding')
     })
 
     it('generates from-view binding', () => {
@@ -134,7 +144,8 @@ describe('CodeGenerator', () => {
       })]
       const result = generator.generate(nodes)
 
-      expect(result.code).toContain("DiamondCore.bind(input0, 'value', () => vm.query, (v) => vm.query = v)")
+      expect(result.code).toContain("DiamondCore.bind(input0, 'value', () => this.query, (v) => this.query = v)")
+      expect(result.code).toContain('// [Diamond] From-view binding')
     })
 
     it('generates two-way binding', () => {
@@ -148,7 +159,8 @@ describe('CodeGenerator', () => {
       })]
       const result = generator.generate(nodes)
 
-      expect(result.code).toContain("DiamondCore.bind(input0, 'value', () => vm.name, (v) => vm.name = v)")
+      expect(result.code).toContain("DiamondCore.bind(input0, 'value', () => this.name, (v) => this.name = v)")
+      expect(result.code).toContain('// [Diamond] Two-way binding')
     })
 
     it('handles property paths', () => {
@@ -162,7 +174,7 @@ describe('CodeGenerator', () => {
       })]
       const result = generator.generate(nodes)
 
-      expect(result.code).toContain('vm.user.profile.name')
+      expect(result.code).toContain('this.user.profile.name')
     })
 
     it('does not prefix literals', () => {
@@ -177,7 +189,7 @@ describe('CodeGenerator', () => {
       const result = generator.generate(nodes)
 
       expect(result.code).toContain("span0.textContent = 'hello'")
-      expect(result.code).not.toContain("vm.'hello'")
+      expect(result.code).not.toContain("this.'hello'")
     })
   })
 
@@ -193,7 +205,8 @@ describe('CodeGenerator', () => {
       })]
       const result = generator.generate(nodes)
 
-      expect(result.code).toContain("DiamondCore.on(button0, 'click', (e) => vm.save())")
+      expect(result.code).toContain("DiamondCore.on(button0, 'click', (e) => this.save())")
+      expect(result.code).toContain('// [Diamond] Event binding')
     })
 
     it('generates capture event', () => {
@@ -207,7 +220,8 @@ describe('CodeGenerator', () => {
       })]
       const result = generator.generate(nodes)
 
-      expect(result.code).toContain("DiamondCore.on(div0, 'click', (e) => vm.onCapture(), true)")
+      expect(result.code).toContain("DiamondCore.on(div0, 'click', (e) => this.onCapture(), true)")
+      expect(result.code).toContain('// [Diamond] Capture event')
     })
 
     it('handles $event parameter', () => {
@@ -221,7 +235,7 @@ describe('CodeGenerator', () => {
       })]
       const result = generator.generate(nodes)
 
-      expect(result.code).toContain('(e) => vm.handleInput(e)')
+      expect(result.code).toContain('(e) => this.handleInput(e)')
     })
 
     it('handles method with arguments', () => {
@@ -235,7 +249,7 @@ describe('CodeGenerator', () => {
       })]
       const result = generator.generate(nodes)
 
-      expect(result.code).toContain('(e) => vm.addItem(vm.item, vm.index)')
+      expect(result.code).toContain('(e) => this.addItem(this.item, this.index)')
     })
   })
 
@@ -260,7 +274,8 @@ describe('CodeGenerator', () => {
       const result = generator.generate(nodes)
 
       expect(result.code).toContain("document.createTextNode('')")
-      expect(result.code).toContain("DiamondCore.bind(text1, 'textContent', () => `Hello ${vm.name}!`)")
+      expect(result.code).toContain("DiamondCore.bind(text1, 'textContent', () => `Hello ${this.name}!`)")
+      expect(result.code).toContain('// [Diamond] Text interpolation binding')
     })
 
     it('skips empty text nodes', () => {

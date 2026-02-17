@@ -12,14 +12,15 @@ describe('DiamondCompiler', () => {
     it('compiles a simple element', () => {
       const result = compiler.compile('<div></div>')
 
-      expect(result.code).toContain('static createTemplate()')
+      expect(result.code).toContain('createTemplate()')
+      expect(result.code).not.toContain('static createTemplate()')
       expect(result.code).toContain("document.createElement('div')")
     })
 
     it('compiles element with binding', () => {
       const result = compiler.compile('<input value.bind="name">')
 
-      expect(result.code).toContain("DiamondCore.bind(input0, 'value', () => vm.name")
+      expect(result.code).toContain("DiamondCore.bind(input0, 'value', () => this.name")
     })
 
     it('compiles element with event', () => {
@@ -32,7 +33,13 @@ describe('DiamondCompiler', () => {
       const result = compiler.compile('<div>${message}</div>')
 
       expect(result.code).toContain('DiamondCore.bind')
-      expect(result.code).toContain('vm.message')
+      expect(result.code).toContain('this.message')
+    })
+
+    it('emits [Diamond] hint comments', () => {
+      const result = compiler.compile('<input value.bind="name">')
+
+      expect(result.code).toContain('// [Diamond]')
     })
 
     it('generates source map when filePath provided', () => {
@@ -58,9 +65,10 @@ export class MyComponent {
 `
       const result = compiler.compileAndInject(template, componentSource)
 
-      expect(result.code).toContain('static createTemplate()')
+      expect(result.code).toContain('createTemplate()')
+      expect(result.code).not.toContain('static createTemplate()')
       expect(result.code).toContain('export class MyComponent')
-      expect(result.code).toContain("DiamondCore.bind(input0, 'value', () => vm.name")
+      expect(result.code).toContain("DiamondCore.bind(input0, 'value', () => this.name")
     })
 
     it('adds DiamondCore import if missing', () => {
@@ -114,7 +122,7 @@ export class MyComponent {}
 
       // Should inject into MyComponent, not Foo
       expect(result.code).toContain('export class MyComponent {\n')
-      expect(result.code).toContain('static createTemplate()')
+      expect(result.code).toContain('createTemplate()')
     })
 
     it('throws if class not found', () => {
@@ -154,8 +162,8 @@ export class MyComponent {}
       expect(result.code).toContain("document.createElement('form')")
       expect(result.code).toContain("DiamondCore.on(form0, 'submit'")
       // Use patterns since variable numbering includes text nodes
-      expect(result.code).toMatch(/DiamondCore\.bind\(input\d+, 'value', \(\) => vm\.name/)
-      expect(result.code).toMatch(/DiamondCore\.bind\(input\d+, 'value', \(\) => vm\.email/)
+      expect(result.code).toMatch(/DiamondCore\.bind\(input\d+, 'value', \(\) => this\.name/)
+      expect(result.code).toMatch(/DiamondCore\.bind\(input\d+, 'value', \(\) => this\.email/)
     })
 
     it('compiles a component with all binding types', () => {
@@ -171,13 +179,13 @@ export class MyComponent {}
       const result = compiler.compile(template)
 
       // One-time: direct assignment (use pattern since variable numbering varies)
-      expect(result.code).toMatch(/span\d+\.textContent = vm\.title/)
+      expect(result.code).toMatch(/span\d+\.textContent = this\.title/)
       // To-view: one-way binding
-      expect(result.code).toMatch(/DiamondCore\.bind\(span\d+, 'textContent', \(\) => vm\.message\)/)
+      expect(result.code).toMatch(/DiamondCore\.bind\(span\d+, 'textContent', \(\) => this\.message\)/)
       // From-view, two-way, bind: all have setter
-      expect(result.code).toContain('(v) => vm.query = v')
-      expect(result.code).toContain('(v) => vm.name = v')
-      expect(result.code).toContain('(v) => vm.email = v')
+      expect(result.code).toContain('(v) => this.query = v')
+      expect(result.code).toContain('(v) => this.name = v')
+      expect(result.code).toContain('(v) => this.email = v')
     })
 
     it('compiles a counter component', () => {
@@ -191,9 +199,9 @@ export class MyComponent {}
       const result = compiler.compile(template)
 
       expect(result.code).toContain("div0.className = 'counter'")
-      expect(result.code).toContain('vm.decrement()')
-      expect(result.code).toContain('vm.increment()')
-      expect(result.code).toContain('vm.count')
+      expect(result.code).toContain('this.decrement()')
+      expect(result.code).toContain('this.increment()')
+      expect(result.code).toContain('this.count')
     })
   })
 })

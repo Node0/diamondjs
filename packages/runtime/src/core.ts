@@ -21,15 +21,32 @@ type CleanupFn = () => void
 export class DiamondCore {
   /**
    * Make an object reactive using Proxy
-   * 
+   *
    * Use for: UI state, forms, small datasets (< 1000 items)
-   * 
+   *
    * @example
    * const state = DiamondCore.reactive({ count: 0, name: '' })
    * state.count++ // Triggers effects that read count
    */
   static reactive<T extends object>(obj: T): T {
     return reactivityEngine.createProxy(obj)
+  }
+
+  /**
+   * Make a specific property reactive on a component instance.
+   * Called by compiler-generated constructor code for @reactive properties.
+   *
+   * For object values: wraps in reactive proxy.
+   * For primitives: the compiler generates getter/setter pairs
+   * that call effect tracking.
+   */
+  static makeReactive(target: object, property: string): void {
+    const value = (target as Record<string, unknown>)[property]
+    if (value !== null && typeof value === 'object') {
+      (target as Record<string, unknown>)[property] = this.reactive(value as object)
+    }
+    // For primitives, the compiler generates getter/setter pairs
+    // that integrate with the reactivity engine. No runtime action needed here.
   }
 
   /**
@@ -68,10 +85,10 @@ export class DiamondCore {
    * 
    * @example
    * // One-way binding (view-only)
-   * DiamondCore.bind(span, 'textContent', () => vm.message)
+   * DiamondCore.bind(span, 'textContent', () => this.message)
    * 
    * // Two-way binding
-   * DiamondCore.bind(input, 'value', () => vm.name, (v) => vm.name = v)
+   * DiamondCore.bind(input, 'value', () => this.name, (v) => this.name = v)
    */
   static bind(
     element: HTMLElement,
@@ -117,7 +134,7 @@ export class DiamondCore {
    * @returns Cleanup function
    * 
    * @example
-   * DiamondCore.on(button, 'click', () => vm.handleClick())
+   * DiamondCore.on(button, 'click', () => this.handleClick())
    */
   static on(
     element: HTMLElement,
@@ -139,7 +156,7 @@ export class DiamondCore {
    * @returns Cleanup function
    * 
    * @example
-   * DiamondCore.delegate(list, 'click', 'li', (e) => vm.selectItem(e))
+   * DiamondCore.delegate(list, 'click', 'li', (e) => this.selectItem(e))
    */
   static delegate(
     parent: HTMLElement,

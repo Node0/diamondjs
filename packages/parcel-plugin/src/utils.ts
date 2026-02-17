@@ -20,6 +20,9 @@ export function isDiamondTemplate(code: string): boolean {
 
 /**
  * Compile a DiamondJS template to JavaScript module code
+ *
+ * v1.5.1: The compiler now emits instance createTemplate() methods
+ * with 'this' references and [Diamond] hint comments.
  */
 export function compileTemplate(
   code: string,
@@ -34,17 +37,23 @@ export function compileTemplate(
     sourceMap,
   })
 
-  // Convert 'static createTemplate()' to 'function createTemplate()'
-  // for standalone module export (the compiler outputs class method syntax)
-  const functionCode = result.code.replace(
-    /^static createTemplate\(\)/,
+  // The compiler emits an instance method with a [Diamond] hint comment:
+  //   // [Diamond] Compiler-generated instance template method
+  //   createTemplate() { ... }
+  // Convert to a standalone exported function for module usage.
+  // Strip the hint line and place it before the export keyword.
+  const hintLine = '// [Diamond] Compiler-generated instance template method'
+  const strippedCode = result.code.replace(hintLine + '\n', '')
+  const functionCode = strippedCode.replace(
+    /^createTemplate\(\)/m,
     'function createTemplate()'
   )
 
   // Wrap in a module that exports the createTemplate function
   const outputCode = `import { DiamondCore } from '@diamondjs/runtime';
 
-// Compiled from: ${filePath}
+// [Diamond] Compiled from: ${filePath}
+${hintLine}
 export ${functionCode}
 `
 

@@ -4,16 +4,14 @@
 import { describe, it, expect, vi } from 'vitest'
 import { Component } from '../src/component'
 
-// Test component with template
+// Test component with instance template method
 class TestComponent extends Component {
   name = 'World'
 
-  static createTemplate() {
-    return (vm: TestComponent) => {
-      const div = document.createElement('div')
-      div.textContent = `Hello, ${vm.name}!`
-      return div
-    }
+  createTemplate() {
+    const div = document.createElement('div')
+    div.textContent = `Hello, ${this.name}!`
+    return div
   }
 }
 
@@ -42,6 +40,16 @@ describe('Component', () => {
       component.mount(host)
       expect(component.getElement()).not.toBeNull()
     })
+
+    it('should use this to reference component properties', () => {
+      const host = document.createElement('div')
+      const component = new TestComponent()
+      component.name = 'Diamond'
+
+      component.mount(host)
+
+      expect(host.children[0].textContent).toBe('Hello, Diamond!')
+    })
   })
 
   describe('unmount', () => {
@@ -65,6 +73,29 @@ describe('Component', () => {
 
       expect(component.getElement()).toBeNull()
     })
+
+    it('should run cleanup functions', () => {
+      const cleanup = vi.fn()
+
+      class CleanupComponent extends Component {
+        createTemplate() {
+          this.registerCleanup(cleanup)
+          return document.createElement('div')
+        }
+
+        // Expose registerCleanup for testing
+        public registerCleanup(fn: () => void): void {
+          super.registerCleanup(fn)
+        }
+      }
+
+      const host = document.createElement('div')
+      const component = new CleanupComponent()
+      component.mount(host)
+      component.unmount()
+
+      expect(cleanup).toHaveBeenCalledTimes(1)
+    })
   })
 
   describe('update', () => {
@@ -77,18 +108,14 @@ describe('Component', () => {
     })
   })
 
-  describe('getTemplateFactory', () => {
-    it('should cache template factory', () => {
-      const factory1 = TestComponent.getTemplateFactory()
-      const factory2 = TestComponent.getTemplateFactory()
-
-      expect(factory1).toBe(factory2)
-    })
-
+  describe('createTemplate', () => {
     it('should throw if createTemplate not implemented', () => {
+      const host = document.createElement('div')
+      const component = new NoTemplateComponent()
+
       expect(() => {
-        NoTemplateComponent.getTemplateFactory()
-      }).toThrow('must implement static createTemplate()')
+        component.mount(host)
+      }).toThrow('must implement createTemplate()')
     })
   })
 

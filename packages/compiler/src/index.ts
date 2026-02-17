@@ -11,12 +11,11 @@
  * const result = compiler.compile('<input value.bind="name">')
  * console.log(result.code)
  * // Output:
- * // static createTemplate() {
- * //   return (vm) => {
- * //     const input0 = document.createElement('input');
- * //     DiamondCore.bind(input0, 'value', () => vm.name, (v) => vm.name = v);
- * //     return input0;
- * //   };
+ * // // [Diamond] Compiler-generated instance template method
+ * // createTemplate() {
+ * //   // [Diamond] Two-way binding: value ↔ this.name
+ * //   DiamondCore.bind(input0, 'value', () => this.name, (v) => this.name = v);
+ * //   return input0;
  * // }
  */
 

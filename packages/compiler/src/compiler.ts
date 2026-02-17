@@ -2,7 +2,8 @@
  * DiamondCompiler - Main compiler class
  *
  * Compiles DiamondJS HTML templates to JavaScript code
- * that creates DOM and sets up bindings.
+ * that creates DOM and sets up bindings via instance methods.
+ * All compiled output uses 'this' to reference the component instance.
  */
 
 import { TemplateParser } from './parser'
