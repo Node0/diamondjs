@@ -154,3 +154,4 @@ DiamondJS_Architecture_Specification_v1.3_files
 
 # Build outputs (but keep impl_docs for tracking)
 packages/*/dist/
+impl_docs/surrounding_conversation
