@@ -481,7 +481,7 @@ export class TemplateParser {
       this.diagnostics.push({
         severity: 'error',
         code: 'ampersand-removed',
-        message: `'&' is not valid in a DiamondJS binding expression (DDR §4.3). If you meant bitwise AND, move the computation to a view-model getter (get result() { return this.a & this.b }) — a template is a declarative binding surface, not a computation surface (§2.8). If you meant the removed '& behavior' syntax, use value.update-on (binding timing), this.debounce / this.throttle (handler timing), a reactive dependency (was '& signal'), or '.set' (was '& oneTime').`,
+        message: `& is not valid in a DiamondJS binding expression. If you meant bitwise AND, move the computation to a view-model getter (get result() { return this.a & this.b }). If you meant the removed & behavior syntax, use value.update-on, this.debounce, or a reactive dependency instead.`,
         location,
       })
     }

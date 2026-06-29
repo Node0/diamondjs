@@ -1,0 +1,25 @@
+<div class="card">
+  <!-- set: static one-shot assignment (v2.0, was .one-time) -->
+  <h2 textContent.set="title"></h2>
+
+  <!-- rawSet: the audited raw escape hatch — trusted HTML, recorded in stink-baseline.json -->
+  <div class="banner" innerHTML.rawSet="bannerHtml"></div>
+
+  <div class="row">
+    <!-- two-way binding + .calls event (per-node listener) -->
+    <input value.two-way="draft" placeholder="Add a task…" />
+    <button click.calls="add()">Add</button>
+  </div>
+
+  <!-- if / else-if: empty state vs. the list -->
+  <p if="tasks.length === 0" class="empty">No tasks yet — add one above.</p>
+  <ul else-if="tasks.length > 0">
+    <!-- repeat.for: one row per task, each with its own .calls handler -->
+    <li repeat.for="task of tasks">
+      <span>${task.title}</span>
+      <button click.calls="remove(task)">Done</button>
+    </li>
+  </ul>
+
+  <p class="count">${tasks.length} task(s)</p>
+</div>

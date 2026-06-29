@@ -579,3 +579,37 @@ Added 6 new tests for legacy decorator behavior:
 
 ---
 
+## 2026-06-29 — v1.5.1 → v2.0 Migration Complete
+
+Implemented the full v2.0 architecture from `DiamondJS_v2.0_Design_Decision_Record.md` (+ Amendment A1) across five checkpointed phases. v2.0 is a **breaking MAJOR** change: a security-by-default binding language with audited `raw` escape hatches, LLM-legible token renames, removals of footgun constructs, and a converter `format`/`parse` system. Versions bumped to **2.0.0** across all packages (cross-deps at `^2.0.0`; DiamondJS as the SemVer canary, §9.3).
+
+### Phase 1 — Token renames + security spine (§3, §4.1, §6.4–6.6)
+- `unsafe`→`raw`; `.one-time`→`set`/`rawSet`; `.trigger`→`.calls`; `.delegate` removed (+ deleted orphaned `DiamondCore.delegate()`); `.capture` kept. Retired tokens emit actionable compile errors (no silent `|| 'bind'` fallback).
+- **Safe-sink allowlist** (`compiler/src/security.ts`) + pure `gateSink()` at the single codegen choke point (closes the one-time bypass + `outerHTML` no-op). Three-segment raw grammar (`innerHTML.rawBind.to-view`).
+- **Two-tier stink gate** (`tools/stink-check.ts` + `stink-baseline.json`): `stink:warn` hard-gates; `stink:declared` is baselined + diffed (never blocked).
+
+### Phase 2 — Structural directives (§6.1–6.3 + A1)
+- Bare `if` / `else-if` → `DiamondCore.if` (reactive include/remove, branch caching); `repeat.for` → `DiamondCore.repeat` (keyed by item identity, per-node `.calls`). `with` removed; bare `else`/`if.bind`/`if.set`/`rawIf` rejected. Token-aware expression prefixer + loop-var scoping. `captureScope` cleanup for removed subtrees.
+
+### Phase 3 — Template formatting/parsing (§5)
+- Pipe `|` (depth/string-aware splitter) → function composition; PascalCase = converter `.format`/`.parse`, camelCase = direct call. `ParseResult<T>` (runtime). §5.6 contextual enforcement **in the compiler** (`compileAndInject` follows the import relative to `filePath`, reads the module, checks `static parse` → hard error). New **`@diamondjs/converters`** package (Currency/Date/Phone). Runtime inbound smell check (distinct dev-only channel). **from-view security fix**: from-view is one-way (no getter), removed from the outbound gate.
+
+### Phase 4 — Binding/handler timing (§4.3)
+- `value.update-on="blur"` (property-scoped; 5th `bind()` arg); self-registering `this.debounce`/`this.throttle` (leak-safe); `&` removed (hard error redirecting to a view-model getter / `update-on` / `debounce` / reactive dep).
+
+### Phase 5 — Versioning, example, docs
+- All packages → 2.0.0. `examples/hello-world` rewritten end-to-end (Tasks compiled template: `set`/`rawSet`/two-way/`.calls`/`if`/`else-if`/`repeat.for`/interpolation; MoneyForm: converter pipe + `ParseResult` + `update-on` + `debounce`). README + this log updated.
+
+### Final state
+```
+Runtime:    483 / 2,500 LOC    75 tests
+Compiler: 2,719 / 5,000 LOC   144 tests
+Converters:  84 / 500 LOC      11 tests
+Parcel:     213 / 300 LOC      24 tests
+Example:                       15 tests
+Total:    3,499 / 7,800 LOC   269 tests
+```
+All LOC budgets within limits · stink gate green (1 declared raw: the example's audited `rawSet`) · example builds via Parcel. Deferred to v2.1: attribute spread, `switch`/`case`/`default`, Collection-at-scale, data-delegation.
+
+---
+

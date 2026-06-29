@@ -1,6 +1,6 @@
 {
   "name": "@diamondjs/hello-world",
-  "version": "0.1.0",
+  "version": "2.0.0",
   "private": true,
   "description": "DiamondJS Hello World Example",
   "source": "src/index.html",
@@ -14,6 +14,7 @@
     "@diamondjs/parcel-transformer-diamond": "*",
     "@diamondjs/runtime": "*",
     "@diamondjs/compiler": "*",
-    "parcel": "^2.12.0"
+    "parcel": "^2.12.0",
+    "@diamondjs/converters": "*"
   }
 }

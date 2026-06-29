@@ -13,9 +13,9 @@ DiamondJS is a component-based JavaScript framework that separates *write-time e
 ```html
 <!-- counter.html — what you write -->
 <div class="counter">
-  <button click.trigger="decrement()">-</button>
+  <button click.calls="decrement()">-</button>
   <span>${count}</span>
-  <button click.trigger="increment()">+</button>
+  <button click.calls="increment()">+</button>
 </div>
 ```
 
@@ -166,7 +166,7 @@ Aurelia-inspired binding commands on standard HTML attributes:
 <input value.bind="name">
 
 <!-- Event binding -->
-<button click.trigger="save()">Save</button>
+<button click.calls="save()">Save</button>
 
 <!-- Interpolation -->
 <p>Hello, ${name}!</p>
@@ -226,22 +226,22 @@ The entire framework fits in an LLM context window. That's not an accident — i
 
 ## Current Status
 
-**Specification**: v1.5.1 ([Architecture & Design Specification](docs/DiamondJS_Architecture_Specification_v1_5_1.md))
+**Specification**: v2.0 ([Design Decision Record](impl_docs/plans/DiamondJS_v2.0_Design_Decision_Record.md))
 
-**Implementation**: v1.5.1 — architectural upgrade complete with instance template methods, `@reactive` decorator, `[Diamond]` compiler hints, and proxy cache for referential identity.
+**Implementation**: v2.0 — a security-by-default binding language. Every DOM-sink write is allowlisted by default with an audited `raw` escape hatch (`stink` two-tier gate); tokens renamed for LLM-legibility (`.trigger`→`.calls`, `.one-time`→`set`/`rawSet`, `unsafe`→`raw`); `.delegate`/`with`/`&`/bare-`else` removed; value converters become `format`/`parse` classes piped with `|`.
 
-| Package | LOC | Tests | Coverage |
-|---------|-----|-------|----------|
-| @diamondjs/runtime | 210 | 49 | 93.82% |
-| @diamondjs/compiler | 410 | 66 | 96.80% |
-| parcel-transformer-diamond | 139 | 19 | 100% |
-| **Total** | **759** | **134** | **>80%** |
+| Package | LOC | Tests |
+|---------|-----|-------|
+| @diamondjs/runtime | 483 | 75 |
+| @diamondjs/compiler | 2,719 | 144 |
+| @diamondjs/converters | 84 | 11 |
+| parcel-transformer-diamond | 213 | 24 |
+| hello-world (example) | — | 15 |
+| **Total** | **3,499 / 7,800** | **269** |
 
-**LLM Comprehension**: Grade A — 92% estimated bug-fix success rate for 32B models, zero autoregressive steering issues.
+**What works today (v2.0)**: security allowlist + `raw` escape hatch + stink gate; `set`/`rawSet`, `.calls`, `.capture`; bare `if` / `else-if` / `repeat.for`; the pipe `|` with `format`/`parse` converters + `ParseResult` + the Currency/Date/Phone batteries; `value.update-on` + self-registering `this.debounce`/`this.throttle`; `[Diamond]` hint comments; Parcel build pipeline.
 
-**What works today**: Reactive state with `@reactive` decorator, property bindings, event handlers, text interpolation, two-way input binding, `[Diamond]` hint comments in all compiled output, proxy cache for deep reactivity, Parcel build pipeline, HMR support.
-
-**What's next**: Conditional rendering (`if.bind`), list rendering (`repeat.for`), `Collection<T>` for large datasets, router, and scaffolding CLI.
+**Deferred to v2.1**: attribute spread (`...attrs.bind`), `switch`/`case`/`default`, `Collection<T>` at scale, and homogenized reactive+Collection data-delegation.
 
 > DiamondJS is in active early development. The API will change. Use it to explore, experiment, and contribute — not yet for production.
 

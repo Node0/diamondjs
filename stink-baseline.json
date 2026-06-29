@@ -1,4 +1,13 @@
 {
   "version": 1,
-  "declared": []
+  "declared": [
+    {
+      "id": "examples/hello-world/src/Tasks.diamond.html:6:innerHTML:set",
+      "file": "examples/hello-world/src/Tasks.diamond.html",
+      "line": 6,
+      "property": "innerHTML",
+      "op": "set",
+      "expression": "bannerHtml"
+    }
+  ]
 }
