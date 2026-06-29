@@ -6,9 +6,16 @@
  * All compiled output uses 'this' to reference the component instance.
  */
 
+import { existsSync, readFileSync } from 'fs'
+import { dirname, resolve } from 'path'
 import { TemplateParser } from './parser'
 import { CodeGenerator } from './generator'
-import type { CompilerOptions, CompileResult } from './types'
+import type {
+  CompilerOptions,
+  CompileResult,
+  ConverterObligation,
+  Diagnostic,
+} from './types'
 
 /**
  * DiamondCompiler - The main template compiler
@@ -66,7 +73,21 @@ export class DiamondCompiler {
     options: CompilerOptions = {}
   ): CompileResult {
     // Compile the template
-    const { code: templateCode, map } = this.compile(template, options)
+    const compiled = this.compile(template, options)
+    const diagnostics: Diagnostic[] = [...(compiled.diagnostics ?? [])]
+
+    // §5.6: verify each converter obligation by following its import. This is the
+    // inject path — componentSource carries the converter's import statement, which
+    // the standalone template (compile()) never sees. The compiler follows that
+    // import relative to options.filePath and reads the module for `static parse`.
+    for (const ob of compiled.converterObligations ?? []) {
+      const diag = this.verifyConverterParse(
+        ob,
+        componentSource,
+        options.filePath
+      )
+      if (diag) diagnostics.push(diag)
+    }
 
     // Find the class to inject into
     const className = options.className || this.detectClassName(componentSource)
@@ -82,13 +103,87 @@ export class DiamondCompiler {
     const injectedSource = this.injectMethod(
       componentSource,
       className,
-      templateCode
+      compiled.code
     )
 
     // Add DiamondCore import if needed
     const finalSource = this.ensureImport(injectedSource)
 
-    return { code: finalSource, map }
+    return { code: finalSource, map: compiled.map, diagnostics }
+  }
+
+  /**
+   * Verify a converter exposes `static parse` (DDR §5.6) by following its import.
+   *
+   * Uses a regex scan of `componentSource` for the import (not a full TS parse —
+   * the string-based compiler's accepted ceiling), resolves the module path
+   * relative to `filePath`, and reads it. Returns:
+   *   - error  ('converter-missing-parse') when the module has no `static parse`
+   *   - info   ('converter-unresolved')    when the import can't be followed
+   *            (bare/package specifier, re-export, missing file) → verify manually
+   *   - null   when `static parse` is present
+   */
+  private verifyConverterParse(
+    ob: ConverterObligation,
+    componentSource: string,
+    filePath?: string
+  ): Diagnostic | null {
+    const unresolved = (detail: string): Diagnostic => ({
+      severity: 'info',
+      code: 'converter-unresolved',
+      message:
+        `Could not follow the import for converter '${ob.name}' (used on a ` +
+        `${ob.direction} binding): ${detail}. Verify it exports a static parse method manually.`,
+      location: ob.location,
+      property: ob.name,
+    })
+
+    const importRe = new RegExp(
+      `import[^;]*\\b${ob.name}\\b[^;]*from\\s+['"]([^'"]+)['"]`
+    )
+    const m = componentSource.match(importRe)
+    if (!m) return unresolved('no import statement found')
+    if (!filePath) return unresolved('no source file path to resolve against')
+
+    const spec = m[1]
+    if (!spec.startsWith('.')) {
+      return unresolved(`'${spec}' is a package specifier, not a relative path`)
+    }
+
+    const baseDir = dirname(filePath)
+    const candidates = [
+      resolve(baseDir, spec),
+      resolve(baseDir, `${spec}.ts`),
+      resolve(baseDir, `${spec}.js`),
+      resolve(baseDir, spec, 'index.ts'),
+      resolve(baseDir, spec, 'index.js'),
+    ]
+
+    let source: string | null = null
+    for (const candidate of candidates) {
+      if (!existsSync(candidate)) continue
+      try {
+        source = readFileSync(candidate, 'utf-8')
+        break
+      } catch {
+        // directory or unreadable — keep trying
+      }
+    }
+    if (source === null) return unresolved(`could not read module '${spec}'`)
+
+    if (!/static\s+parse\b/.test(source)) {
+      return {
+        severity: 'error',
+        code: 'converter-missing-parse',
+        message:
+          `Converter '${ob.name}' is used on a ${ob.direction} binding but its ` +
+          `module ('${spec}') has no static parse method. ${ob.direction} bindings ` +
+          `require parse to validate inbound values (DDR §5.6).`,
+        location: ob.location,
+        property: ob.name,
+      }
+    }
+    return null
   }
 
   /**

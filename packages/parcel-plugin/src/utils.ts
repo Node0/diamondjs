@@ -42,6 +42,25 @@ export function compileTemplate(
     sourceMap,
   })
 
+  // Standalone .diamond.html → module path: named pipe transforms (converters or
+  // plain functions) would be undefined symbols here — they live in the component's
+  // import scope, not this generated module. Fail closed with a clear error rather
+  // than ship a runtime ReferenceError (DDR §5.5 — provenance is the import graph).
+  if (result.pipeTransforms && result.pipeTransforms.length > 0) {
+    result.diagnostics = [
+      ...(result.diagnostics ?? []),
+      {
+        severity: 'error',
+        code: 'pipe-transform-standalone',
+        message:
+          `Named pipe transform(s) [${result.pipeTransforms.join(', ')}] require the ` +
+          `component context — a standalone .diamond.html module cannot import them. ` +
+          `Define the template on the component (so its imports are in scope), or inline the value.`,
+        location: null,
+      },
+    ]
+  }
+
   // The compiler emits an instance method with a [Diamond] hint comment:
   //   // [Diamond] Compiler-generated instance template method
   //   createTemplate() { ... }

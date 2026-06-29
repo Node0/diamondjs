@@ -10,6 +10,7 @@ import type {
   SourceLocation,
   BindingInfo,
   BindingType,
+  StructuralInfo,
   Diagnostic,
   InterpolationInfo,
   ElementInfo,
@@ -140,20 +141,42 @@ export class TemplateParser {
     const bindings: BindingInfo[] = []
     const events: BindingInfo[] = []
     const staticAttrs = new Map<string, string>()
+    let structural: StructuralInfo | undefined
 
     // Process attributes
     for (const attr of element.attrs) {
-      // A dotted attribute name (`property.command[.qualifier]`) is a binding;
-      // everything else is a static attribute. parse5 lowercases attr names.
-      const segments = attr.name.split('.')
+      // parse5 lowercases attr names. A dotted name (`property.command[.qualifier]`)
+      // is a binding; structural directives (if/else-if/repeat.for) and removed
+      // forms (else/with/rawIf) are recognized first; everything else is static.
+      const name = attr.name
+      const segments = name.split('.')
+      const location = this.getAttrLocation(element, name)
+
+      // --- Structural directives + removed-form rejections (DDR §6.1–6.3, A1) ---
+      const struct = this.tryStructural(name, segments, attr.value, location)
+      if (struct !== null) {
+        if (struct.structural) {
+          if (structural) {
+            this.diagnostics.push({
+              severity: 'error',
+              code: 'multiple-structural',
+              message: `Element has multiple structural directives ('${structural.type}' and '${struct.structural.type}'); nest them on separate elements instead.`,
+              location,
+            })
+          } else {
+            structural = struct.structural
+          }
+        }
+        continue // handled (set structural or recorded a rejection diagnostic)
+      }
+
       if (segments.length < 2) {
-        staticAttrs.set(attr.name, attr.value)
+        staticAttrs.set(name, attr.value)
         continue
       }
 
       const [rawProperty, ...commandSegs] = segments
-      const location = this.getAttrLocation(element, attr.name)
-      const parsed = this.parseCommand(commandSegs, attr.name, location)
+      const parsed = this.parseCommand(commandSegs, name, location)
 
       if (!parsed) {
         // Retired or unknown command — diagnostic already recorded; drop the attr
@@ -189,7 +212,120 @@ export class TemplateParser {
       staticAttrs,
       children,
       location: this.getElementLocation(element),
+      structural,
     }
+  }
+
+  /**
+   * Recognize structural directives and removed-form misuse.
+   *
+   * Returns null when the attribute is NOT structural-related (caller proceeds
+   * to binding/static handling). Returns an object when handled: `.structural`
+   * is set for a valid directive, or absent when a rejection diagnostic was
+   * recorded (bare else, with, rawIf, if.bind, etc. — DDR §6.1/§6.2 + A1).
+   */
+  private tryStructural(
+    name: string,
+    segments: string[],
+    value: string,
+    location: SourceLocation | null
+  ): { structural?: StructuralInfo } | null {
+    const head = segments[0]
+
+    // repeat.for="item of items" (DDR §6.3)
+    if (head === 'repeat') {
+      if (segments.length === 2 && segments[1] === 'for') {
+        const m = value.match(/^\s*(\w+)\s+of\s+(.+?)\s*$/)
+        if (!m) {
+          this.diagnostics.push({
+            severity: 'error',
+            code: 'bad-repeat',
+            message: `repeat.for expects "item of items"; got "${value}".`,
+            location,
+          })
+          return {}
+        }
+        return {
+          structural: {
+            type: 'repeat',
+            expression: value,
+            itemName: m[1],
+            itemsExpression: m[2],
+            location,
+          },
+        }
+      }
+      this.diagnostics.push({
+        severity: 'error',
+        code: 'bad-repeat',
+        message: `Unknown repeat command '.${segments.slice(1).join('.')}'; the only looping construct is 'repeat.for'.`,
+        location,
+      })
+      return {}
+    }
+
+    // if (bare) + rejections of if.bind / if.set / etc. (DDR §6.2)
+    if (head === 'if') {
+      if (segments.length === 1) {
+        return { structural: { type: 'if', expression: value, location } }
+      }
+      this.diagnostics.push({
+        severity: 'error',
+        code: 'if-no-command',
+        message: `'if' takes no binding command (got '.${segments.slice(1).join('.')}'). 'if' has no sink — use bare if="..."; there is no if.bind, if.set, or rawIf.`,
+        location,
+      })
+      return {}
+    }
+
+    // else-if (bare) — A1
+    if (head === 'else-if') {
+      if (segments.length === 1) {
+        return { structural: { type: 'else-if', expression: value, location } }
+      }
+      this.diagnostics.push({
+        severity: 'error',
+        code: 'elseif-no-command',
+        message: `'else-if' takes no binding command; use bare else-if="<condition>".`,
+        location,
+      })
+      return {}
+    }
+
+    // bare else — removed (Amendment A1)
+    if (name === 'else') {
+      this.diagnostics.push({
+        severity: 'error',
+        code: 'bare-else-removed',
+        message: `Bare 'else' is not valid in DiamondJS 2.0+. Use else-if="!<condition>", or <switch>/<case>/<default> (v2.1) for exhaustive cases.`,
+        location,
+      })
+      return {}
+    }
+
+    // rawIf — 'if' has no sink, so no raw variant (A1)
+    if (name === 'rawif') {
+      this.diagnostics.push({
+        severity: 'error',
+        code: 'raw-if-invalid',
+        message: `'rawIf' is not valid: 'if' has no sink, so there is no raw variant. Use bare if="...".`,
+        location,
+      })
+      return {}
+    }
+
+    // with / with.bind — removed entirely (DDR §6.1)
+    if (head === 'with') {
+      this.diagnostics.push({
+        severity: 'error',
+        code: 'with-removed',
+        message: `'with' was removed in DiamondJS 2.0 (DDR §6.1) — it rebinds scope invisibly. Use a view-model getter instead (e.g. get themeColor() { return this.user.profile.settings.theme.color }).`,
+        location,
+      })
+      return {}
+    }
+
+    return null // not structural-related
   }
 
   /**

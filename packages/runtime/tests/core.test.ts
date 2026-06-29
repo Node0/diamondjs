@@ -114,6 +114,31 @@ describe('DiamondCore', () => {
       expect(div.textContent).toBe('Hello')
     })
 
+    it('from-view (no getter) never pushes model → DOM, even when the model changes elsewhere', async () => {
+      const state = DiamondCore.reactive({ q: 'model-initial' })
+      const input = document.createElement('input')
+      input.value = 'user-typed'
+
+      // from-view: setter only, NO getter
+      DiamondCore.bind(input, 'value', undefined, (v) => {
+        state.q = v as string
+      })
+      await vi.runAllTimersAsync()
+
+      // Model did NOT overwrite the user's input on setup
+      expect(input.value).toBe('user-typed')
+
+      // DOM → model still works
+      input.value = 'new-user-input'
+      input.dispatchEvent(new Event('input'))
+      expect(state.q).toBe('new-user-input')
+
+      // CRITICAL: a model write from elsewhere must NOT reach the sink
+      state.q = 'changed-by-websocket'
+      await vi.runAllTimersAsync()
+      expect(input.value).toBe('new-user-input') // sink untouched by the model
+    })
+
     it('should use change event for checkboxes', async () => {
       const state = DiamondCore.reactive({ checked: false })
       const input = document.createElement('input')

@@ -35,6 +35,12 @@ const budgets: LOCBudget[] = [
     path: 'packages/parcel-plugin/src',
     budget: 300,
     warningThreshold: 250
+  },
+  {
+    name: 'Converters (@diamondjs/converters)',
+    path: 'packages/converters/src',
+    budget: 500,
+    warningThreshold: 400
   }
 ]
 

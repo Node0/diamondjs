@@ -20,6 +20,47 @@ type CleanupFn = () => void
  */
 export class DiamondCore {
   /**
+   * Active cleanup scope. When set, bind()/on()/if()/repeat() register their
+   * teardown here so a structural directive can dispose a branch's effects and
+   * listeners when it removes that subtree. Null at the component root (matching
+   * the existing no-auto-cleanup-at-root behavior of compiled templates).
+   */
+  private static currentScope: CleanupFn[] | null = null
+
+  /** Register a cleanup with the active scope (no-op at the root). */
+  private static track(cleanup: CleanupFn): void {
+    if (this.currentScope) this.currentScope.push(cleanup)
+  }
+
+  /**
+   * Run `fn` while collecting every cleanup registered by bind/on/if/repeat
+   * during it. Returns the produced value plus a single cleanup that disposes
+   * all of them. Used by structural directives to tear down a removed subtree.
+   */
+  static captureScope<T>(fn: () => T): { value: T; cleanup: CleanupFn } {
+    const prev = this.currentScope
+    const scope: CleanupFn[] = []
+    this.currentScope = scope
+    try {
+      const value = fn()
+      return {
+        value,
+        cleanup: () => {
+          for (const c of scope.splice(0)) {
+            try {
+              c()
+            } catch (error) {
+              console.error('[Diamond] Cleanup error:', error)
+            }
+          }
+        },
+      }
+    } finally {
+      this.currentScope = prev
+    }
+  }
+
+  /**
    * Make an object reactive using Proxy
    *
    * Use for: UI state, forms, small datasets (< 1000 items)
@@ -84,26 +125,34 @@ export class DiamondCore {
    * @returns Cleanup function
    * 
    * @example
-   * // One-way binding (view-only)
+   * // One-way to-view (model → DOM only)
    * DiamondCore.bind(span, 'textContent', () => this.message)
-   * 
-   * // Two-way binding
+   *
+   * // Two-way (model ↔ DOM)
    * DiamondCore.bind(input, 'value', () => this.name, (v) => this.name = v)
+   *
+   * // One-way from-view (DOM → model only): NO getter, so the model never
+   * // pushes into the sink — preserving the inbound-only contract.
+   * DiamondCore.bind(input, 'value', undefined, (v) => this.name = v)
    */
   static bind(
     element: HTMLElement,
     property: string,
-    getter: () => unknown,
+    getter: (() => unknown) | undefined,
     setter?: (value: unknown) => void
   ): CleanupFn {
     // Cast element for dynamic property access
     const el = element as unknown as Record<string, unknown>
 
-    // Set up reactive effect for view updates
-    const cleanupEffect = this.effect(() => {
-      const value = getter()
-      el[property] = value
-    })
+    // To-view effect: ONLY when a getter is provided. from-view passes no getter,
+    // so the model can never write into the sink — a one-way-named flow must not
+    // permit the opposite flow (would silently bypass an inbound security boundary).
+    let cleanupEffect: CleanupFn = () => {}
+    if (getter) {
+      cleanupEffect = this.effect(() => {
+        el[property] = getter()
+      })
+    }
 
     // Set up two-way binding if setter provided
     let cleanupListener: CleanupFn | null = null
@@ -117,11 +166,13 @@ export class DiamondCore {
       cleanupListener = () => element.removeEventListener(eventName, handler)
     }
 
-    // Return combined cleanup
-    return () => {
+    // Return combined cleanup (and register it with the active scope, if any)
+    const cleanup: CleanupFn = () => {
       cleanupEffect()
       cleanupListener?.()
     }
+    this.track(cleanup)
+    return cleanup
   }
 
   /**
@@ -143,7 +194,126 @@ export class DiamondCore {
     capture = false
   ): CleanupFn {
     element.addEventListener(event, handler, capture)
-    return () => element.removeEventListener(event, handler, capture)
+    const cleanup: CleanupFn = () =>
+      element.removeEventListener(event, handler, capture)
+    this.track(cleanup)
+    return cleanup
+  }
+
+  /**
+   * Reactive conditional inclusion (DDR §6.2). Renders the first branch whose
+   * `when()` is truthy by inserting it before `anchor`; removes it when none
+   * match. Branches are built lazily and cached, so toggling reuses the same
+   * subtree. `if` / `else-if` compile to this — there is no sink, no raw, and
+   * it is always reactive.
+   *
+   * @example
+   * const a = document.createComment('if')
+   * DiamondCore.if(a, [
+   *   { when: () => this.isLoading, make: () => buildLoading() },
+   *   { when: () => this.hasError,  make: () => buildError() },
+   * ])
+   */
+  static if(
+    anchor: Comment,
+    branches: Array<{ when: () => boolean; make: () => Node }>
+  ): void {
+    const built: Array<{ node: Node; cleanup: CleanupFn } | null> =
+      branches.map(() => null)
+    let activeIndex = -1
+
+    // Conditions are read here (before make()) so the master effect tracks their
+    // dependencies; make() creates nested effects that reset the active effect.
+    const cleanup = this.effect(() => {
+      let matched = -1
+      for (let i = 0; i < branches.length; i++) {
+        if (branches[i].when()) {
+          matched = i
+          break
+        }
+      }
+      if (matched === activeIndex) return
+
+      // Detach the current branch (kept cached for reuse on re-activation)
+      if (activeIndex >= 0) {
+        const prev = built[activeIndex]
+        ;(prev?.node as ChildNode | undefined)?.remove()
+      }
+      activeIndex = matched
+      if (matched < 0) return
+
+      let entry = built[matched]
+      if (!entry) {
+        const captured = this.captureScope(() => branches[matched].make())
+        entry = { node: captured.value, cleanup: captured.cleanup }
+        built[matched] = entry
+      }
+      anchor.parentNode?.insertBefore(entry.node, anchor)
+    })
+
+    this.track(cleanup)
+    this.track(() => {
+      for (const b of built) b?.cleanup()
+    })
+  }
+
+  /**
+   * Reactive keyed list rendering (DDR §6.3, repeat.for). Builds one subtree per
+   * item — keyed by item identity — reusing and reordering nodes across updates
+   * and disposing the effects/listeners of removed items.
+   *
+   * @example
+   * const a = document.createComment('repeat')
+   * DiamondCore.repeat(a, () => this.users, (user) => buildRow(user))
+   */
+  static repeat<T>(
+    anchor: Comment,
+    itemsGetter: () => Iterable<T> | null | undefined,
+    makeItem: (item: T, index: number) => Node
+  ): void {
+    let current = new Map<unknown, { node: ChildNode; cleanup: CleanupFn }>()
+
+    // itemsGetter() is read first so the master effect tracks the collection.
+    const cleanup = this.effect(() => {
+      const items = Array.from(itemsGetter() ?? [])
+      const next = new Map<unknown, { node: ChildNode; cleanup: CleanupFn }>()
+      const parent = anchor.parentNode
+      const ordered: ChildNode[] = []
+
+      items.forEach((item, i) => {
+        const key: unknown = item
+        let entry = current.get(key)
+        if (entry) {
+          current.delete(key)
+        } else {
+          const captured = this.captureScope(() => makeItem(item, i))
+          entry = {
+            node: captured.value as ChildNode,
+            cleanup: captured.cleanup,
+          }
+        }
+        next.set(key, entry)
+        ordered.push(entry.node)
+      })
+
+      // Dispose items that disappeared
+      for (const gone of current.values()) {
+        gone.node.remove()
+        gone.cleanup()
+      }
+
+      // Insert / reorder nodes into document order before the anchor
+      if (parent) {
+        for (const node of ordered) parent.insertBefore(node, anchor)
+      }
+
+      current = next
+    })
+
+    this.track(cleanup)
+    this.track(() => {
+      for (const e of current.values()) e.cleanup()
+    })
   }
 
   // NOTE: DiamondCore.delegate() was removed in v2.0 (DDR §6.4). Event delegation

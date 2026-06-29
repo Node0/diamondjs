@@ -135,7 +135,7 @@ describe('CodeGenerator', () => {
       expect(result.code).toContain('// [Diamond] One-way binding')
     })
 
-    it('generates from-view binding', () => {
+    it('generates from-view binding as one-way (no getter — model never pushes to sink)', () => {
       const nodes: NodeInfo[] = [createElement('input', {
         bindings: [{
           type: 'from-view',
@@ -147,8 +147,11 @@ describe('CodeGenerator', () => {
       })]
       const result = generator.generate(nodes)
 
-      expect(result.code).toContain("DiamondCore.bind(input0, 'value', () => this.query, (v) => this.query = v)")
-      expect(result.code).toContain('// [Diamond] From-view binding')
+      // undefined getter — DOM → model only
+      expect(result.code).toContain("DiamondCore.bind(input0, 'value', undefined, (v) => this.query = v)")
+      // must NOT wire a model → DOM getter (that would be two-way)
+      expect(result.code).not.toContain('() => this.query,')
+      expect(result.code).toContain('// [Diamond] From-view binding (one-way')
     })
 
     it('generates two-way binding', () => {
@@ -263,6 +266,25 @@ describe('CodeGenerator', () => {
       const result = generator.generate(nodes)
 
       expect(result.diagnostics).toHaveLength(0)
+    })
+
+    it('does NOT outbound-gate from-view (inbound — never writes the sink)', () => {
+      // innerHTML.from-view would warn if it were treated as an outbound write;
+      // it is inbound (DOM → model), so no stink is emitted here (Phase 3 covers it).
+      const nodes: NodeInfo[] = [createElement('div', {
+        bindings: [{
+          type: 'from-view',
+          property: 'innerHTML',
+          expression: 'userHtml',
+          raw: false,
+          location: null,
+        }],
+      })]
+      const result = generator.generate(nodes)
+
+      expect(
+        result.diagnostics?.some((d) => d.code?.startsWith('stink'))
+      ).toBeFalsy()
     })
   })
 

@@ -27,5 +27,8 @@ export { Component } from './component'
 // Decorator
 export { reactive } from './decorators'
 
+// Validation (DDR §5.7) — the from-view / parse contract
+export { ParseResult } from './parse-result'
+
 // Default export
 export { DiamondCore as default } from './core'

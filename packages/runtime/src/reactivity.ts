@@ -11,6 +11,18 @@ type EffectFn = () => void
 type CleanupFn = () => void
 
 /**
+ * Dev-only flag for the inbound smell check (DDR §3.3 row 3). Evaluated once; in
+ * a production bundle `process.env.NODE_ENV` is replaced with the literal, so the
+ * hot-path cost in prod is a single boolean.
+ */
+let IS_DEV: boolean
+try {
+  IS_DEV = process.env.NODE_ENV !== 'production'
+} catch {
+  IS_DEV = true
+}
+
+/**
  * ReactivityEngine - Internal engine for reactive state management
  *
  * Uses ES6 Proxy for transparent property access tracking.
@@ -28,6 +40,9 @@ export class ReactivityEngine {
 
   /** Proxy cache — ensures referential identity for deep reactivity */
   private proxyCache = new WeakMap<object, object>()
+
+  /** Properties already warned by the inbound smell check (warn-once) */
+  private smellWarned = new WeakMap<object, Set<PropertyKey>>()
 
   /**
    * Create a reactive proxy for an object.
@@ -57,6 +72,7 @@ export class ReactivityEngine {
         const oldValue = Reflect.get(target, prop, receiver)
         const result = Reflect.set(target, prop, value, receiver)
         if (oldValue !== value) {
+          if (IS_DEV) this.checkInboundSmell(target, prop, oldValue, value)
           this.triggerEffects(target, prop)
         }
         return result
@@ -110,6 +126,46 @@ export class ReactivityEngine {
         scheduler.queueEffect(effect)
       }
     }
+  }
+
+  /**
+   * Inbound smell check (DDR §3.3 row 3 / §5.1) — a THIN runtime backstop.
+   *
+   * Flags a display-formatted string overwriting a numeric model value (e.g.
+   * "$1,250.00" written over 1234.56) — the corruption a two-way binding without
+   * a `parse` causes. This is NOT the compile-time `stink:warn`; it is a distinct
+   * runtime channel, dev-only, warn-once-per-property. It only catches the
+   * number→non-numeric-string row; the real defense is §5.6 compile-time
+   * parse-required (a non-throwing string→string corruption can't be caught here).
+   */
+  private checkInboundSmell(
+    target: object,
+    prop: PropertyKey,
+    oldValue: unknown,
+    newValue: unknown
+  ): void {
+    if (
+      typeof oldValue !== 'number' ||
+      typeof newValue !== 'string' ||
+      !Number.isNaN(Number(newValue))
+    ) {
+      return
+    }
+
+    let warned = this.smellWarned.get(target)
+    if (!warned) {
+      warned = new Set()
+      this.smellWarned.set(target, warned)
+    }
+    if (warned.has(prop)) return
+    warned.add(prop)
+
+    console.warn(
+      `[Diamond] inbound corruption: property '${String(prop)}' held a number but ` +
+        `received the non-numeric string ${JSON.stringify(newValue)}. A display-formatted ` +
+        `value is leaking into the model — a two-way binding likely needs a parse (DDR §5.1). ` +
+        `This is a thin backstop; the real defense is compile-time parse-required (§5.6).`
+    )
   }
 
   /**

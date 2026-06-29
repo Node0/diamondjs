@@ -161,4 +161,15 @@ describe('compileTemplate', () => {
 
     expect(outputCode).toContain('// [Diamond] Compiled from: my-component.html')
   })
+
+  it('rejects named pipe transforms in a standalone module (require component context)', () => {
+    const { result } = compileTemplate(
+      '<span>${value | formatPercent}</span>',
+      'x.html',
+      false
+    )
+    expect(
+      result.diagnostics?.some((d) => d.code === 'pipe-transform-standalone')
+    ).toBe(true)
+  })
 })

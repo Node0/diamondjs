@@ -88,8 +88,6 @@ function rawSuggestion(op: SinkOp): string {
       return 'rawSet'
     case 'to-view':
       return 'rawBind.to-view'
-    case 'from-view':
-      return 'rawBind.from-view'
     case 'two-way':
     case 'bind':
     default:

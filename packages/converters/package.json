@@ -1,0 +1,50 @@
+{
+  "name": "@diamondjs/converters",
+  "version": "0.1.0",
+  "description": "DiamondJS batteries — format/parse converter classes (Currency, Date, Phone)",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts --clean",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint src --ext .ts",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "diamondjs",
+    "converters",
+    "format",
+    "parse",
+    "validation"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Node0/diamondjs.git",
+    "directory": "packages/converters"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@diamondjs/runtime": "*"
+  },
+  "devDependencies": {
+    "tsup": "^8.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

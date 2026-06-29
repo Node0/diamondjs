@@ -13,18 +13,40 @@ import type {
   BindingInfo,
   CompilerOptions,
   CompileResult,
+  ConverterObligation,
   Diagnostic,
   SinkOp,
   SourceLocation,
 } from './types'
 import { isElementInfo, isTextInfo } from './types'
 import { gateSink } from './security'
+import { parsePipe, lowerFormat, lowerArgs, type ParsedPipe } from './pipe'
 
 interface SourceMapping {
   generated: { line: number; column: number }
   original: { line: number; column: number }
   source: string
 }
+
+/**
+ * Identifiers left un-prefixed by prefixExpression (they are not component
+ * properties). Loop variables are added per-scope on top of this.
+ */
+const EXPR_KEYWORDS = new Set([
+  'this',
+  'true',
+  'false',
+  'null',
+  'undefined',
+  'typeof',
+  'instanceof',
+  'in',
+  'of',
+  'new',
+  'void',
+  'NaN',
+  'Infinity',
+])
 
 /**
  * CodeGenerator - Generates JavaScript from parsed template AST
@@ -36,6 +58,9 @@ export class CodeGenerator {
   private currentLine = 1
   private mappings: SourceMapping[] = []
   private diagnostics: Diagnostic[] = []
+  private converterObligations: ConverterObligation[] = []
+  private pipeHeads = new Set<string>()
+  private scopeVars = new Set<string>()
   private options: CompilerOptions
 
   constructor(options: CompilerOptions = {}) {
@@ -81,7 +106,12 @@ export class CodeGenerator {
     this.emitLine('}')
 
     const code = this.output.join('\n')
-    const result: CompileResult = { code, diagnostics: this.diagnostics }
+    const result: CompileResult = {
+      code,
+      diagnostics: this.diagnostics,
+      converterObligations: this.converterObligations,
+      pipeTransforms: [...this.pipeHeads],
+    }
 
     if (this.options.sourceMap && this.options.filePath) {
       result.map = this.generateSourceMap()
@@ -91,23 +121,135 @@ export class CodeGenerator {
   }
 
   /**
-   * Generate code for a list of nodes
+   * Generate code for a list of nodes.
+   *
+   * Structural directives are handled here (where siblings are visible): an `if`
+   * collects its consecutive `else-if` siblings into one DiamondCore.if() chain;
+   * `repeat` lowers to DiamondCore.repeat(). A plain element/text is generated
+   * normally. (generateElement ignores an element's own .structural, so it is
+   * reused to build the branch/item body.)
    */
   private generateNodes(nodes: NodeInfo[]): string[] {
     const vars: string[] = []
+    let i = 0
 
-    for (const node of nodes) {
+    while (i < nodes.length) {
+      const node = nodes[i]
+
+      if (isElementInfo(node) && node.structural) {
+        const kind = node.structural.type
+
+        if (kind === 'if') {
+          // Collect this if + consecutive else-if siblings (skip whitespace text)
+          const branches: ElementInfo[] = [node]
+          let j = i + 1
+          while (j < nodes.length) {
+            const n = nodes[j]
+            if (isTextInfo(n) && !n.content.trim()) {
+              j++
+              continue
+            }
+            if (isElementInfo(n) && n.structural?.type === 'else-if') {
+              branches.push(n)
+              j++
+              continue
+            }
+            break
+          }
+          vars.push(this.generateConditional(branches))
+          i = j
+          continue
+        }
+
+        if (kind === 'else-if') {
+          this.diagnostics.push({
+            severity: 'error',
+            code: 'orphan-else-if',
+            message: `'else-if' must immediately follow an 'if' or 'else-if' sibling.`,
+            location: node.structural.location,
+          })
+          i++
+          continue
+        }
+
+        if (kind === 'repeat') {
+          vars.push(this.generateRepeat(node))
+          i++
+          continue
+        }
+      }
+
       if (isElementInfo(node)) {
         vars.push(this.generateElement(node))
       } else if (isTextInfo(node)) {
         const textVar = this.generateText(node)
-        if (textVar) {
-          vars.push(textVar)
-        }
+        if (textVar) vars.push(textVar)
       }
+      i++
     }
 
     return vars
+  }
+
+  /**
+   * Generate a reactive conditional (if / else-if chain) → DiamondCore.if().
+   * No sink, no raw, always reactive (DDR §6.2). Each branch is a factory that
+   * builds its element body; first truthy condition wins.
+   */
+  private generateConditional(branches: ElementInfo[]): string {
+    const anchor = this.nextVar('ifAnchor')
+    const first = branches[0].structural!
+    this.emitLine(
+      `const ${anchor} = document.createComment('if');`,
+      first.location
+    )
+    this.emitLine(
+      `// [Diamond] Conditional: if="${first.expression}"` +
+        (branches.length > 1 ? ` (+${branches.length - 1} else-if)` : '')
+    )
+    this.emitLine(`DiamondCore.if(${anchor}, [`)
+    this.indent++
+    for (const br of branches) {
+      const cond = this.prefixExpression(br.structural!.expression)
+      this.emitLine(`{ when: () => ${cond}, make: () => {`)
+      this.indent++
+      const elVar = this.generateElement(br)
+      this.emitLine(`return ${elVar};`)
+      this.indent--
+      this.emitLine(`} },`)
+    }
+    this.indent--
+    this.emitLine(`]);`)
+    return anchor
+  }
+
+  /**
+   * Generate a reactive keyed list (repeat.for) → DiamondCore.repeat().
+   * The loop variable is added to the scope so body expressions reference the
+   * closure parameter (not `this`). DDR §6.3.
+   */
+  private generateRepeat(element: ElementInfo): string {
+    const s = element.structural!
+    const anchor = this.nextVar('repeatAnchor')
+    this.emitLine(
+      `const ${anchor} = document.createComment('repeat');`,
+      s.location
+    )
+    this.emitLine(
+      `// [Diamond] Repeat: repeat.for="${s.itemName} of ${s.itemsExpression}"`
+    )
+    const itemsExpr = this.prefixExpression(s.itemsExpression!)
+    this.emitLine(`DiamondCore.repeat(${anchor}, () => ${itemsExpr}, (${s.itemName}) => {`)
+    this.indent++
+    const itemName = s.itemName!
+    const hadVar = this.scopeVars.has(itemName)
+    this.scopeVars.add(itemName)
+    const elVar = this.generateElement(element)
+    this.emitLine(`return ${elVar};`)
+    if (!hadVar) this.scopeVars.delete(itemName)
+    this.indent--
+    this.emitLine(`});`)
+    return anchor
   }
 
   /**
@@ -197,62 +339,210 @@ export class CodeGenerator {
    * v1.5.1 one-time bypass (a naked `el.prop = value` that never entered bind()).
    */
   private generateBinding(varName: string, binding: BindingInfo): void {
-    // Gate the sink write — records stink:warn / stink:declared / info as needed.
-    const diag = gateSink(
-      binding.property,
-      binding.type as SinkOp,
-      binding.raw,
-      binding.expression,
-      binding.location
-    )
-    if (diag) this.diagnostics.push(diag)
+    // Gate OUTBOUND sink writes (model → DOM). from-view is inbound (DOM → model):
+    // it never writes the sink, so it is not outbound-gated — its risk is the
+    // runtime inbound smell check (DDR §3.3 row 3). Its `raw` flag is preserved
+    // as the inbound-escape hatch.
+    if (binding.type !== 'from-view') {
+      const diag = gateSink(
+        binding.property,
+        binding.type as SinkOp,
+        binding.raw,
+        binding.expression,
+        binding.location
+      )
+      if (diag) this.diagnostics.push(diag)
+    }
 
-    const expr = this.prefixExpression(binding.expression)
+    // Parse the pipe once (segments is empty when there is no `|`).
+    const parsed = parsePipe(binding.expression)
+    for (const seg of parsed.segments) {
+      if (!seg.malformed) this.pipeHeads.add(seg.head)
+      if (seg.malformed) {
+        this.diagnostics.push({
+          severity: 'error',
+          code: 'malformed-pipe',
+          message: `Malformed pipe segment in "${binding.expression}".`,
+          location: binding.location,
+        })
+      }
+    }
+    const dataExpr = this.prefixExpression(parsed.data)
     const rawTag = binding.raw ? 'RAW ' : ''
 
     switch (binding.type) {
-      case 'set':
+      case 'set': {
         // Static one-shot assignment — direct property write (v2.0: was .one-time)
+        const outbound = this.lowerOutboundParsed(parsed)
         this.emitLine(
           `// [Diamond] ${rawTag}Set (static one-shot): ${binding.property} = ${binding.expression}`
         )
-        this.emitLine(
-          `${varName}.${binding.property} = ${expr};`,
-          binding.location
-        )
+        this.emitLine(`${varName}.${binding.property} = ${outbound};`, binding.location)
         break
+      }
 
-      case 'to-view':
+      case 'to-view': {
+        const outbound = this.lowerOutboundParsed(parsed)
         this.emitLine(
-          `// [Diamond] ${rawTag}One-way binding: ${binding.property} ← this.${binding.expression}`
+          `// [Diamond] ${rawTag}One-way binding: ${binding.property} ← ${binding.expression}`
         )
         this.emitLine(
-          `DiamondCore.bind(${varName}, '${binding.property}', () => ${expr});`,
+          `DiamondCore.bind(${varName}, '${binding.property}', () => ${outbound});`,
           binding.location
         )
         break
+      }
 
-      case 'from-view':
+      case 'from-view': {
+        // One-way DOM → model. NO getter (undefined) so the model can NEVER push
+        // back into the sink — a from-view flow must not silently behave two-way.
+        const setter = this.buildFromViewSetter(parsed, dataExpr, binding.location)
         this.emitLine(
-          `// [Diamond] ${rawTag}From-view binding: ${binding.property} → this.${binding.expression}`
+          `// [Diamond] ${rawTag}From-view binding (one-way DOM → ${binding.expression}): ${binding.property}`
         )
         this.emitLine(
-          `DiamondCore.bind(${varName}, '${binding.property}', () => ${expr}, (v) => ${expr} = v);`,
+          `DiamondCore.bind(${varName}, '${binding.property}', undefined, ${setter});`,
           binding.location
         )
         break
+      }
 
       case 'bind':
       case 'two-way':
-      default:
-        this.emitLine(
-          `// [Diamond] ${rawTag}Two-way binding: ${binding.property} ↔ this.${binding.expression}`
+      default: {
+        const { getter, setter } = this.buildTwoWay(
+          parsed,
+          dataExpr,
+          binding.location
         )
         this.emitLine(
-          `DiamondCore.bind(${varName}, '${binding.property}', () => ${expr}, (v) => ${expr} = v);`,
+          `// [Diamond] ${rawTag}Two-way binding: ${binding.property} ↔ ${binding.expression}`
+        )
+        this.emitLine(
+          `DiamondCore.bind(${varName}, '${binding.property}', ${getter}, ${setter});`,
           binding.location
         )
         break
+      }
+    }
+  }
+
+  /**
+   * Lower the outbound (display) leg of a parsed pipe to a FORMAT chain, or the
+   * plain prefixed data when there is no pipe. (DDR §5.3 — left-to-right.)
+   */
+  private lowerOutboundParsed(parsed: ParsedPipe): string {
+    if (parsed.segments.length === 0) return this.prefixExpression(parsed.data)
+    return lowerFormat(parsed, (e) => this.prefixExpression(e))
+  }
+
+  /** Same as lowerOutboundParsed but from a raw expression string (interpolation). */
+  private lowerOutbound(expression: string): string {
+    const parsed = parsePipe(expression)
+    for (const seg of parsed.segments) {
+      if (!seg.malformed) this.pipeHeads.add(seg.head)
+      if (seg.malformed) {
+        this.diagnostics.push({
+          severity: 'error',
+          code: 'malformed-pipe',
+          message: `Malformed pipe segment in "${expression}".`,
+          location: null,
+        })
+      }
+    }
+    return this.lowerOutboundParsed(parsed)
+  }
+
+  /**
+   * Build the from-view inbound setter. At most one transform:
+   *   - converter (PascalCase) → validated parse → ParseResult (write only if valid)
+   *   - plain function (camelCase) → direct call (unvalidated)
+   *   - none → passthrough
+   * "Keep raw on invalid" is free: from-view has no getter, so not writing the
+   * model leaves the user's typed text in the DOM (DDR §5.7).
+   */
+  private buildFromViewSetter(
+    parsed: ParsedPipe,
+    dataExpr: string,
+    location: SourceLocation | null
+  ): string {
+    const segs = parsed.segments
+    if (segs.length === 0) return `(v) => ${dataExpr} = v`
+
+    if (segs.length > 1) {
+      this.diagnostics.push({
+        severity: 'error',
+        code: 'pipe-fromview-multi',
+        message: `A from-view binding allows at most one transform on the inbound leg (got ${segs.length}).`,
+        location,
+      })
+      return `(v) => ${dataExpr} = v`
+    }
+
+    const seg = segs[0]
+    const tail = lowerArgs(seg, (e) => this.prefixExpression(e))
+    if (seg.isConverter) {
+      this.converterObligations.push({
+        name: seg.head,
+        needs: 'parse',
+        direction: 'from-view',
+        location,
+      })
+      return `(v) => { const r = ${seg.head}.parse(v${tail}); if (r.valid) ${dataExpr} = r.value; }`
+    }
+    // plain function on inbound: direct call (no validation)
+    return `(v) => ${dataExpr} = ${seg.head}(v${tail})`
+  }
+
+  /**
+   * Build the two-way getter (FORMAT, model→DOM) + setter (PARSE, DOM→model).
+   * A two-way leg permits at most ONE converter class with parse; a plain
+   * function (non-invertible) or a multi-segment pipe is a compile error — this
+   * closes the §5.1 corruption hole the capitalization convention would open.
+   */
+  private buildTwoWay(
+    parsed: ParsedPipe,
+    dataExpr: string,
+    location: SourceLocation | null
+  ): { getter: string; setter: string } {
+    const segs = parsed.segments
+    const passthrough = {
+      getter: `() => ${dataExpr}`,
+      setter: `(v) => ${dataExpr} = v`,
+    }
+    if (segs.length === 0) return passthrough
+
+    if (segs.length > 1) {
+      this.diagnostics.push({
+        severity: 'error',
+        code: 'pipe-two-way-multi',
+        message: `A two-way binding allows at most one converter (got ${segs.length}); split into to-view + from-view, or use a view-model getter.`,
+        location,
+      })
+      return passthrough
+    }
+
+    const seg = segs[0]
+    if (!seg.isConverter) {
+      this.diagnostics.push({
+        severity: 'error',
+        code: 'pipe-two-way-noninvertible',
+        message: `A two-way binding requires a converter class with a parse method; '${seg.head}' is a plain (non-invertible) function. Use to-view for display, from-view for input, or a converter class.`,
+        location,
+      })
+      return passthrough
+    }
+
+    const tail = lowerArgs(seg, (e) => this.prefixExpression(e))
+    this.converterObligations.push({
+      name: seg.head,
+      needs: 'parse',
+      direction: 'two-way',
+      location,
+    })
+    return {
+      getter: `() => ${seg.head}.format(${dataExpr}${tail})`,
+      setter: `(v) => { const r = ${seg.head}.parse(v${tail}); if (r.valid) ${dataExpr} = r.value; }`,
     }
   }
 
@@ -320,31 +610,35 @@ export class CodeGenerator {
    * Build interpolation template expression
    */
   private buildInterpolationExpr(content: string): string {
-    // Replace ${expr} with ${this.expr}
+    // Replace ${expr} with the lowered (pipe-aware) outbound expression.
     const escaped = content
       .replace(/`/g, '\\`')
       .replace(/\$\{([^}]+)\}/g, (_match, expr) => {
-        return '${' + this.prefixExpression(expr.trim()) + '}'
+        return '${' + this.lowerOutbound(expr.trim()) + '}'
       })
     return '`' + escaped + '`'
   }
 
   /**
-   * Prefix an expression with this.
+   * Prefix identifier roots in an expression with `this.`.
+   *
+   * Token-aware so it works for conditions with operators (`!a && !b`,
+   * `nodes.length > 0`, `status === 'loading'`), not just bare paths. Leaves
+   * untouched: string/template literals, numeric literals, property-access
+   * tails (the part after a `.`), keywords, and in-scope loop variables.
    */
   private prefixExpression(expr: string): string {
-    // Handle property paths like user.name
-    // Don't prefix if it's a literal, keyword, or already prefixed
-    if (
-      /^['"`]/.test(expr) || // String literal
-      /^\d/.test(expr) || // Number literal
-      /^(true|false|null|undefined)$/.test(expr) || // Keywords
-      /^this\./.test(expr) // Already prefixed
-    ) {
-      return expr
-    }
-
-    return `this.${expr}`
+    return expr.replace(
+      // group 1: string/template literal | group 2: optional leading dot | group 3: identifier
+      /('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|`(?:[^`\\]|\\.)*`)|(\.?)([A-Za-z_$][\w$]*)/g,
+      (match, str: string, dot: string, id: string) => {
+        if (str) return str // string/template literal — leave verbatim
+        if (dot) return match // property-access tail (.name) — leave
+        if (EXPR_KEYWORDS.has(id)) return match
+        if (this.scopeVars.has(id)) return match // loop variable in scope
+        return `this.${id}`
+      }
+    )
   }
 
   /**
@@ -394,6 +688,9 @@ export class CodeGenerator {
     this.currentLine = 1
     this.mappings = []
     this.diagnostics = []
+    this.converterObligations = []
+    this.pipeHeads.clear()
+    this.scopeVars.clear()
   }
 
   /**

@@ -26,10 +26,14 @@ export type BindingType =
   | 'capture'   // Capture phase event
 
 /**
- * Sink-writing binding operations — the ops subject to the security gate.
- * Event ops (calls/capture) are NOT sinks; structural directives have no sink.
+ * Outbound sink-writing operations — those that write model→DOM and are subject
+ * to the compile-time security gate (DDR §3.3 row 1).
+ *
+ * NOT included: `from-view` (inbound, DOM→model — writes the model, not the sink;
+ * its risk is the runtime inbound smell check, §3.3 row 3), event ops
+ * (calls/capture — addEventListener, no sink), and structural directives.
  */
-export type SinkOp = 'set' | 'bind' | 'to-view' | 'from-view' | 'two-way'
+export type SinkOp = 'set' | 'bind' | 'to-view' | 'two-way'
 
 /**
  * Severity of a compiler diagnostic.
@@ -76,6 +80,23 @@ export interface InterpolationInfo {
 }
 
 /**
+ * Structural directive on an element (DDR §6.2 if/else-if, §6.3 repeat.for).
+ * At most one per element.
+ */
+export type StructuralType = 'if' | 'else-if' | 'repeat'
+
+export interface StructuralInfo {
+  type: StructuralType
+  /** Condition (if/else-if) or the raw "item of items" text (repeat) */
+  expression: string
+  location: SourceLocation | null
+  /** repeat only: the loop variable name */
+  itemName?: string
+  /** repeat only: the iterable expression */
+  itemsExpression?: string
+}
+
+/**
  * Element information extracted from AST
  */
 export interface ElementInfo {
@@ -86,6 +107,8 @@ export interface ElementInfo {
   staticAttrs: Map<string, string>
   children: NodeInfo[]
   location: SourceLocation | null
+  /** Structural directive (if/else-if/repeat), if present */
+  structural?: StructuralInfo
 }
 
 /**
@@ -129,6 +152,22 @@ export interface CompilerOptions {
 }
 
 /**
+ * A converter the compiler determined MUST expose a `parse` static method,
+ * because it appears on an inbound binding leg (from-view / two-way). The
+ * compiler knows direction but not the module's exports — a downstream resolver
+ * (transformer / CI tool) follows the import to verify (DDR §5.5/§5.6).
+ */
+export interface ConverterObligation {
+  /** Converter class name (PascalCase) */
+  name: string
+  /** The method that must exist */
+  needs: 'parse'
+  /** The inbound leg that created the obligation */
+  direction: 'from-view' | 'two-way'
+  location: SourceLocation | null
+}
+
+/**
  * Compilation result
  */
 export interface CompileResult {
@@ -138,4 +177,10 @@ export interface CompileResult {
   map?: string
   /** Diagnostics emitted during parse + codegen (errors, security stink, info) */
   diagnostics?: Diagnostic[]
+  /** Converters that must expose `parse` (verified downstream by import resolution) */
+  converterObligations?: ConverterObligation[]
+  /** Distinct named pipe transform/converter heads referenced by the template.
+   *  They must be in lexical scope where createTemplate runs — i.e. the component
+   *  context (compileAndInject), not a standalone .diamond.html module. */
+  pipeTransforms?: string[]
 }
