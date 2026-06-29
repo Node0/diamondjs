@@ -24,7 +24,7 @@ describe('DiamondCompiler', () => {
     })
 
     it('compiles element with event', () => {
-      const result = compiler.compile('<button click.trigger="save()"></button>')
+      const result = compiler.compile('<button click.calls="save()"></button>')
 
       expect(result.code).toContain("DiamondCore.on(button0, 'click'")
     })
@@ -149,7 +149,7 @@ export class MyComponent {}
   describe('integration scenarios', () => {
     it('compiles a complete form', () => {
       const template = `
-        <form submit.trigger="onSubmit()">
+        <form submit.calls="onSubmit()">
           <label>Name:</label>
           <input type="text" value.bind="name">
           <label>Email:</label>
@@ -169,7 +169,7 @@ export class MyComponent {}
     it('compiles a component with all binding types', () => {
       const template = `
         <div>
-          <span textContent.one-time="title"></span>
+          <span textContent.set="title"></span>
           <span textContent.to-view="message"></span>
           <input value.from-view="query">
           <input value.two-way="name">
@@ -191,9 +191,9 @@ export class MyComponent {}
     it('compiles a counter component', () => {
       const template = `
         <div class="counter">
-          <button click.trigger="decrement()">-</button>
+          <button click.calls="decrement()">-</button>
           <span>\${count}</span>
-          <button click.trigger="increment()">+</button>
+          <button click.calls="increment()">+</button>
         </div>
       `
       const result = compiler.compile(template)

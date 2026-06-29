@@ -5,14 +5,19 @@
 import { DiamondCompiler, type CompileResult } from '@diamondjs/compiler'
 
 /**
- * Check if HTML content is a DiamondJS template
- * Templates contain binding syntax like .bind, .trigger, .delegate, etc.
+ * Check if HTML content is a DiamondJS template.
+ *
+ * Detects the v2.0 command surface AND the retired v1.5.1 tokens — retired
+ * tokens must still be detected so the file is compiled and routes to the
+ * "renamed to ..." diagnostic, rather than being silently served as raw HTML.
+ * Runs on the raw source (pre-parse5), so it is case-insensitive to catch the
+ * source-only camelCase of rawSet/rawBind.
  */
 export function isDiamondTemplate(code: string): boolean {
-  // Check for binding syntax: property.command="expression"
+  // Binding syntax: property.command[.qualifier]="expression"
   const bindingPattern =
-    /\.\s*(bind|one-time|to-view|from-view|two-way|trigger|delegate|capture)\s*=/
-  // Check for interpolation syntax: ${...}
+    /\.\s*(set|rawset|bind|rawbind|to-view|from-view|two-way|calls|capture|one-time|trigger|delegate)\s*=/i
+  // Interpolation syntax: ${...}
   const interpolationPattern = /\$\{[^}]+\}/
 
   return bindingPattern.test(code) || interpolationPattern.test(code)

@@ -10,6 +10,7 @@ import type {
   SourceLocation,
   BindingInfo,
   BindingType,
+  Diagnostic,
   InterpolationInfo,
   ElementInfo,
   TextInfo,
@@ -22,10 +23,15 @@ type Node = DefaultTreeAdapterMap['node']
 type DocumentFragment = DefaultTreeAdapterMap['documentFragment']
 
 /**
- * Map lowercase attribute names to camelCase DOM property names
- * HTML attributes are case-insensitive and parse5 normalizes to lowercase
+ * Map lowercase attribute names to camelCase DOM property names.
+ * HTML attributes are case-insensitive and parse5 normalizes to lowercase, so
+ * every property segment arrives lowercased and must be canonicalized here.
+ *
+ * INVARIANT: every multi-case entry of SAFE_SINKS must appear here (else a safe
+ * sink arrives non-canonical and fails closed as a false stink:warn). Enforced
+ * by security.test.ts.
  */
-const PROPERTY_NAME_MAP: Record<string, string> = {
+export const PROPERTY_NAME_MAP: Record<string, string> = {
   textcontent: 'textContent',
   innerhtml: 'innerHTML',
   innertext: 'innerText',
@@ -34,6 +40,7 @@ const PROPERTY_NAME_MAP: Record<string, string> = {
   tabindex: 'tabIndex',
   readonly: 'readOnly',
   maxlength: 'maxLength',
+  minlength: 'minLength',
   cellpadding: 'cellPadding',
   cellspacing: 'cellSpacing',
   rowspan: 'rowSpan',
@@ -41,13 +48,56 @@ const PROPERTY_NAME_MAP: Record<string, string> = {
   usemap: 'useMap',
   frameborder: 'frameBorder',
   contenteditable: 'contentEditable',
+  // Safe-sink canonicalizations (keep in sync with SAFE_SINKS)
+  scrolltop: 'scrollTop',
+  scrollleft: 'scrollLeft',
+  valueasnumber: 'valueAsNumber',
+  valueasdate: 'valueAsDate',
+  selectedindex: 'selectedIndex',
+  inputmode: 'inputMode',
   // Add more as needed
+}
+
+/**
+ * Binding command surface (v2.0). Keyed by the lowercased command segment(s)
+ * joined with '.', since parse5 lowercases all attribute names — the camelCase
+ * legibility of `rawSet`/`rawBind` is a source-only affordance.
+ *
+ * Two-segment: `property.command`. Three-segment: `property.rawBind.direction`.
+ * `raw` is represented as a boolean flag, never a flattened `rawTo-view` token.
+ */
+const COMMAND_MAP: Record<string, { type: BindingType; raw: boolean }> = {
+  set: { type: 'set', raw: false },
+  rawset: { type: 'set', raw: true },
+  bind: { type: 'bind', raw: false },
+  rawbind: { type: 'bind', raw: true },
+  'to-view': { type: 'to-view', raw: false },
+  'from-view': { type: 'from-view', raw: false },
+  'two-way': { type: 'two-way', raw: false },
+  'bind.to-view': { type: 'to-view', raw: false },
+  'bind.from-view': { type: 'from-view', raw: false },
+  'bind.two-way': { type: 'two-way', raw: false },
+  'rawbind.to-view': { type: 'to-view', raw: true },
+  'rawbind.from-view': { type: 'from-view', raw: true },
+  'rawbind.two-way': { type: 'two-way', raw: true },
+  calls: { type: 'calls', raw: false },
+  capture: { type: 'capture', raw: false },
+}
+
+/** Retired v1.5.1 commands → the v2.0 replacement guidance (DDR §4.1/§6.4/§6.5). */
+const RETIRED_COMMANDS: Record<string, string> = {
+  'one-time': "renamed to '.set' (or '.rawSet' for unescaped writes)",
+  trigger: "renamed to '.calls'",
+  delegate: "removed; attach a per-node '.calls' handler instead",
 }
 
 /**
  * TemplateParser - Parses HTML templates and extracts binding information
  */
 export class TemplateParser {
+  /** Diagnostics (retired/unknown commands) collected during the most recent parse() */
+  diagnostics: Diagnostic[] = []
+
   /**
    * Parse an HTML template string
    *
@@ -55,6 +105,7 @@ export class TemplateParser {
    * @returns Parsed node information
    */
   parse(html: string): NodeInfo[] {
+    this.diagnostics = []
     const fragment = parseFragment(html, {
       sourceCodeLocationInfo: true,
     }) as DocumentFragment
@@ -92,29 +143,38 @@ export class TemplateParser {
 
     // Process attributes
     for (const attr of element.attrs) {
-      const bindingMatch = attr.name.match(/^(\w+)\.(\w+(?:-\w+)?)$/)
-
-      if (bindingMatch) {
-        const [, rawProperty, command] = bindingMatch
-        // Map lowercase property to proper camelCase DOM property name
-        const property = PROPERTY_NAME_MAP[rawProperty] || rawProperty
-        const bindingType = this.parseBindingCommand(command)
-        const location = this.getAttrLocation(element, attr.name)
-
-        const binding: BindingInfo = {
-          type: bindingType,
-          property,
-          expression: attr.value,
-          location,
-        }
-
-        if (this.isEventBinding(bindingType)) {
-          events.push(binding)
-        } else {
-          bindings.push(binding)
-        }
-      } else {
+      // A dotted attribute name (`property.command[.qualifier]`) is a binding;
+      // everything else is a static attribute. parse5 lowercases attr names.
+      const segments = attr.name.split('.')
+      if (segments.length < 2) {
         staticAttrs.set(attr.name, attr.value)
+        continue
+      }
+
+      const [rawProperty, ...commandSegs] = segments
+      const location = this.getAttrLocation(element, attr.name)
+      const parsed = this.parseCommand(commandSegs, attr.name, location)
+
+      if (!parsed) {
+        // Retired or unknown command — diagnostic already recorded; drop the attr
+        // so no bogus binding ships. (The transformer throws on error-severity.)
+        continue
+      }
+
+      // Map lowercase property to canonical camelCase DOM property name
+      const property = PROPERTY_NAME_MAP[rawProperty] || rawProperty
+      const binding: BindingInfo = {
+        type: parsed.type,
+        property,
+        expression: attr.value,
+        raw: parsed.raw,
+        location,
+      }
+
+      if (this.isEventBinding(parsed.type)) {
+        events.push(binding)
+      } else {
+        bindings.push(binding)
       }
     }
 
@@ -174,27 +234,49 @@ export class TemplateParser {
   }
 
   /**
-   * Parse binding command to type
+   * Parse command segment(s) into a binding type + raw flag.
+   *
+   * Returns null (and records an error diagnostic) for retired or unknown
+   * commands — there is no silent fallback (a fail-open default would be a hole
+   * in a security release).
    */
-  private parseBindingCommand(command: string): BindingType {
-    const commandMap: Record<string, BindingType> = {
-      bind: 'bind',
-      'one-time': 'one-time',
-      'to-view': 'to-view',
-      'from-view': 'from-view',
-      'two-way': 'two-way',
-      trigger: 'trigger',
-      delegate: 'delegate',
-      capture: 'capture',
+  private parseCommand(
+    commandSegs: string[],
+    attrName: string,
+    location: SourceLocation | null
+  ): { type: BindingType; raw: boolean } | null {
+    const key = commandSegs.join('.')
+
+    const known = COMMAND_MAP[key]
+    if (known) return known
+
+    // Retired v1.5.1 command → actionable error
+    const retired = RETIRED_COMMANDS[key]
+    if (retired) {
+      this.diagnostics.push({
+        severity: 'error',
+        code: 'retired-command',
+        message: `Binding command '.${key}' was ${retired}. (in '${attrName}')`,
+        location,
+      })
+      return null
     }
-    return commandMap[command] || 'bind'
+
+    // Unknown command — replaces the old silent `|| 'bind'` fallback
+    this.diagnostics.push({
+      severity: 'error',
+      code: 'unknown-command',
+      message: `Unknown binding command '.${key}' in '${attrName}'.`,
+      location,
+    })
+    return null
   }
 
   /**
    * Check if binding type is an event binding
    */
   private isEventBinding(type: BindingType): boolean {
-    return type === 'trigger' || type === 'delegate' || type === 'capture'
+    return type === 'calls' || type === 'capture'
   }
 
   /**

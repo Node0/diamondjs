@@ -146,33 +146,10 @@ export class DiamondCore {
     return () => element.removeEventListener(event, handler, capture)
   }
 
-  /**
-   * Event delegation - attach handler to parent for child elements
-   * 
-   * @param parent - Parent element to attach listener
-   * @param event - Event name
-   * @param selector - CSS selector for target elements
-   * @param handler - Event handler function
-   * @returns Cleanup function
-   * 
-   * @example
-   * DiamondCore.delegate(list, 'click', 'li', (e) => this.selectItem(e))
-   */
-  static delegate(
-    parent: HTMLElement,
-    event: string,
-    selector: string,
-    handler: (e: Event) => void
-  ): CleanupFn {
-    const delegateHandler = (e: Event) => {
-      const target = e.target as HTMLElement
-      if (target.matches(selector)) {
-        handler(e)
-      }
-    }
-    parent.addEventListener(event, delegateHandler)
-    return () => parent.removeEventListener(event, delegateHandler)
-  }
+  // NOTE: DiamondCore.delegate() was removed in v2.0 (DDR §6.4). Event delegation
+  // had no remaining reason to exist (Collection + virtual scrolling caps live node
+  // count; repeat.for codegen emits per-node .calls). The old method was an orphaned
+  // stub the generator never called.
 
   /**
    * Get the appropriate input event name for two-way binding

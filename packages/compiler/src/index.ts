@@ -23,16 +23,22 @@
 export { DiamondCompiler, CompileError } from './compiler'
 
 // Parser (for advanced usage)
-export { TemplateParser } from './parser'
+export { TemplateParser, PROPERTY_NAME_MAP } from './parser'
 
 // Generator (for advanced usage)
 export { CodeGenerator } from './generator'
+
+// Security policy (allowlist + gate) — used by the stink-check tool
+export { SAFE_SINKS, gateSink } from './security'
 
 // Types
 export type {
   SourceLocation,
   BindingType,
   BindingInfo,
+  SinkOp,
+  Diagnostic,
+  DiagnosticSeverity,
   InterpolationInfo,
   ElementInfo,
   TextInfo,

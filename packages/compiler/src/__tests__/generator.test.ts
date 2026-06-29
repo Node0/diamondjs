@@ -101,12 +101,13 @@ describe('CodeGenerator', () => {
   })
 
   describe('binding generation', () => {
-    it('generates one-time binding', () => {
+    it('generates set binding (was .one-time) as a direct write', () => {
       const nodes: NodeInfo[] = [createElement('span', {
         bindings: [{
-          type: 'one-time',
+          type: 'set',
           property: 'textContent',
           expression: 'title',
+          raw: false,
           location: null,
         }],
       })]
@@ -114,7 +115,7 @@ describe('CodeGenerator', () => {
 
       expect(result.code).toContain('span0.textContent = this.title')
       expect(result.code).not.toContain('DiamondCore.bind')
-      expect(result.code).toContain('// [Diamond] One-time binding')
+      expect(result.code).toContain('// [Diamond] Set (static one-shot)')
     })
 
     it('generates to-view binding', () => {
@@ -123,6 +124,7 @@ describe('CodeGenerator', () => {
           type: 'to-view',
           property: 'textContent',
           expression: 'message',
+          raw: false,
           location: null,
         }],
       })]
@@ -139,6 +141,7 @@ describe('CodeGenerator', () => {
           type: 'from-view',
           property: 'value',
           expression: 'query',
+          raw: false,
           location: null,
         }],
       })]
@@ -154,6 +157,7 @@ describe('CodeGenerator', () => {
           type: 'bind',
           property: 'value',
           expression: 'name',
+          raw: false,
           location: null,
         }],
       })]
@@ -163,12 +167,29 @@ describe('CodeGenerator', () => {
       expect(result.code).toContain('// [Diamond] Two-way binding')
     })
 
+    it('marks a raw binding with the RAW hint tag', () => {
+      const nodes: NodeInfo[] = [createElement('div', {
+        bindings: [{
+          type: 'to-view',
+          property: 'innerHTML',
+          expression: 'userHtml',
+          raw: true,
+          location: null,
+        }],
+      })]
+      const result = generator.generate(nodes)
+
+      expect(result.code).toContain('// [Diamond] RAW One-way binding')
+      expect(result.code).toContain("DiamondCore.bind(div0, 'innerHTML', () => this.userHtml)")
+    })
+
     it('handles property paths', () => {
       const nodes: NodeInfo[] = [createElement('span', {
         bindings: [{
           type: 'bind',
           property: 'textContent',
           expression: 'user.profile.name',
+          raw: false,
           location: null,
         }],
       })]
@@ -180,9 +201,10 @@ describe('CodeGenerator', () => {
     it('does not prefix literals', () => {
       const nodes: NodeInfo[] = [createElement('span', {
         bindings: [{
-          type: 'one-time',
+          type: 'set',
           property: 'textContent',
           expression: "'hello'",
+          raw: false,
           location: null,
         }],
       })]
@@ -193,13 +215,65 @@ describe('CodeGenerator', () => {
     })
   })
 
+  describe('security gate diagnostics', () => {
+    it('emits stink:warn for an unsafe sink written without raw', () => {
+      const nodes: NodeInfo[] = [createElement('div', {
+        bindings: [{
+          type: 'to-view',
+          property: 'innerHTML',
+          expression: 'userHtml',
+          raw: false,
+          location: null,
+        }],
+      })]
+      const result = generator.generate(nodes)
+
+      expect(
+        result.diagnostics?.some((d) => d.code === 'stink:warn')
+      ).toBe(true)
+    })
+
+    it('emits stink:declared for a raw write to an unsafe sink', () => {
+      const nodes: NodeInfo[] = [createElement('div', {
+        bindings: [{
+          type: 'to-view',
+          property: 'innerHTML',
+          expression: 'userHtml',
+          raw: true,
+          location: null,
+        }],
+      })]
+      const result = generator.generate(nodes)
+
+      expect(
+        result.diagnostics?.some((d) => d.code === 'stink:declared')
+      ).toBe(true)
+    })
+
+    it('emits no diagnostics for a safe sink', () => {
+      const nodes: NodeInfo[] = [createElement('span', {
+        bindings: [{
+          type: 'set',
+          property: 'textContent',
+          expression: 'title',
+          raw: false,
+          location: null,
+        }],
+      })]
+      const result = generator.generate(nodes)
+
+      expect(result.diagnostics).toHaveLength(0)
+    })
+  })
+
   describe('event generation', () => {
-    it('generates trigger event', () => {
+    it('generates calls event (was .trigger)', () => {
       const nodes: NodeInfo[] = [createElement('button', {
         events: [{
-          type: 'trigger',
+          type: 'calls',
           property: 'click',
           expression: 'save()',
+          raw: false,
           location: null,
         }],
       })]
@@ -215,6 +289,7 @@ describe('CodeGenerator', () => {
           type: 'capture',
           property: 'click',
           expression: 'onCapture()',
+          raw: false,
           location: null,
         }],
       })]
@@ -227,9 +302,10 @@ describe('CodeGenerator', () => {
     it('handles $event parameter', () => {
       const nodes: NodeInfo[] = [createElement('input', {
         events: [{
-          type: 'trigger',
+          type: 'calls',
           property: 'input',
           expression: 'handleInput($event)',
+          raw: false,
           location: null,
         }],
       })]
@@ -241,9 +317,10 @@ describe('CodeGenerator', () => {
     it('handles method with arguments', () => {
       const nodes: NodeInfo[] = [createElement('button', {
         events: [{
-          type: 'trigger',
+          type: 'calls',
           property: 'click',
           expression: 'addItem(item, index)',
+          raw: false,
           location: null,
         }],
       })]

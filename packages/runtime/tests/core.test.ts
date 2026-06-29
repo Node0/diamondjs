@@ -197,48 +197,11 @@ describe('DiamondCore', () => {
     })
   })
 
-  describe('delegate', () => {
-    it('should delegate events to matching children', () => {
-      const parent = document.createElement('ul')
-      const li1 = document.createElement('li')
-      const li2 = document.createElement('li')
-      parent.appendChild(li1)
-      parent.appendChild(li2)
-
-      const handler = vi.fn()
-      DiamondCore.delegate(parent, 'click', 'li', handler)
-
-      li1.click()
-      expect(handler).toHaveBeenCalledTimes(1)
-
-      li2.click()
-      expect(handler).toHaveBeenCalledTimes(2)
-    })
-
-    it('should not trigger for non-matching children', () => {
-      const parent = document.createElement('div')
-      const span = document.createElement('span')
-      parent.appendChild(span)
-
-      const handler = vi.fn()
-      DiamondCore.delegate(parent, 'click', 'li', handler)
-
-      span.click()
-      expect(handler).not.toHaveBeenCalled()
-    })
-
-    it('should return cleanup function', () => {
-      const parent = document.createElement('ul')
-      const li = document.createElement('li')
-      parent.appendChild(li)
-
-      const handler = vi.fn()
-      const cleanup = DiamondCore.delegate(parent, 'click', 'li', handler)
-
-      cleanup()
-      li.click()
-
-      expect(handler).not.toHaveBeenCalled()
+  describe('delegate (removed in v2.0, DDR §6.4)', () => {
+    it('no longer exists on DiamondCore', () => {
+      expect(
+        (DiamondCore as unknown as Record<string, unknown>).delegate
+      ).toBeUndefined()
     })
   })
 })

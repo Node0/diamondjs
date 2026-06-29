@@ -40,7 +40,16 @@ export class DiamondCompiler {
 
     // Generate code
     const generator = new CodeGenerator(options)
-    return generator.generate(nodes)
+    const result = generator.generate(nodes)
+
+    // Merge parser diagnostics (retired/unknown commands) ahead of codegen ones
+    // (gate stink). Enforcement happens downstream: the transformer throws on
+    // 'error', the stink-check tool gates 'warn' and baselines 'declared'.
+    result.diagnostics = [
+      ...this.parser.diagnostics,
+      ...(result.diagnostics ?? []),
+    ]
+    return result
   }
 
   /**

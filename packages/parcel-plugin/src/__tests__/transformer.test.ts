@@ -13,10 +13,34 @@ describe('isDiamondTemplate', () => {
     expect(isDiamondTemplate('<input value.bind="name">')).toBe(true)
   })
 
-  it('detects .one-time syntax', () => {
+  it('detects .set syntax', () => {
+    expect(isDiamondTemplate('<span textContent.set="title"></span>')).toBe(true)
+  })
+
+  it('detects .calls syntax', () => {
+    expect(isDiamondTemplate('<button click.calls="save()"></button>')).toBe(true)
+  })
+
+  it('detects .rawSet syntax (source camelCase)', () => {
+    expect(isDiamondTemplate('<div innerHTML.rawSet="html"></div>')).toBe(true)
+  })
+
+  it('detects three-segment .rawBind.to-view syntax', () => {
+    expect(
+      isDiamondTemplate('<div innerHTML.rawBind.to-view="html"></div>')
+    ).toBe(true)
+  })
+
+  it('still detects retired tokens (so they route to diagnostics, not silent HTML)', () => {
     expect(isDiamondTemplate('<span textContent.one-time="title"></span>')).toBe(
       true
     )
+    expect(isDiamondTemplate('<button click.trigger="save()"></button>')).toBe(
+      true
+    )
+    expect(
+      isDiamondTemplate('<button click.delegate="handleClick()"></button>')
+    ).toBe(true)
   })
 
   it('detects .to-view syntax', () => {
@@ -108,9 +132,9 @@ describe('compileTemplate', () => {
   it('compiles a complete component template', () => {
     const template = `
       <div class="counter">
-        <button click.trigger="decrement()">-</button>
+        <button click.calls="decrement()">-</button>
         <span>\${count}</span>
-        <button click.trigger="increment()">+</button>
+        <button click.calls="increment()">+</button>
       </div>
     `
     const { outputCode } = compileTemplate(template, 'counter.html')

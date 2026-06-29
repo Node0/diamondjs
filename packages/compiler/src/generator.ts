@@ -13,9 +13,12 @@ import type {
   BindingInfo,
   CompilerOptions,
   CompileResult,
+  Diagnostic,
+  SinkOp,
   SourceLocation,
 } from './types'
 import { isElementInfo, isTextInfo } from './types'
+import { gateSink } from './security'
 
 interface SourceMapping {
   generated: { line: number; column: number }
@@ -32,6 +35,7 @@ export class CodeGenerator {
   private varCounter = 0
   private currentLine = 1
   private mappings: SourceMapping[] = []
+  private diagnostics: Diagnostic[] = []
   private options: CompilerOptions
 
   constructor(options: CompilerOptions = {}) {
@@ -77,7 +81,7 @@ export class CodeGenerator {
     this.emitLine('}')
 
     const code = this.output.join('\n')
-    const result: CompileResult = { code }
+    const result: CompileResult = { code, diagnostics: this.diagnostics }
 
     if (this.options.sourceMap && this.options.filePath) {
       result.map = this.generateSourceMap()
@@ -186,16 +190,31 @@ export class CodeGenerator {
   }
 
   /**
-   * Generate code for a property binding
+   * Generate code for a property binding.
+   *
+   * This is the single sink-write choke point: every dynamic property write
+   * passes through the security gate here (DDR §3.3 row 1), which closes the
+   * v1.5.1 one-time bypass (a naked `el.prop = value` that never entered bind()).
    */
   private generateBinding(varName: string, binding: BindingInfo): void {
+    // Gate the sink write — records stink:warn / stink:declared / info as needed.
+    const diag = gateSink(
+      binding.property,
+      binding.type as SinkOp,
+      binding.raw,
+      binding.expression,
+      binding.location
+    )
+    if (diag) this.diagnostics.push(diag)
+
     const expr = this.prefixExpression(binding.expression)
+    const rawTag = binding.raw ? 'RAW ' : ''
 
     switch (binding.type) {
-      case 'one-time':
-        // [Diamond] hint
+      case 'set':
+        // Static one-shot assignment — direct property write (v2.0: was .one-time)
         this.emitLine(
-          `// [Diamond] One-time binding: ${binding.property} ← ${binding.expression}`
+          `// [Diamond] ${rawTag}Set (static one-shot): ${binding.property} = ${binding.expression}`
         )
         this.emitLine(
           `${varName}.${binding.property} = ${expr};`,
@@ -204,9 +223,8 @@ export class CodeGenerator {
         break
 
       case 'to-view':
-        // [Diamond] hint
         this.emitLine(
-          `// [Diamond] One-way binding: ${binding.property} ← this.${binding.expression}`
+          `// [Diamond] ${rawTag}One-way binding: ${binding.property} ← this.${binding.expression}`
         )
         this.emitLine(
           `DiamondCore.bind(${varName}, '${binding.property}', () => ${expr});`,
@@ -215,9 +233,8 @@ export class CodeGenerator {
         break
 
       case 'from-view':
-        // [Diamond] hint
         this.emitLine(
-          `// [Diamond] From-view binding: ${binding.property} → this.${binding.expression}`
+          `// [Diamond] ${rawTag}From-view binding: ${binding.property} → this.${binding.expression}`
         )
         this.emitLine(
           `DiamondCore.bind(${varName}, '${binding.property}', () => ${expr}, (v) => ${expr} = v);`,
@@ -228,9 +245,8 @@ export class CodeGenerator {
       case 'bind':
       case 'two-way':
       default:
-        // [Diamond] hint
         this.emitLine(
-          `// [Diamond] Two-way binding: ${binding.property} ↔ this.${binding.expression}`
+          `// [Diamond] ${rawTag}Two-way binding: ${binding.property} ↔ this.${binding.expression}`
         )
         this.emitLine(
           `DiamondCore.bind(${varName}, '${binding.property}', () => ${expr}, (v) => ${expr} = v);`,
@@ -247,19 +263,8 @@ export class CodeGenerator {
     const handler = this.buildEventHandler(event.expression)
 
     switch (event.type) {
-      case 'delegate':
-        // [Diamond] hint
-        this.emitLine(
-          `// [Diamond] Event delegation: ${event.property} → this.${event.expression}`
-        )
-        this.emitLine(
-          `DiamondCore.on(${varName}, '${event.property}', ${handler});`,
-          event.location
-        )
-        break
-
       case 'capture':
-        // [Diamond] hint
+        // [Diamond] hint — capture-phase listener (DDR §6.6)
         this.emitLine(
           `// [Diamond] Capture event: ${event.property} → this.${event.expression}`
         )
@@ -269,9 +274,9 @@ export class CodeGenerator {
         )
         break
 
-      case 'trigger':
+      case 'calls':
       default:
-        // [Diamond] hint
+        // [Diamond] hint — bubble-phase listener (DDR §6.5: .calls)
         this.emitLine(
           `// [Diamond] Event binding: ${event.property} → this.${event.expression}`
         )
@@ -388,6 +393,7 @@ export class CodeGenerator {
     this.varCounter = 0
     this.currentLine = 1
     this.mappings = []
+    this.diagnostics = []
   }
 
   /**
