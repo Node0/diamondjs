@@ -69,6 +69,7 @@ export interface BindingInfo {
   expression: string    // Bound expression (name, user.email, etc.)
   raw: boolean          // v2.0: raw escape hatch (rawSet / rawBind.*) bypasses the allowlist
   location: SourceLocation | null
+  updateOn?: string     // v2.0 §4.3: DOM event that samples the model (value.update-on="blur")
 }
 
 /**

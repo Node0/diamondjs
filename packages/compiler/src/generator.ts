@@ -397,11 +397,13 @@ export class CodeGenerator {
         // One-way DOM → model. NO getter (undefined) so the model can NEVER push
         // back into the sink — a from-view flow must not silently behave two-way.
         const setter = this.buildFromViewSetter(parsed, dataExpr, binding.location)
+        const evt = this.updateOnArg(binding)
         this.emitLine(
-          `// [Diamond] ${rawTag}From-view binding (one-way DOM → ${binding.expression}): ${binding.property}`
+          `// [Diamond] ${rawTag}From-view binding (one-way DOM → ${binding.expression}): ${binding.property}` +
+            (binding.updateOn ? ` [update-on: ${binding.updateOn}]` : '')
         )
         this.emitLine(
-          `DiamondCore.bind(${varName}, '${binding.property}', undefined, ${setter});`,
+          `DiamondCore.bind(${varName}, '${binding.property}', undefined, ${setter}${evt});`,
           binding.location
         )
         break
@@ -415,16 +417,26 @@ export class CodeGenerator {
           dataExpr,
           binding.location
         )
+        const evt = this.updateOnArg(binding)
         this.emitLine(
-          `// [Diamond] ${rawTag}Two-way binding: ${binding.property} ↔ ${binding.expression}`
+          `// [Diamond] ${rawTag}Two-way binding: ${binding.property} ↔ ${binding.expression}` +
+            (binding.updateOn ? ` [update-on: ${binding.updateOn}]` : '')
         )
         this.emitLine(
-          `DiamondCore.bind(${varName}, '${binding.property}', ${getter}, ${setter});`,
+          `DiamondCore.bind(${varName}, '${binding.property}', ${getter}, ${setter}${evt});`,
           binding.location
         )
         break
       }
     }
+  }
+
+  /**
+   * The trailing `, '<event>'` arg for DiamondCore.bind when value.update-on is
+   * set (§4.3) — overrides the default input/change sampling event. Empty otherwise.
+   */
+  private updateOnArg(binding: BindingInfo): string {
+    return binding.updateOn ? `, '${this.escapeString(binding.updateOn)}'` : ''
   }
 
   /**

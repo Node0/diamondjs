@@ -93,6 +93,68 @@ export abstract class Component {
   }
 
   /**
+   * Debounce a handler (DDR §4.3, handler timing). Returns a wrapped function
+   * that defers `fn` until `ms` of quiet. The pending timer's `cancel` is
+   * **self-registered** against this component's teardown registry at creation
+   * time, so the call site stays a leak-safe one-liner:
+   *
+   *   handleInput = this.debounce((v) => (this.query = v), 500)
+   */
+  protected debounce<A extends unknown[]>(
+    fn: (...args: A) => void,
+    ms: number
+  ): (...args: A) => void {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const cancel = (): void => {
+      if (timer !== undefined) clearTimeout(timer)
+      timer = undefined
+    }
+    this.registerCleanup(cancel)
+    return (...args: A): void => {
+      cancel()
+      timer = setTimeout(() => {
+        timer = undefined
+        fn(...args)
+      }, ms)
+    }
+  }
+
+  /**
+   * Throttle a handler (DDR §4.3, handler timing). Returns a wrapped function
+   * that runs `fn` at most once per `ms`, trailing-edge. Like debounce, the
+   * pending timer self-registers its `cancel` for unmount.
+   */
+  protected throttle<A extends unknown[]>(
+    fn: (...args: A) => void,
+    ms: number
+  ): (...args: A) => void {
+    // -Infinity so the first call always fires on the leading edge,
+    // independent of the wall clock's starting value.
+    let last = Number.NEGATIVE_INFINITY
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const cancel = (): void => {
+      if (timer !== undefined) clearTimeout(timer)
+      timer = undefined
+    }
+    this.registerCleanup(cancel)
+    return (...args: A): void => {
+      const now = Date.now()
+      const remaining = ms - (now - last)
+      if (remaining <= 0) {
+        cancel()
+        last = now
+        fn(...args)
+      } else if (timer === undefined) {
+        timer = setTimeout(() => {
+          last = Date.now()
+          timer = undefined
+          fn(...args)
+        }, remaining)
+      }
+    }
+  }
+
+  /**
    * Get the component's root element (null if not mounted)
    */
   getElement(): HTMLElement | null {

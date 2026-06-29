@@ -71,9 +71,11 @@ describe('pipe lowering — inbound (parse / ParseResult)', () => {
 })
 
 describe('two-way enforcement (closes the §5.1 hole)', () => {
-  it('rejects a plain (non-invertible) function on a two-way leg', () => {
+  it('rejects a plain (non-invertible) function on a two-way leg — severity error, not warn', () => {
     const r = compile('<input value.two-way="amount | formatPercent">')
-    expect(r.diagnostics?.some((d) => d.code === 'pipe-two-way-noninvertible')).toBe(true)
+    const d = r.diagnostics?.find((x) => x.code === 'pipe-two-way-noninvertible')
+    expect(d).toBeDefined()
+    expect(d?.severity).toBe('error') // hard error → build fails (transformer throws)
     // no obligation emitted for a rejected binding
     expect(r.converterObligations).toHaveLength(0)
   })

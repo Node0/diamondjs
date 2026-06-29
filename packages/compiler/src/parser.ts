@@ -141,6 +141,10 @@ export class TemplateParser {
     const bindings: BindingInfo[] = []
     const events: BindingInfo[] = []
     const staticAttrs = new Map<string, string>()
+    const updateOnMap = new Map<
+      string,
+      { event: string; location: SourceLocation | null }
+    >()
     let structural: StructuralInfo | undefined
 
     // Process attributes
@@ -170,6 +174,24 @@ export class TemplateParser {
         continue // handled (set structural or recorded a rejection diagnostic)
       }
 
+      // Bare `update-on` is ambiguous on multi-binding elements (§4.3)
+      if (name === 'update-on') {
+        this.diagnostics.push({
+          severity: 'error',
+          code: 'bare-update-on',
+          message: `Bare 'update-on' is ambiguous on multi-binding elements; scope it to a property, e.g. value.update-on="blur" (DDR §4.3).`,
+          location,
+        })
+        continue
+      }
+
+      // Property-scoped binding-update timing: value.update-on="blur" (§4.3)
+      if (segments.length === 2 && segments[1] === 'update-on') {
+        const prop = PROPERTY_NAME_MAP[segments[0]] || segments[0]
+        updateOnMap.set(prop, { event: attr.value, location })
+        continue
+      }
+
       if (segments.length < 2) {
         staticAttrs.set(name, attr.value)
         continue
@@ -183,6 +205,9 @@ export class TemplateParser {
         // so no bogus binding ships. (The transformer throws on error-severity.)
         continue
       }
+
+      // §4.3: Aurelia `&` binding behaviors are removed
+      this.checkRemovedAmpersand(attr.value, location)
 
       // Map lowercase property to canonical camelCase DOM property name
       const property = PROPERTY_NAME_MAP[rawProperty] || rawProperty
@@ -199,6 +224,34 @@ export class TemplateParser {
       } else {
         bindings.push(binding)
       }
+    }
+
+    // Apply update-on modifiers to their matching inbound bindings (§4.3)
+    for (const [prop, uo] of updateOnMap) {
+      const target = bindings.find((b) => b.property === prop)
+      if (!target) {
+        this.diagnostics.push({
+          severity: 'error',
+          code: 'update-on-no-binding',
+          message: `'${prop}.update-on' has no '${prop}' binding to time; add a two-way or from-view binding (DDR §4.3).`,
+          location: uo.location,
+        })
+        continue
+      }
+      if (
+        target.type !== 'two-way' &&
+        target.type !== 'bind' &&
+        target.type !== 'from-view'
+      ) {
+        this.diagnostics.push({
+          severity: 'error',
+          code: 'update-on-not-inbound',
+          message: `'${prop}.update-on' only applies to the inbound leg (two-way / from-view); '${prop}' is bound '${target.type}'.`,
+          location: uo.location,
+        })
+        continue
+      }
+      target.updateOn = uo.event
     }
 
     // Process children
@@ -360,6 +413,7 @@ export class TemplateParser {
     let match
 
     while ((match = regex.exec(content)) !== null) {
+      this.checkRemovedAmpersand(match[1], this.getTextLocation(node))
       interpolations.push({
         expression: match[1].trim(),
         location: this.getTextLocation(node), // Simplified - same as text node
@@ -413,6 +467,24 @@ export class TemplateParser {
    */
   private isEventBinding(type: BindingType): boolean {
     return type === 'calls' || type === 'capture'
+  }
+
+  /**
+   * Diagnose a removed Aurelia binding behavior (`expr & name`). A lone `&`
+   * (not `&&`) in a binding/interpolation expression is the retired glyph (§4.3).
+   */
+  private checkRemovedAmpersand(
+    expr: string,
+    location: SourceLocation | null
+  ): void {
+    if (/(?<!&)&(?!&)/.test(expr)) {
+      this.diagnostics.push({
+        severity: 'error',
+        code: 'ampersand-removed',
+        message: `'&' is not valid in a DiamondJS binding expression (DDR §4.3). If you meant bitwise AND, move the computation to a view-model getter (get result() { return this.a & this.b }) — a template is a declarative binding surface, not a computation surface (§2.8). If you meant the removed '& behavior' syntax, use value.update-on (binding timing), this.debounce / this.throttle (handler timing), a reactive dependency (was '& signal'), or '.set' (was '& oneTime').`,
+        location,
+      })
+    }
   }
 
   /**

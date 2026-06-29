@@ -162,14 +162,16 @@ describe('compileTemplate', () => {
     expect(outputCode).toContain('// [Diamond] Compiled from: my-component.html')
   })
 
-  it('rejects named pipe transforms in a standalone module (require component context)', () => {
+  it('rejects named pipe transforms in a standalone module — severity error → build fails', () => {
     const { result } = compileTemplate(
       '<span>${value | formatPercent}</span>',
       'x.html',
       false
     )
-    expect(
-      result.diagnostics?.some((d) => d.code === 'pipe-transform-standalone')
-    ).toBe(true)
+    const d = result.diagnostics?.find(
+      (x) => x.code === 'pipe-transform-standalone'
+    )
+    expect(d).toBeDefined()
+    expect(d?.severity).toBe('error') // transformer throws on error → no silent ReferenceError
   })
 })

@@ -139,7 +139,8 @@ export class DiamondCore {
     element: HTMLElement,
     property: string,
     getter: (() => unknown) | undefined,
-    setter?: (value: unknown) => void
+    setter?: (value: unknown) => void,
+    eventName?: string
   ): CleanupFn {
     // Cast element for dynamic property access
     const el = element as unknown as Record<string, unknown>
@@ -154,16 +155,18 @@ export class DiamondCore {
       })
     }
 
-    // Set up two-way binding if setter provided
+    // Set up the inbound (DOM → model) listener if a setter is provided. The
+    // sampling event defaults to input/change but can be overridden via
+    // value.update-on="blur" (§4.3) — passed through as `eventName`.
     let cleanupListener: CleanupFn | null = null
     if (setter) {
-      const eventName = this.getInputEventName(element)
+      const event = eventName ?? this.getInputEventName(element)
       const handler = () => {
         const value = el[property]
         setter(value)
       }
-      element.addEventListener(eventName, handler)
-      cleanupListener = () => element.removeEventListener(eventName, handler)
+      element.addEventListener(event, handler)
+      cleanupListener = () => element.removeEventListener(event, handler)
     }
 
     // Return combined cleanup (and register it with the active scope, if any)

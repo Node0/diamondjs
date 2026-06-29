@@ -124,6 +124,24 @@ DiamondCore.bind(input0, 'value', () => CurrencyConverter.format(this.amount, 'U
 - **`compileAndInject()` (resolution):** for each obligation, regex-scans `componentSource` for the converter's `import ... from '<path>'` (NOT a TS parse — accepted string-compiler ceiling), resolves `<path>` relative to `options.filePath` (tries `.ts`/`.js`/`/index.*`), reads the module, checks `/static\s+parse\b/`. Emits `error` (`converter-missing-parse`) if absent; soft `info` (`converter-unresolved`) for package specifiers / re-exports / missing files ("verify manually" — fail-soft, not a crash). Uses the same diagnostic pipeline; `fs`/`path` added to the compiler.
 - **Standalone path guard:** `CompileResult.pipeTransforms` lists all named pipe heads. The Parcel transformer (`utils.compileTemplate`, standalone `.diamond.html` → module) errors (`pipe-transform-standalone`) if any are present — they'd be undefined symbols in a module that only imports DiamondCore. Converters require the component-inject context (where the author's imports are in scope). Fail-closed on the API surface > runtime ReferenceError.
 
+---
+
+# Phase 4 — Binding/handler timing (working notes)
+
+## `value.update-on="blur"` (binding-update timing, §4.3)
+- Property-scoped `property.command` attr: `value.update-on="<event>"`. Pairs with the `value` two-way/from-view binding on the same element; sets which DOM event samples the model (replaces the default input/change).
+- Parser: `<prop>.update-on` → collected into a per-element map keyed by canonical property; applied to the matching binding as `BindingInfo.updateOn`. Bare `update-on` (single segment) → **error** (ambiguous on multi-binding elements, §4.3). `update-on` on a property with no inbound (two-way/from-view) binding → diagnostic.
+- Runtime: `DiamondCore.bind(el, prop, getter, setter?, eventName?)` — when `eventName` given, the from-view listener uses it instead of `getInputEventName(el)`.
+- Generator: from-view/two-way emit the 5th arg `'<event>'` when `binding.updateOn` is set.
+
+## `this.debounce` / `this.throttle` (handler timing, §4.3)
+- `protected` Component methods returning a wrapped fn. **Self-register their `cancel`** via `registerCleanup` at creation time → the class-field one-liner (`handleInput = this.debounce(v => this.query = v, 500)`) is leak-safe with no visible timer-cancel burden. Field-init order: base `cleanups = []` runs during super(), subclass `handleInput = this.debounce(...)` runs after → `registerCleanup` is ready.
+- Cancel-on-unmount: Component.unmount runs all cleanups → pending timers cleared.
+
+## `&` removed (§4.3) — migration diagnostic
+- A lone `&` (not `&&`) in a binding/interpolation expression → **hard error**. Detection: `/(?<!&)&(?!&)/` (excludes `&&`/`||`).
+- **Bitwise lone `&` is intentionally flagged too — this is NOT a false positive.** A template is a declarative binding surface, not a computation surface (§2.8): there is no legitimate bitwise `&` in a binding (same reason there's none in a SQL WHERE clause or CSS selector). The redirect is a view-model getter (`get result() { return this.a & this.b }`). Syntactically bitwise-`&` and behavior-`&` are indistinguishable (both lone `&`), so no regex separates them — and that's fine, because BOTH should leave the template. Softening to a warning was rejected (softening a security-adjacent error is how holes open; rare legit uses are trivially fixed with a getter, rare illegit uses sneaking past a warning are the real risk). The message redirects both cases (bitwise → getter; behavior → update-on / debounce / reactive / set).
+
 ## Batteries: `@diamondjs/converters` (new package) — shipped
 Currency (Intl.NumberFormat; en-US-shaped parse + documented seam), Date (Intl.DateTimeFormat; ISO→UTC-midnight parse + calendar-validity check — rejects Feb 30), Phone (NA-only; canonical 10-digit model + "implement your own" seam). Depends on `@diamondjs/runtime` for `ParseResult`. Opt-in via bootstrapper / one `npm install`. Budget entry added to `check-loc-budget.ts` (500 LOC).
 
