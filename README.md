@@ -171,8 +171,9 @@ Aurelia-inspired binding commands on standard HTML attributes:
 <!-- Interpolation -->
 <p>Hello, ${name}!</p>
 
-<!-- Conditional rendering -->
-<div if.bind="isLoggedIn">Welcome back</div>
+<!-- Conditional rendering: bare `if` controls whether the element is in the DOM -->
+<div if="isLoggedIn">Welcome back</div>
+<div else-if="!isLoggedIn">Please sign in</div>
 
 <!-- List rendering -->
 <ul>

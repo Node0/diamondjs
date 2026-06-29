@@ -318,10 +318,9 @@ export class CodeGenerator {
 
       // Build template string for interpolation
       const templateExpr = this.buildInterpolationExpr(text.content)
-      // [Diamond] hint for interpolation binding
-      this.emitLine(
-        `// [Diamond] Text interpolation binding`
-      )
+      // Echo the source expression in the hint (parity with every other hint type)
+      const interpSrc = text.content.replace(/\s+/g, ' ').trim()
+      this.emitLine(`// [Diamond] Text interpolation: ${interpSrc}`)
       this.emitLine(
         `DiamondCore.bind(${varName}, 'textContent', () => ${templateExpr});`,
         text.interpolations[0]?.location
@@ -369,6 +368,16 @@ export class CodeGenerator {
     }
     const dataExpr = this.prefixExpression(parsed.data)
     const rawTag = binding.raw ? 'RAW ' : ''
+
+    // Raw OUTBOUND writes are unescaped and developer-owned. Name the security
+    // contract explicitly so a cold-reading model cannot mistake an audited
+    // opt-in for an accidental dangerous-sink write. (from-view raw is inbound —
+    // a different contract — so it is excluded here.)
+    if (binding.raw && binding.type !== 'from-view') {
+      this.emitLine(
+        `// [Diamond] raw sink — explicit opt-in (developer-owned, unescaped); audited in stink-baseline.json, no runtime XSS protection here`
+      )
+    }
 
     switch (binding.type) {
       case 'set': {

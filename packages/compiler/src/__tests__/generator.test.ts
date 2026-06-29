@@ -374,7 +374,7 @@ describe('CodeGenerator', () => {
 
       expect(result.code).toContain("document.createTextNode('')")
       expect(result.code).toContain("DiamondCore.bind(text1, 'textContent', () => `Hello ${this.name}!`)")
-      expect(result.code).toContain('// [Diamond] Text interpolation binding')
+      expect(result.code).toContain('// [Diamond] Text interpolation: Hello ${name}!')
     })
 
     it('skips empty text nodes', () => {
