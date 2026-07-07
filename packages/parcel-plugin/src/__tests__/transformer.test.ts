@@ -173,5 +173,65 @@ describe('compileTemplate', () => {
     )
     expect(d).toBeDefined()
     expect(d?.severity).toBe('error') // transformer throws on error → no silent ReferenceError
+    expect(d?.message).toContain('@import') // the v2.1 remediation is named
+  })
+})
+
+describe('v2.1 detection tokens (structural-only templates)', () => {
+  it('detects a switch-only template (no bindings, no interpolations)', () => {
+    expect(
+      isDiamondTemplate('<switch on="s"><case if="a"><b>x</b></case></switch>')
+    ).toBe(true)
+  })
+
+  it('detects a repeat-only template', () => {
+    expect(
+      isDiamondTemplate('<ul><li repeat.for="n of nodes">Item</li></ul>')
+    ).toBe(true)
+  })
+
+  it('does NOT detect a bare if= template (documented blind spot — false-positive risk)', () => {
+    expect(isDiamondTemplate('<div if="isReady">Ready</div>')).toBe(false)
+  })
+})
+
+describe('v2.1 @import provenance in standalone templates', () => {
+  it('a covered head compiles clean and emits a real import line', () => {
+    const { outputCode, result } = compileTemplate(
+      `<!-- @import { formatPercent } from './transforms' -->\n<span>\${value | formatPercent}</span>`,
+      'x.diamond.html',
+      false
+    )
+    expect(
+      result.diagnostics?.some((d) => d.code === 'pipe-transform-standalone')
+    ).toBe(false)
+    expect(outputCode).toContain("import { formatPercent } from './transforms';")
+    expect(outputCode).toContain('formatPercent(this.value)')
+  })
+
+  it('errors name ONLY the uncovered heads', () => {
+    const { result } = compileTemplate(
+      `<!-- @import { coveredFn } from './t' -->\n<span>\${a | coveredFn} \${b | ghostFn}</span>`,
+      'x.diamond.html',
+      false
+    )
+    const d = result.diagnostics?.find(
+      (x) => x.code === 'pipe-transform-standalone'
+    )
+    expect(d?.message).toContain('ghostFn')
+    expect(d?.message).not.toContain('coveredFn')
+  })
+
+  it('verifies §5.6 converter obligations through the synthesized imports', () => {
+    // The relative spec cannot resolve from this synthetic path → soft info
+    // (the seam exists; a real project resolves against the template file)
+    const { result } = compileTemplate(
+      `<!-- @import { GhostConverter } from './nowhere' -->\n<input value.two-way="amount | GhostConverter">`,
+      '/nonexistent/x.diamond.html',
+      false
+    )
+    expect(
+      result.diagnostics?.some((d) => d.code === 'converter-unresolved')
+    ).toBe(true)
   })
 })

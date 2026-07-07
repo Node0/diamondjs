@@ -205,6 +205,19 @@ export interface ConverterObligation {
 }
 
 /**
+ * One <!-- @import { A, B } from './mod' --> provenance directive (v2.1,
+ * working_notes §3.6) — lets a STANDALONE .diamond.html template name where
+ * its pipe heads come from, so the module wrapper can emit real imports.
+ */
+export interface TemplateImport {
+  /** Imported names (no aliasing in v1 of the grammar) */
+  names: string[]
+  /** Module specifier, resolved by the bundler relative to the template file */
+  spec: string
+  location: SourceLocation | null
+}
+
+/**
  * Compilation result
  */
 export interface CompileResult {
@@ -218,6 +231,9 @@ export interface CompileResult {
   converterObligations?: ConverterObligation[]
   /** Distinct named pipe transform/converter heads referenced by the template.
    *  They must be in lexical scope where createTemplate runs — i.e. the component
-   *  context (compileAndInject), not a standalone .diamond.html module. */
+   *  context (compileAndInject), or covered by @import directives in a
+   *  standalone .diamond.html module (v2.1). */
   pipeTransforms?: string[]
+  /** <!-- @import --> provenance directives found in the raw template (v2.1) */
+  templateImports?: TemplateImport[]
 }

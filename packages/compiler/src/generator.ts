@@ -28,6 +28,7 @@ import {
   scanInterpolations,
   type ParsedPipe,
 } from './pipe'
+import { serializeMappings } from './sourcemap'
 
 interface SourceMapping {
   generated: { line: number; column: number }
@@ -1118,17 +1119,16 @@ export class CodeGenerator {
   }
 
   /**
-   * Generate source map JSON
+   * Generate source map JSON (real VLQ mappings as of v2.1 — the Phase-0
+   * `mappings: ''` stub is closed; see sourcemap.ts for the offset caveat).
    */
   private generateSourceMap(): string {
-    // Simplified source map - just names and sources
-    // A full implementation would use VLQ encoding
     const map = {
       version: 3,
       file: this.options.filePath?.replace('.html', '.js'),
       sources: [this.options.filePath],
       names: [],
-      mappings: '', // Simplified - no actual mappings for Phase 0
+      mappings: serializeMappings(this.mappings),
     }
 
     return JSON.stringify(map)
