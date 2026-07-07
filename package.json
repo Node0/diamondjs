@@ -1,6 +1,6 @@
 {
   "name": "diamondjs-monorepo",
-  "version": "0.1.0",
+  "version": "2.1.0",
   "private": true,
   "description": "DiamondJS - JavaScript framework for LLM-assisted development",
   "repository": {
@@ -12,14 +12,16 @@
     "examples/*"
   ],
   "scripts": {
-    "build": "npm run build --workspaces --if-present",
+    "build": "npm run build -w @diamondjs/runtime -w @diamondjs/primafacie && npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "test:coverage": "npm run test:coverage --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "check-loc": "tsx tools/check-loc-budget.ts",
+    "stink:check": "tsx tools/stink-check.ts",
+    "stink:update": "tsx tools/stink-check.ts --update",
     "clean": "npm run clean --workspaces --if-present",
     "dev": "npm run dev --workspaces --if-present",
-    "prepublishOnly": "npm run check-loc && npm run build && npm run test"
+    "prepublishOnly": "npm run check-loc && npm run stink:check && npm run build && npm run test"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",

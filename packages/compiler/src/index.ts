@@ -14,8 +14,8 @@
  * // // [Diamond] Compiler-generated instance template method
  * // createTemplate() {
  * //   // [Diamond] Two-way binding: value ↔ this.name
- * //   DiamondCore.bind(input0, 'value', () => this.name, (v) => this.name = v);
- * //   return input0;
+ * //   DiamondCore.bind(el_input_0, 'value', () => this.name, (v) => this.name = v);
+ * //   return el_input_0;
  * // }
  */
 
@@ -23,16 +23,22 @@
 export { DiamondCompiler, CompileError } from './compiler'
 
 // Parser (for advanced usage)
-export { TemplateParser } from './parser'
+export { TemplateParser, PROPERTY_NAME_MAP } from './parser'
 
 // Generator (for advanced usage)
 export { CodeGenerator } from './generator'
+
+// Security policy (allowlist + gate) — used by the stink-check tool
+export { SAFE_SINKS, gateSink } from './security'
 
 // Types
 export type {
   SourceLocation,
   BindingType,
   BindingInfo,
+  SinkOp,
+  Diagnostic,
+  DiagnosticSeverity,
   InterpolationInfo,
   ElementInfo,
   TextInfo,

@@ -1,0 +1,37 @@
+<div class="card">
+  <!-- set: static one-shot assignment (v2.0, was .one-time) -->
+  <h2 textContent.set="title"></h2>
+
+  <!-- rawSet: the audited raw escape hatch — trusted HTML, recorded in stink-baseline.json -->
+  <div class="banner" innerHTML.rawSet="bannerHtml"></div>
+
+  <div class="row">
+    <!-- two-way binding + .calls event (per-node listener); ...attrs.bind is the
+         v2.1 attribute spread — each key gates against the SAME allowlist at
+         runtime (gate FIRST, branch SECOND; data-*/aria-* pass via attributes) -->
+    <input value.two-way="draft" placeholder="Add a task…" ...attrs.bind="inputAttrs" />
+    <button click.calls="add()">Add</button>
+  </div>
+
+  <!-- v2.1 switch/case/default (Amendment A1 backlog): exhaustive multi-state
+       with a catch-all SCOPED by the container — no positional pairing. Bare
+       words are string equality against on=; first match wins. -->
+  <switch on="mood">
+    <case if="idle"><p class="status">Nothing to do — enjoy the calm.</p></case>
+    <case if="cruising"><p class="status">${tasks.length} task(s) — cruising.</p></case>
+    <case if="busy"><p class="status">${tasks.length} tasks — busy day!</p></case>
+    <default><p class="status">Unexpected mood: ${mood}</p></default>
+  </switch>
+
+  <!-- if / else-if: empty state vs. the list -->
+  <p if="tasks.length === 0" class="empty">No tasks yet — add one above.</p>
+  <ul else-if="tasks.length > 0">
+    <!-- repeat.for: one row per task, each with its own .calls handler -->
+    <li repeat.for="task of tasks">
+      <span>${task.title}</span>
+      <button click.calls="remove(task)">Done</button>
+    </li>
+  </ul>
+
+  <p class="count">${tasks.length} task(s)</p>
+</div>

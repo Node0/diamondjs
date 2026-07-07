@@ -13,9 +13,9 @@ DiamondJS is a component-based JavaScript framework that separates *write-time e
 ```html
 <!-- counter.html — what you write -->
 <div class="counter">
-  <button click.trigger="decrement()">-</button>
+  <button click.calls="decrement()">-</button>
   <span>${count}</span>
-  <button click.trigger="increment()">+</button>
+  <button click.calls="increment()">+</button>
 </div>
 ```
 
@@ -166,18 +166,33 @@ Aurelia-inspired binding commands on standard HTML attributes:
 <input value.bind="name">
 
 <!-- Event binding -->
-<button click.trigger="save()">Save</button>
+<button click.calls="save()">Save</button>
 
 <!-- Interpolation -->
 <p>Hello, ${name}!</p>
 
-<!-- Conditional rendering -->
-<div if.bind="isLoggedIn">Welcome back</div>
+<!-- Conditional rendering: bare `if` controls whether the element is in the DOM -->
+<div if="isLoggedIn">Welcome back</div>
+<div else-if="!isLoggedIn">Please sign in</div>
 
 <!-- List rendering -->
 <ul>
   <li repeat.for="item of items">${item.name}</li>
 </ul>
+
+<!-- v2.1: exhaustive multi-state with a scoped catch-all (no positional else) -->
+<switch on="status">
+  <case if="loading"><div>Loading…</div></case>
+  <case if="ready"><div>Ready</div></case>
+  <default><div>Unexpected state: ${status}</div></default>
+</switch>
+
+<!-- v2.1: attribute spread — each key gates against the allowlist at runtime -->
+<input value.two-way="draft" ...attrs.bind="inputAttrs">
+
+<!-- v2.1: converter error surface — target becomes ordinary reactive state -->
+<input value.two-way="amount | CurrencyConverter('USD')" value.error-into="amountError">
+<p if="amountError">${amountError}</p>
 ```
 
 ---
@@ -216,8 +231,10 @@ In nested mode, every file carries the component name — no `index.ts` ambiguit
 
 | Package | Description | LOC Budget |
 |---------|-------------|------------|
-| `@diamondjs/runtime` | Reactivity, components, binding engine, scheduler | < 2,500 |
-| `@diamondjs/compiler` | Template parser, code generator, hint emitter | < 5,000 |
+| `@diamondjs/runtime` | Reactivity, components, binding engine, scheduler, `Collection`, security allowlist | < 2,500 |
+| `@diamondjs/compiler` | Template parser, code generator, hint emitter, source maps | < 5,000 |
+| `@diamondjs/converters` | Currency/Date/Phone `format`/`parse` batteries | < 500 |
+| `@diamondjs/primafacie` | The `Print(logType, message)` logging paradigm + pluggable sinks | < 400 |
 | `parcel-transformer-diamond` | Zero-config Parcel 2 integration | < 300 |
 
 The entire framework fits in an LLM context window. That's not an accident — it's a design constraint.
@@ -226,24 +243,23 @@ The entire framework fits in an LLM context window. That's not an accident — i
 
 ## Current Status
 
-**Specification**: v1.5.1 ([Architecture & Design Specification](docs/DiamondJS_Architecture_Specification_v1_5_1.md))
+**Specification**: v2.1 ([v2.0 DDR](impl_docs/plans/DiamondJS_v2.0_Design_Decision_Record.md) + [Amendment A2 — the v2.1 design record](impl_docs/plans/DiamondJS_v2.1_Amendment_A2_Design_Record.md))
 
-**Implementation**: v1.5.1 — architectural upgrade complete with instance template methods, `@reactive` decorator, `[Diamond]` compiler hints, and proxy cache for referential identity.
+**Implementation**: v2.1 — the scale-and-completeness release on top of v2.0's security-by-default binding language. `<switch>/<case>/<default>` (with a compile-time static fast path), runtime-gated attribute spread (`...attrs.bind`), `Collection<T>` for tens of thousands of never-proxied items, `DiamondCore.delegate` (one container listener resolving events back to data items), multi-segment two-way converter chains with fail-fast inversion, the `error-into` validation surface, `<!-- @import -->` provenance for standalone templates, real VLQ source maps, §5.6 barrel/re-export following, and the `@diamondjs/primafacie` logging paradigm.
 
-| Package | LOC | Tests | Coverage |
-|---------|-----|-------|----------|
-| @diamondjs/runtime | 210 | 49 | 93.82% |
-| @diamondjs/compiler | 410 | 66 | 96.80% |
-| parcel-transformer-diamond | 139 | 19 | 100% |
-| **Total** | **759** | **134** | **>80%** |
+| Package | LOC | Tests |
+|---------|-----|-------|
+| @diamondjs/runtime | 863 | 119 |
+| @diamondjs/compiler | 4,144 | 218 |
+| @diamondjs/converters | 84 | 11 |
+| @diamondjs/primafacie | 262 | 8 |
+| parcel-transformer-diamond | 300 | 30 |
+| hello-world (example) | — | 19 |
+| **Total** | **5,653 / 8,700** | **405** |
 
-**LLM Comprehension**: Grade A — 92% estimated bug-fix success rate for 32B models, zero autoregressive steering issues.
+**What works today (v2.1)**: everything from v2.0 (security allowlist + `raw` escape hatch + stink gate; `set`/`rawSet`, `.calls`, `.capture`; `if`/`else-if`/`repeat.for`; converter pipes + `ParseResult` + batteries; `update-on` + `debounce`/`throttle`; `[Diamond]` hints; Parcel pipeline) **plus**: `switch`/`case`/`default`, `...attrs.bind`/`.rawBind`, `data-*`/`aria-*` attribute bindings, `Collection<T>` + `DiamondCore.collection()`, `DiamondCore.delegate()`, two-way converter chains, `value.error-into`, `@import` template provenance, VLQ source maps, re-export-aware converter verification, holistic root cleanup on unmount, and primafacie logging.
 
-**What works today**: Reactive state with `@reactive` decorator, property bindings, event handlers, text interpolation, two-way input binding, `[Diamond]` hint comments in all compiled output, proxy cache for deep reactivity, Parcel build pipeline, HMR support.
-
-**What's next**: Conditional rendering (`if.bind`), list rendering (`repeat.for`), `Collection<T>` for large datasets, router, and scaffolding CLI.
-
-> DiamondJS is in active early development. The API will change. Use it to explore, experiment, and contribute — not yet for production.
+> DiamondJS is in active development, having said that the API is less likely to change suddenly now in v2.1
 
 ---
 

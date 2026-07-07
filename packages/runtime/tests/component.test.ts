@@ -3,6 +3,9 @@
  */
 import { describe, it, expect, vi } from 'vitest'
 import { Component } from '../src/component'
+import { DiamondCore } from '../src/core'
+
+const tick = () => new Promise((r) => setTimeout(r, 0))
 
 // Test component with instance template method
 class TestComponent extends Component {
@@ -95,6 +98,52 @@ describe('Component', () => {
       component.unmount()
 
       expect(cleanup).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('holistic root cleanup (v2.1)', () => {
+    class BoundComponent extends Component {
+      state = DiamondCore.reactive({ label: 'first' })
+      clicks = 0
+
+      createTemplate() {
+        const div = document.createElement('div')
+        DiamondCore.bind(div, 'textContent', () => this.state.label)
+        DiamondCore.on(div, 'click', () => this.clicks++)
+        return div
+      }
+    }
+
+    it('stops root-level bindings from updating after unmount', async () => {
+      const host = document.createElement('div')
+      const component = new BoundComponent()
+      component.mount(host)
+      await tick()
+
+      const el = component.getElement()!
+      expect(el.textContent).toBe('first')
+
+      component.unmount()
+      component.state.label = 'second'
+      await tick()
+
+      // The root binding's effect was disposed with the component scope —
+      // the detached element no longer tracks the model.
+      expect(el.textContent).toBe('first')
+    })
+
+    it('detaches root-level event listeners on unmount', () => {
+      const host = document.createElement('div')
+      const component = new BoundComponent()
+      component.mount(host)
+
+      const el = component.getElement()!
+      el.click()
+      expect(component.clicks).toBe(1)
+
+      component.unmount()
+      el.click()
+      expect(component.clicks).toBe(1)
     })
   })
 

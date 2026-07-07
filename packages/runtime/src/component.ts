@@ -6,6 +6,8 @@
  * Uses 'this' to reference component properties and methods — no 'vm' indirection.
  */
 
+import { DiamondCore } from './core'
+
 /**
  * Component base class
  *
@@ -53,7 +55,13 @@ export abstract class Component {
    * @param hostElement - Parent DOM element to append to
    */
   mount(hostElement: HTMLElement): void {
-    this.element = this.createTemplate()
+    // Capture root-level binding/listener/structural cleanups (they would
+    // otherwise be discarded — DiamondCore's scope is null at the root) and
+    // register them against this component's teardown, so unmount() disposes
+    // the whole tree uniformly.
+    const { value, cleanup } = DiamondCore.captureScope(() => this.createTemplate())
+    this.element = value
+    this.registerCleanup(cleanup)
     hostElement.appendChild(this.element)
   }
 
@@ -90,6 +98,68 @@ export abstract class Component {
    */
   protected registerCleanup(cleanup: () => void): void {
     this.cleanups.push(cleanup)
+  }
+
+  /**
+   * Debounce a handler (DDR §4.3, handler timing). Returns a wrapped function
+   * that defers `fn` until `ms` of quiet. The pending timer's `cancel` is
+   * **self-registered** against this component's teardown registry at creation
+   * time, so the call site stays a leak-safe one-liner:
+   *
+   *   handleInput = this.debounce((v) => (this.query = v), 500)
+   */
+  protected debounce<A extends unknown[]>(
+    fn: (...args: A) => void,
+    ms: number
+  ): (...args: A) => void {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const cancel = (): void => {
+      if (timer !== undefined) clearTimeout(timer)
+      timer = undefined
+    }
+    this.registerCleanup(cancel)
+    return (...args: A): void => {
+      cancel()
+      timer = setTimeout(() => {
+        timer = undefined
+        fn(...args)
+      }, ms)
+    }
+  }
+
+  /**
+   * Throttle a handler (DDR §4.3, handler timing). Returns a wrapped function
+   * that runs `fn` at most once per `ms`, trailing-edge. Like debounce, the
+   * pending timer self-registers its `cancel` for unmount.
+   */
+  protected throttle<A extends unknown[]>(
+    fn: (...args: A) => void,
+    ms: number
+  ): (...args: A) => void {
+    // -Infinity so the first call always fires on the leading edge,
+    // independent of the wall clock's starting value.
+    let last = Number.NEGATIVE_INFINITY
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const cancel = (): void => {
+      if (timer !== undefined) clearTimeout(timer)
+      timer = undefined
+    }
+    this.registerCleanup(cancel)
+    return (...args: A): void => {
+      const now = Date.now()
+      const remaining = ms - (now - last)
+      if (remaining <= 0) {
+        cancel()
+        last = now
+        fn(...args)
+      } else if (timer === undefined) {
+        timer = setTimeout(() => {
+          last = Date.now()
+          timer = undefined
+          fn(...args)
+        }, remaining)
+      }
+    }
   }
 
   /**

@@ -6,9 +6,34 @@
  */
 
 import { scheduler } from './scheduler'
+import { devWarn } from './dev-log'
 
 type EffectFn = () => void
 type CleanupFn = () => void
+
+/**
+ * Sentinel dependency key for key-set iteration (Object.keys / for...in /
+ * spread sources). Tracked by the ownKeys trap; triggered when a key is added
+ * or deleted — so an effect that enumerates a reactive object re-runs when its
+ * SHAPE changes, not just its values. (v2.1, required by DiamondCore.spread.)
+ */
+export const ITERATE_KEY: unique symbol = Symbol('diamond.iterate')
+
+// Inbound smell-check heuristics (hoisted — the set trap is hot-path)
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}/
+const CANONICAL_PHONE_RE = /^\d{10}$/
+
+/**
+ * Dev-only flag for the inbound smell check (DDR §3.3 row 3). Evaluated once; in
+ * a production bundle `process.env.NODE_ENV` is replaced with the literal, so the
+ * hot-path cost in prod is a single boolean.
+ */
+let IS_DEV: boolean
+try {
+  IS_DEV = process.env.NODE_ENV !== 'production'
+} catch {
+  IS_DEV = true
+}
 
 /**
  * ReactivityEngine - Internal engine for reactive state management
@@ -28,6 +53,9 @@ export class ReactivityEngine {
 
   /** Proxy cache — ensures referential identity for deep reactivity */
   private proxyCache = new WeakMap<object, object>()
+
+  /** Properties already warned by the inbound smell check (warn-once) */
+  private smellWarned = new WeakMap<object, Set<PropertyKey>>()
 
   /**
    * Create a reactive proxy for an object.
@@ -54,10 +82,28 @@ export class ReactivityEngine {
         return value
       },
       set: (target, prop, value, receiver) => {
+        const hadKey = Reflect.has(target, prop)
         const oldValue = Reflect.get(target, prop, receiver)
         const result = Reflect.set(target, prop, value, receiver)
         if (oldValue !== value) {
+          if (IS_DEV) this.checkInboundSmell(target, prop, oldValue, value)
           this.triggerEffects(target, prop)
+          // A NEW key changes the object's shape — wake key-set iterators
+          if (!hadKey) this.triggerEffects(target, ITERATE_KEY)
+        }
+        return result
+      },
+      ownKeys: (target) => {
+        // Object.keys / for...in inside an effect tracks the key SET
+        this.trackDependency(target, ITERATE_KEY)
+        return Reflect.ownKeys(target)
+      },
+      deleteProperty: (target, prop) => {
+        const hadKey = Reflect.has(target, prop)
+        const result = Reflect.deleteProperty(target, prop)
+        if (hadKey && result) {
+          this.triggerEffects(target, prop)
+          this.triggerEffects(target, ITERATE_KEY)
         }
         return result
       }
@@ -110,6 +156,67 @@ export class ReactivityEngine {
         scheduler.queueEffect(effect)
       }
     }
+  }
+
+  /**
+   * Inbound smell check (DDR §3.3 row 3 / §5.1) — a THIN runtime backstop.
+   *
+   * Flags a display-formatted string overwriting a numeric model value (e.g.
+   * "$1,250.00" written over 1234.56) — the corruption a two-way binding without
+   * a `parse` causes. This is NOT the compile-time `stink:warn`; it is a distinct
+   * runtime channel, dev-only, warn-once-per-property. It only catches the
+   * number→non-numeric-string row; the real defense is §5.6 compile-time
+   * parse-required (a non-throwing string→string corruption can't be caught here).
+   */
+  private checkInboundSmell(
+    target: object,
+    prop: PropertyKey,
+    oldValue: unknown,
+    newValue: unknown
+  ): void {
+    // All three rules require a string inbound value — cheapest guard first.
+    if (typeof newValue !== 'string') return
+
+    // §5.1 row 1: number overwritten by a non-numeric string ("$1,250.00" over 1234.56)
+    let reason: string | null = null
+    if (typeof oldValue === 'number' && Number.isNaN(Number(newValue))) {
+      reason =
+        `held a number but received the non-numeric string ${JSON.stringify(newValue)}`
+    } else if (typeof oldValue === 'string') {
+      // v2.1 widening (user-ratified; §5.1 calls these rows "invisible by
+      // design" — this is a best-effort, dev-only, heuristic backstop; false
+      // positives are accepted as dev noise):
+      // §5.1 row 2: canonical ISO date string overwritten by a locale-formatted one
+      if (
+        ISO_DATE_RE.test(oldValue) &&
+        newValue.includes('/') &&
+        /\d/.test(newValue)
+      ) {
+        reason =
+          `held a canonical ISO date but received the display-formatted string ${JSON.stringify(newValue)}`
+      }
+      // §5.1 row 3: canonical 10-digit phone overwritten by a formatted one
+      else if (CANONICAL_PHONE_RE.test(oldValue) && /\D/.test(newValue)) {
+        reason =
+          `held a canonical 10-digit string but received the formatted string ${JSON.stringify(newValue)}`
+      }
+    }
+    if (!reason) return
+
+    let warned = this.smellWarned.get(target)
+    if (!warned) {
+      warned = new Set()
+      this.smellWarned.set(target, warned)
+    }
+    if (warned.has(prop)) return
+    warned.add(prop)
+
+    devWarn(
+      'ReactivityEngine.checkInboundSmell',
+      `[Diamond] inbound corruption: property '${String(prop)}' ${reason}. ` +
+        `A display-formatted value is leaking into the model — a two-way binding likely needs a parse (DDR §5.1). ` +
+        `This is a thin backstop; the real defense is compile-time parse-required (§5.6).`
+    )
   }
 
   /**

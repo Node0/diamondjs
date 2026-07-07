@@ -1,99 +1,188 @@
 /**
- * DiamondJS Hello World Example (v1.5.1)
+ * DiamondJS v2.1 — Example app
  *
- * This example demonstrates the DiamondJS runtime and component system.
- * Templates are compiled at build time by the Parcel transformer.
+ * Three components:
  *
- * Key v1.5.1 patterns:
- * - Instance createTemplate() method (not static factory)
- * - 'this' references everywhere (no 'vm' parameter)
- * - @reactive decorator for explicit reactivity
- * - [Diamond] hint comments in compiled output
+ *  Tasks (compiled template, Tasks.diamond.html)
+ *   - .calls events, two-way binding, ${} interpolation          (v2.0)
+ *   - set (static one-shot) + rawSet (audited raw escape hatch)  (v2.0 security)
+ *   - if / else-if (empty state) + repeat.for (the list)         (v2.0)
+ *   - <switch>/<case>/<default> — exhaustive multi-state         (v2.1)
+ *   - ...attrs.bind — runtime-gated attribute spread             (v2.1)
+ *
+ *  MoneyForm (hand-written — shows the runtime API the compiler targets)
+ *   - CurrencyConverter format/parse + ParseResult               (v2.0)
+ *   - value.update-on="blur" (the 5th bind() arg)                (v2.0)
+ *   - this.debounce (self-registering, leak-safe)                (v2.0)
+ *
+ *  TaskBoard (hand-written — the v2.1 scale primitives)
+ *   - Collection<T> (2.1a): never-proxied items, version signal  (v2.1)
+ *   - DiamondCore.delegate (2.1b): ONE listener for every row    (v2.1)
  */
 
 import { DiamondCore, Component, reactive } from '@diamondjs/runtime'
+import { CurrencyConverter } from '@diamondjs/converters'
+import * as TasksTemplate from './Tasks.diamond.html'
 
-// Import compiled template - demonstrates the Parcel transformer
-import * as CounterTemplateModule from './Counter.diamond.html'
-
-/**
- * Counter Component
- *
- * This version uses a template compiled by the Parcel transformer.
- */
-class Counter extends Component {
-  @reactive count = 0
-
-  increment(): void {
-    this.count++
-  }
-
-  decrement(): void {
-    this.count--
-  }
-
-  // Use the compiled template from the .diamond.html file
-  // In v1.5.1, this is an instance method assigned from the compiled module
-  createTemplate = CounterTemplateModule.createTemplate
+interface Task {
+  title: string
 }
 
 /**
- * Greeting Component
- *
- * Demonstrates:
- * - Two-way input binding using 'this'
- * - Text interpolation
- * - @reactive property decorator
- *
- * In production, this would also use a compiled template.
+ * Tasks — uses the compiled template from Tasks.diamond.html.
+ * `title` / `bannerHtml` are read once (set / rawSet); `draft` / `tasks` drive the UI.
  */
-class Greeting extends Component {
-  @reactive name = 'World'
+class Tasks extends Component {
+  title = 'DiamondJS v2.1 — Tasks'
+  bannerHtml =
+    '<strong>v2.1</strong> — this banner is set via <code>innerHTML.rawSet</code> (recorded in stink-baseline.json).'
 
-  // [Diamond] Compiler-generated instance template method
-  createTemplate() {
+  // ...attrs.bind source: safe keys land as properties; data-*/aria-* land as
+  // attributes; anything off the allowlist is skipped (fails closed, dev warn).
+  inputAttrs = { 'aria-label': 'New task title', maxLength: 64 }
+
+  @reactive draft = ''
+  @reactive tasks: Task[] = []
+
+  // Drives the <switch on="mood"> block — reads reactive state, so the
+  // switch re-dispatches whenever the task count changes.
+  get mood(): string {
+    if (this.tasks.length === 0) return 'idle'
+    return this.tasks.length < 5 ? 'cruising' : 'busy'
+  }
+
+  add(): void {
+    const t = this.draft.trim()
+    if (t) {
+      this.tasks = [...this.tasks, { title: t }]
+      this.draft = ''
+    }
+  }
+
+  remove(task: Task): void {
+    this.tasks = this.tasks.filter((x) => x !== task)
+  }
+
+  // The compiled instance method from the .diamond.html module.
+  createTemplate = (
+    TasksTemplate as unknown as { createTemplate: (this: Tasks) => HTMLElement }
+  ).createTemplate
+}
+
+/**
+ * MoneyForm — hand-written, but it is exactly what the compiler emits for:
+ *   value.two-way="amount | CurrencyConverter('USD')"  value.update-on="blur"
+ * plus a debounced side-effect.
+ */
+class MoneyForm extends Component {
+  @reactive amount = 1000
+  @reactive lastCommit = '—'
+
+  // Handler timing: self-registering debounce (cancelled automatically on unmount).
+  private commit = this.debounce(() => {
+    this.lastCommit = `committed ${this.amount}`
+  }, 400)
+
+  createTemplate(): HTMLElement {
     const div = document.createElement('div')
-    div.className = 'greeting'
+    div.className = 'card'
+
+    const h2 = document.createElement('h2')
+    h2.textContent = 'Money — converter pipe + update-on + debounce'
 
     const input = document.createElement('input')
-    input.placeholder = 'Enter your name'
-    // [Diamond] Two-way binding: value ↔ this.name
+    input.placeholder = 'Enter an amount, then blur'
+    // Two-way through CurrencyConverter: format outbound, parse (→ ParseResult)
+    // inbound, sampled on 'blur' (update-on). Invalid input keeps the model + raw.
     DiamondCore.bind(
       input,
       'value',
-      () => this.name,
-      (v) => (this.name = v as string)
+      () => CurrencyConverter.format(this.amount, 'USD'),
+      (v) => {
+        const r = CurrencyConverter.parse(v as string, 'USD')
+        if (r.valid && r.value !== null) {
+          this.amount = r.value
+          this.commit()
+        }
+      },
+      'blur'
     )
 
-    const p = document.createElement('p')
-    // [Diamond] One-way binding: textContent ← this.name
-    DiamondCore.bind(p, 'textContent', () => `Hello, ${this.name}!`)
+    const out = document.createElement('p')
+    out.className = 'count'
+    DiamondCore.bind(
+      out,
+      'textContent',
+      () => `Model holds the number ${this.amount} · ${this.lastCommit}`
+    )
 
-    div.appendChild(input)
-    div.appendChild(p)
-
+    div.append(h2, input, out)
     return div
   }
 }
 
-// Mount the components
+/**
+ * TaskBoard — hand-written; the v2.1 scale primitives:
+ *   Collection<T> (2.1a): plain never-proxied items, one version signal —
+ *     10k pushes re-render once (scheduler dedupe)
+ *   DiamondCore.delegate (2.1b): ONE container listener serves every row,
+ *     resolving the click back to the DATA ITEM via repeat's node→item registry
+ */
+class TaskBoard extends Component {
+  board = DiamondCore.collection<Task>(
+    [{ title: 'Design' }, { title: 'Build' }, { title: 'Verify' }],
+    { key: (t) => t.title }
+  )
+  picked = DiamondCore.reactive({ label: 'nothing yet' })
+
+  createTemplate(): HTMLElement {
+    const div = document.createElement('div')
+    div.className = 'card'
+
+    const h2 = document.createElement('h2')
+    h2.textContent = 'Board — Collection + delegate (v2.1)'
+
+    const list = document.createElement('ul')
+    const anchor = document.createComment('repeat')
+    list.appendChild(anchor)
+    DiamondCore.repeat(anchor, () => this.board, (task: Task) => {
+      const li = document.createElement('li')
+      li.textContent = task.title
+      return li
+    })
+    // One delegated listener — no per-row handlers, no listener thrash at scale
+    DiamondCore.delegate<Task>(list, 'click', 'li', (task) => {
+      this.picked.label = task.title
+    })
+
+    const out = document.createElement('p')
+    out.className = 'count'
+    DiamondCore.bind(out, 'textContent', () => `Picked: ${this.picked.label}`)
+
+    const add = document.createElement('button')
+    add.textContent = 'Add row'
+    DiamondCore.on(add, 'click', () =>
+      this.board.push({ title: `Task ${this.board.length + 1}` })
+    )
+
+    div.append(h2, list, out, add)
+    return div
+  }
+}
+
 const app = document.getElementById('app')!
 
-const counterTitle = document.createElement('h2')
-counterTitle.textContent = 'Counter (Compiled Template)'
-app.appendChild(counterTitle)
+const tasks = new Tasks()
+tasks.mount(app)
 
-const counter = new Counter()
-counter.mount(app)
+const money = new MoneyForm()
+money.mount(app)
 
-const greetingTitle = document.createElement('h2')
-greetingTitle.textContent = 'Greeting'
-app.appendChild(greetingTitle)
+const board = new TaskBoard()
+board.mount(app)
 
-const greeting = new Greeting()
-greeting.mount(app)
-
-// Log to console for debugging
-console.log('DiamondJS Hello World loaded! (v1.5.1)')
-console.log('Counter component (compiled template):', counter)
-console.log('Greeting component:', greeting)
+console.log('DiamondJS v2.1 example loaded — Tasks + MoneyForm + TaskBoard', {
+  tasks,
+  money,
+  board,
+})

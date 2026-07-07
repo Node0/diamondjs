@@ -20,13 +20,13 @@ describe('DiamondCompiler', () => {
     it('compiles element with binding', () => {
       const result = compiler.compile('<input value.bind="name">')
 
-      expect(result.code).toContain("DiamondCore.bind(input0, 'value', () => this.name")
+      expect(result.code).toContain("DiamondCore.bind(el_input_0, 'value', () => this.name")
     })
 
     it('compiles element with event', () => {
-      const result = compiler.compile('<button click.trigger="save()"></button>')
+      const result = compiler.compile('<button click.calls="save()"></button>')
 
-      expect(result.code).toContain("DiamondCore.on(button0, 'click'")
+      expect(result.code).toContain("DiamondCore.on(el_button_0, 'click'")
     })
 
     it('compiles element with interpolation', () => {
@@ -68,7 +68,7 @@ export class MyComponent {
       expect(result.code).toContain('createTemplate()')
       expect(result.code).not.toContain('static createTemplate()')
       expect(result.code).toContain('export class MyComponent')
-      expect(result.code).toContain("DiamondCore.bind(input0, 'value', () => this.name")
+      expect(result.code).toContain("DiamondCore.bind(el_input_0, 'value', () => this.name")
     })
 
     it('adds DiamondCore import if missing', () => {
@@ -149,7 +149,7 @@ export class MyComponent {}
   describe('integration scenarios', () => {
     it('compiles a complete form', () => {
       const template = `
-        <form submit.trigger="onSubmit()">
+        <form submit.calls="onSubmit()">
           <label>Name:</label>
           <input type="text" value.bind="name">
           <label>Email:</label>
@@ -160,16 +160,16 @@ export class MyComponent {}
       const result = compiler.compile(template)
 
       expect(result.code).toContain("document.createElement('form')")
-      expect(result.code).toContain("DiamondCore.on(form0, 'submit'")
+      expect(result.code).toContain("DiamondCore.on(el_form_0, 'submit'")
       // Use patterns since variable numbering includes text nodes
-      expect(result.code).toMatch(/DiamondCore\.bind\(input\d+, 'value', \(\) => this\.name/)
-      expect(result.code).toMatch(/DiamondCore\.bind\(input\d+, 'value', \(\) => this\.email/)
+      expect(result.code).toMatch(/DiamondCore\.bind\(el_input_\d+, 'value', \(\) => this\.name/)
+      expect(result.code).toMatch(/DiamondCore\.bind\(el_input_\d+, 'value', \(\) => this\.email/)
     })
 
     it('compiles a component with all binding types', () => {
       const template = `
         <div>
-          <span textContent.one-time="title"></span>
+          <span textContent.set="title"></span>
           <span textContent.to-view="message"></span>
           <input value.from-view="query">
           <input value.two-way="name">
@@ -179,26 +179,43 @@ export class MyComponent {}
       const result = compiler.compile(template)
 
       // One-time: direct assignment (use pattern since variable numbering varies)
-      expect(result.code).toMatch(/span\d+\.textContent = this\.title/)
+      expect(result.code).toMatch(/el_span_\d+\.textContent = this\.title/)
       // To-view: one-way binding
-      expect(result.code).toMatch(/DiamondCore\.bind\(span\d+, 'textContent', \(\) => this\.message\)/)
+      expect(result.code).toMatch(/DiamondCore\.bind\(el_span_\d+, 'textContent', \(\) => this\.message\)/)
       // From-view, two-way, bind: all have setter
       expect(result.code).toContain('(v) => this.query = v')
       expect(result.code).toContain('(v) => this.name = v')
       expect(result.code).toContain('(v) => this.email = v')
     })
 
+    it('compiles data-*/aria-* outbound bindings as attribute writes', () => {
+      const r = compiler.compile(
+        '<div data-user-id.set="user.id" aria-label.to-view="labelText"></div>'
+      )
+      expect(r.code).toContain("el_div_0.setAttribute('data-user-id', this.user.id)")
+      expect(r.code).toContain("DiamondCore.bind(el_div_0, 'aria-label', () => this.labelText)")
+      // Attribute branch is gate-clean: no stink diagnostics
+      expect(r.diagnostics?.some((d) => d.code === 'stink:warn')).toBe(false)
+    })
+
+    it('rejects inbound bindings on dashed attribute names', () => {
+      const r = compiler.compile('<div data-user-id.two-way="user.id"></div>')
+      expect(
+        r.diagnostics?.some((d) => d.code === 'attr-binding-outbound-only')
+      ).toBe(true)
+    })
+
     it('compiles a counter component', () => {
       const template = `
         <div class="counter">
-          <button click.trigger="decrement()">-</button>
+          <button click.calls="decrement()">-</button>
           <span>\${count}</span>
-          <button click.trigger="increment()">+</button>
+          <button click.calls="increment()">+</button>
         </div>
       `
       const result = compiler.compile(template)
 
-      expect(result.code).toContain("div0.className = 'counter'")
+      expect(result.code).toContain("el_div_0.className = 'counter'")
       expect(result.code).toContain('this.decrement()')
       expect(result.code).toContain('this.increment()')
       expect(result.code).toContain('this.count')

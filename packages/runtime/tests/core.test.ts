@@ -114,6 +114,31 @@ describe('DiamondCore', () => {
       expect(div.textContent).toBe('Hello')
     })
 
+    it('from-view (no getter) never pushes model → DOM, even when the model changes elsewhere', async () => {
+      const state = DiamondCore.reactive({ q: 'model-initial' })
+      const input = document.createElement('input')
+      input.value = 'user-typed'
+
+      // from-view: setter only, NO getter
+      DiamondCore.bind(input, 'value', undefined, (v) => {
+        state.q = v as string
+      })
+      await vi.runAllTimersAsync()
+
+      // Model did NOT overwrite the user's input on setup
+      expect(input.value).toBe('user-typed')
+
+      // DOM → model still works
+      input.value = 'new-user-input'
+      input.dispatchEvent(new Event('input'))
+      expect(state.q).toBe('new-user-input')
+
+      // CRITICAL: a model write from elsewhere must NOT reach the sink
+      state.q = 'changed-by-websocket'
+      await vi.runAllTimersAsync()
+      expect(input.value).toBe('new-user-input') // sink untouched by the model
+    })
+
     it('should use change event for checkboxes', async () => {
       const state = DiamondCore.reactive({ checked: false })
       const input = document.createElement('input')
@@ -197,48 +222,13 @@ describe('DiamondCore', () => {
     })
   })
 
-  describe('delegate', () => {
-    it('should delegate events to matching children', () => {
-      const parent = document.createElement('ul')
-      const li1 = document.createElement('li')
-      const li2 = document.createElement('li')
-      parent.appendChild(li1)
-      parent.appendChild(li2)
-
-      const handler = vi.fn()
-      DiamondCore.delegate(parent, 'click', 'li', handler)
-
-      li1.click()
-      expect(handler).toHaveBeenCalledTimes(1)
-
-      li2.click()
-      expect(handler).toHaveBeenCalledTimes(2)
-    })
-
-    it('should not trigger for non-matching children', () => {
-      const parent = document.createElement('div')
-      const span = document.createElement('span')
-      parent.appendChild(span)
-
-      const handler = vi.fn()
-      DiamondCore.delegate(parent, 'click', 'li', handler)
-
-      span.click()
-      expect(handler).not.toHaveBeenCalled()
-    })
-
-    it('should return cleanup function', () => {
-      const parent = document.createElement('ul')
-      const li = document.createElement('li')
-      parent.appendChild(li)
-
-      const handler = vi.fn()
-      const cleanup = DiamondCore.delegate(parent, 'click', 'li', handler)
-
-      cleanup()
-      li.click()
-
-      expect(handler).not.toHaveBeenCalled()
+  describe('delegate (removed in v2.0 §6.4; reintroduced in v2.1 as 2.1b)', () => {
+    it('exists as the clean-slate data-delegation API (item-resolving, not the Aurelia stub)', () => {
+      // The v2.0 removal killed an orphaned event-fallback stub. The v2.1
+      // delegate is a different contract entirely: container listener +
+      // closest() + repeat's node→item registry (see delegate.test.ts).
+      expect(typeof DiamondCore.delegate).toBe('function')
+      expect(DiamondCore.delegate.length).toBe(4) // container, event, selector, handler
     })
   })
 })
