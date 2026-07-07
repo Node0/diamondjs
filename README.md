@@ -259,7 +259,7 @@ The entire framework fits in an LLM context window. That's not an accident — i
 
 **What works today (v2.1)**: everything from v2.0 (security allowlist + `raw` escape hatch + stink gate; `set`/`rawSet`, `.calls`, `.capture`; `if`/`else-if`/`repeat.for`; converter pipes + `ParseResult` + batteries; `update-on` + `debounce`/`throttle`; `[Diamond]` hints; Parcel pipeline) **plus**: `switch`/`case`/`default`, `...attrs.bind`/`.rawBind`, `data-*`/`aria-*` attribute bindings, `Collection<T>` + `DiamondCore.collection()`, `DiamondCore.delegate()`, two-way converter chains, `value.error-into`, `@import` template provenance, VLQ source maps, re-export-aware converter verification, holistic root cleanup on unmount, and primafacie logging.
 
-> DiamondJS is in active early development. The API will change. Use it to explore, experiment, and contribute — not yet for production.
+> DiamondJS is in active development, having said that the API is less likely to change suddenly now in v2.1
 
 ---
 
