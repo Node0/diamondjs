@@ -134,6 +134,30 @@ export class TemplateParser {
       const segments = name.split('.')
       const location = this.getAttrLocation(element, name)
 
+      // --- Attribute spread (v2.1, DDR §7.1) — before the dot-split logic
+      // (a spread name would shred into ['','','attrs','bind']). Only the two
+      // canonical forms exist; anything else after '...' fails loudly.
+      if (name.startsWith('...')) {
+        if (name === '...attrs.bind' || name === '...attrs.rawbind') {
+          this.checkRemovedAmpersand(attr.value, location)
+          bindings.push({
+            type: 'spread',
+            property: '...attrs',
+            expression: attr.value,
+            raw: name === '...attrs.rawbind',
+            location,
+          })
+        } else {
+          this.diagnostics.push({
+            severity: 'error',
+            code: 'bad-spread',
+            message: `Unknown spread form '${name}'. Only '...attrs.bind' (allowlist-gated at runtime) and '...attrs.rawBind' (developer-owned, audited) exist (DDR §7.1).`,
+            location,
+          })
+        }
+        continue
+      }
+
       // --- Structural directives + removed-form rejections (DDR §6.1–6.3, A1) ---
       const struct = this.tryStructural(name, segments, attr.value, location)
       if (struct !== null) {

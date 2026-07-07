@@ -12,6 +12,14 @@ type EffectFn = () => void
 type CleanupFn = () => void
 
 /**
+ * Sentinel dependency key for key-set iteration (Object.keys / for...in /
+ * spread sources). Tracked by the ownKeys trap; triggered when a key is added
+ * or deleted — so an effect that enumerates a reactive object re-runs when its
+ * SHAPE changes, not just its values. (v2.1, required by DiamondCore.spread.)
+ */
+export const ITERATE_KEY: unique symbol = Symbol('diamond.iterate')
+
+/**
  * Dev-only flag for the inbound smell check (DDR §3.3 row 3). Evaluated once; in
  * a production bundle `process.env.NODE_ENV` is replaced with the literal, so the
  * hot-path cost in prod is a single boolean.
@@ -70,11 +78,28 @@ export class ReactivityEngine {
         return value
       },
       set: (target, prop, value, receiver) => {
+        const hadKey = Reflect.has(target, prop)
         const oldValue = Reflect.get(target, prop, receiver)
         const result = Reflect.set(target, prop, value, receiver)
         if (oldValue !== value) {
           if (IS_DEV) this.checkInboundSmell(target, prop, oldValue, value)
           this.triggerEffects(target, prop)
+          // A NEW key changes the object's shape — wake key-set iterators
+          if (!hadKey) this.triggerEffects(target, ITERATE_KEY)
+        }
+        return result
+      },
+      ownKeys: (target) => {
+        // Object.keys / for...in inside an effect tracks the key SET
+        this.trackDependency(target, ITERATE_KEY)
+        return Reflect.ownKeys(target)
+      },
+      deleteProperty: (target, prop) => {
+        const hadKey = Reflect.has(target, prop)
+        const result = Reflect.deleteProperty(target, prop)
+        if (hadKey && result) {
+          this.triggerEffects(target, prop)
+          this.triggerEffects(target, ITERATE_KEY)
         }
         return result
       }

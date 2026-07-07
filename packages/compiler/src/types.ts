@@ -24,6 +24,7 @@ export type BindingType =
   | 'two-way'   // Explicit two-way
   | 'calls'     // Event handler (v2.0: was .trigger)
   | 'capture'   // Capture phase event
+  | 'spread'    // Attribute spread ...attrs.bind / ...attrs.rawBind (v2.1, DDR §7.1)
 
 /**
  * Outbound sink-writing operations — those that write model→DOM and are subject

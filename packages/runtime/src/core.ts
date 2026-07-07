@@ -6,8 +6,18 @@
  */
 
 import { reactivityEngine } from './reactivity'
+import { SAFE_SINKS, canonicalizeSinkKey, isDataOrAriaKey } from './security'
+import { devWarn } from './dev-log'
 
 type CleanupFn = () => void
+
+/** Dev-only flag (bundlers replace process.env.NODE_ENV with a literal). */
+let IS_DEV: boolean
+try {
+  IS_DEV = process.env.NODE_ENV !== 'production'
+} catch {
+  IS_DEV = true
+}
 
 /**
  * DiamondCore - The main runtime API class
@@ -328,10 +338,89 @@ export class DiamondCore {
     })
   }
 
-  // NOTE: DiamondCore.delegate() was removed in v2.0 (DDR §6.4). Event delegation
-  // had no remaining reason to exist (Collection + virtual scrolling caps live node
-  // count; repeat.for codegen emits per-node .calls). The old method was an orphaned
-  // stub the generator never called.
+  /**
+   * Attribute spread (v2.1, DDR §7.1): reactively apply an object's keys to an
+   * element. Per key, in strict order:
+   *
+   *   1. GATE FIRST — canonicalize the key, then consult the SAME allowlist the
+   *      compiler gates against. Unknown keys fail closed (skipped, with a
+   *      dev-only warn-once); `data-*`/`aria-*` pass via the attribute branch.
+   *      `raw = true` (…attrs.rawBind) bypasses the gate entirely — developer-
+   *      owned, audited as a heavy stink:declared at compile time.
+   *   2. BRANCH SECOND — `key in el` → property assignment; else → setAttribute.
+   *
+   * Keys applied on a previous run but absent now are reconciled: attribute
+   * keys are removed; property keys are restored to their pre-spread value.
+   * Precedence between spread and sibling bindings is source order (the
+   * compiler emits calls in attribute order); after mount, standard reactive
+   * semantics apply (last effect to run wins).
+   */
+  static spread(
+    element: HTMLElement,
+    objGetter: () => Record<string, unknown> | null | undefined,
+    raw = false
+  ): CleanupFn {
+    const el = element as unknown as Record<string, unknown>
+    // key → how it was applied (+ the pre-spread property value to restore)
+    const applied = new Map<string, { kind: 'prop' | 'attr'; prior?: unknown }>()
+    const warnedKeys = new Set<string>()
+
+    const remove = (key: string, entry: { kind: 'prop' | 'attr'; prior?: unknown }): void => {
+      if (entry.kind === 'attr') element.removeAttribute(key)
+      else el[canonicalizeSinkKey(key)] = entry.prior
+    }
+
+    const cleanup = this.effect(() => {
+      const obj = objGetter() ?? {}
+      const seen = new Set<string>()
+
+      for (const key of Object.keys(obj)) {
+        const value = obj[key] // per-key read — tracked on proxy sources
+        const canonical = canonicalizeSinkKey(key)
+
+        // [Diamond] gate FIRST, branch SECOND (DDR §7.1) — unknown keys fail closed
+        if (!raw && !SAFE_SINKS.has(canonical) && !isDataOrAriaKey(key)) {
+          if (IS_DEV && !warnedKeys.has(key)) {
+            warnedKeys.add(key)
+            devWarn(
+              'DiamondCore.spread',
+              `[Diamond] spread: unsafe key '${key}' skipped (fails closed). ` +
+                `Declare intent with ...attrs.rawBind if you own every key.`
+            )
+          }
+          continue
+        }
+
+        seen.add(key)
+        if (canonical in el && !isDataOrAriaKey(key)) {
+          if (!applied.has(key)) {
+            applied.set(key, { kind: 'prop', prior: el[canonical] })
+          }
+          el[canonical] = value
+        } else {
+          if (!applied.has(key)) applied.set(key, { kind: 'attr' })
+          if (value == null) element.removeAttribute(key)
+          else element.setAttribute(key, String(value))
+        }
+      }
+
+      // Reconcile keys applied previously but absent from this run
+      for (const [key, entry] of applied) {
+        if (!seen.has(key)) {
+          remove(key, entry)
+          applied.delete(key)
+        }
+      }
+    })
+
+    const fullCleanup: CleanupFn = () => cleanup()
+    this.track(fullCleanup)
+    return fullCleanup
+  }
+
+  // NOTE: DiamondCore.delegate() was removed in v2.0 (DDR §6.4) as an orphaned
+  // Aurelia-era stub, and returns in v2.1 as a clean-slate design (see delegate()
+  // below, added with the Collection/2.1b work).
 
   /**
    * Get the appropriate input event name for two-way binding

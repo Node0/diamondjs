@@ -374,6 +374,14 @@ export class CodeGenerator {
    * v1.5.1 one-time bypass (a naked `el.prop = value` that never entered bind()).
    */
   private generateBinding(varName: string, binding: BindingInfo): void {
+    // Attribute spread short-circuits BEFORE the gate: the compiler cannot see
+    // the object's keys, so per-key gating defers to DiamondCore.spread at
+    // runtime (against the same allowlist). gateSink would mis-classify it.
+    if (binding.type === 'spread') {
+      this.generateSpread(varName, binding)
+      return
+    }
+
     // Gate OUTBOUND sink writes (model → DOM). from-view is inbound (DOM → model):
     // it never writes the sink, so it is not outbound-gated — its risk is the
     // runtime inbound smell check (DDR §3.3 row 3). Its `raw` flag is preserved
@@ -562,6 +570,43 @@ export class CodeGenerator {
     if (evt) this.emitLine(evt.slice(2)) // the event name, own line (strip ', ')
     this.indent--
     this.emitLine(`);`)
+  }
+
+  /**
+   * Attribute spread (v2.1, DDR §7.1). The compiler cannot see the object's
+   * keys, so resolution defers to DiamondCore.spread — which gates each key
+   * against the SAME allowlist at runtime (gate FIRST, branch SECOND; unknown
+   * keys fail closed). The raw variant bypasses the runtime gate entirely:
+   * developer-owned, audited via a heavy stink:declared.
+   */
+  private generateSpread(varName: string, binding: BindingInfo): void {
+    const getter = `() => ${this.prefixExpression(binding.expression)}`
+
+    if (binding.raw) {
+      this.diagnostics.push({
+        severity: 'declared',
+        code: 'stink:declared',
+        message: `raw ...attrs via spread${binding.expression ? `: ${binding.expression}` : ''}`,
+        location: binding.location,
+        property: '...attrs',
+        op: 'spread',
+        raw: true,
+        expression: binding.expression,
+      })
+      this.emitLine(
+        `// [Diamond] raw sink — explicit opt-in (developer-owned, unescaped); audited in stink-baseline.json, no runtime XSS protection here`
+      )
+      this.emitLine(
+        `// [Diamond] RAW attribute spread: ...attrs.rawBind="${binding.expression}" — allowlist bypassed; developer owns every key (incl. innerHTML/on*)`
+      )
+      this.emitLine(`DiamondCore.spread(${varName}, ${getter}, true);`, binding.location)
+      return
+    }
+
+    this.emitLine(
+      `// [Diamond] Attribute spread: ...attrs.bind="${binding.expression}" — runtime-gated: gate FIRST (non-allowlisted keys skipped), branch SECOND`
+    )
+    this.emitLine(`DiamondCore.spread(${varName}, ${getter});`, binding.location)
   }
 
   /**
