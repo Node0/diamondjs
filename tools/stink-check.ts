@@ -25,6 +25,7 @@ import {
 } from 'fs'
 import { join, relative } from 'path'
 import { DiamondCompiler } from '../packages/compiler/src/index'
+import { Print } from '../packages/primafacie/src/primafacie'
 
 const ROOT = process.cwd()
 const BASELINE_PATH = join(ROOT, 'stink-baseline.json')
@@ -142,14 +143,15 @@ let failed = false
 
 if (errors.length) {
   failed = true
-  console.log(`\n❌ ${errors.length} compile error(s) — retired/unknown commands:`)
+  Print('FAILURE', `${errors.length} compile error(s) — retired/unknown commands:`)
   for (const e of errors) console.log(`   - ${e.file}:${e.line} ${e.message}`)
 }
 
 if (warns.length) {
   failed = true
-  console.log(
-    `\n❌ ${warns.length} stink:warn — unsafe sink(s) written without raw (hard gate):`
+  Print(
+    'FAILURE',
+    `${warns.length} stink:warn — unsafe sink(s) written without raw (hard gate):`
   )
   for (const w of warns) console.log(`   - ${w.file}:${w.line} ${w.message}`)
 }
@@ -174,7 +176,7 @@ if (added.length || removed.length) {
 
 console.log('\n' + '='.repeat(64))
 if (failed) {
-  console.log('\n❌ STINK GATE FAILED — resolve stink:warn / errors before merge.\n')
+  Print('CRITICAL', 'STINK GATE FAILED — resolve stink:warn / errors before merge.')
   process.exit(1)
 }
-console.log('\n✅ Stink gate passed.\n')
+Print('SUCCESS', 'Stink gate passed.')

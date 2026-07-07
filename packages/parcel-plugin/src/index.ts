@@ -11,7 +11,15 @@
  */
 
 import { Transformer } from '@parcel/plugin'
+import { Print, type LogType } from '@diamondjs/primafacie'
 import { isDiamondTemplate, compileTemplate } from './utils'
+
+/** Map non-throwing diagnostic severities onto primafacie log types. */
+const LOG_TYPE_FOR_SEVERITY: Record<string, LogType> = {
+  warn: 'WARNING',
+  declared: 'IMPORTANT',
+  info: 'INFO',
+}
 
 export default new Transformer({
   async transform({ asset }) {
@@ -48,6 +56,16 @@ export default new Transformer({
         .join('\n')
       throw new Error(
         `[Diamond] ${errors.length} error(s) compiling ${filePath}:\n${detail}`
+      )
+    }
+
+    // Surface non-throwing diagnostics (stink warns/declared, infos) through
+    // primafacie so dev builds narrate them; the hard gate stays stink-check.
+    for (const d of result.diagnostics ?? []) {
+      if (d.severity === 'error') continue
+      Print(
+        LOG_TYPE_FOR_SEVERITY[d.severity] ?? 'INFO',
+        `${filePath}${d.location ? `:${d.location.line}` : ''} ${d.message}`
       )
     }
 

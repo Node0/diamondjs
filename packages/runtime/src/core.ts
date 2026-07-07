@@ -148,10 +148,19 @@ export class DiamondCore {
     // To-view effect: ONLY when a getter is provided. from-view passes no getter,
     // so the model can never write into the sink — a one-way-named flow must not
     // permit the opposite flow (would silently bypass an inbound security boundary).
+    // Dashed names (data-*/aria-*) are attributes, not JS properties — they go
+    // through setAttribute (null/undefined removes the attribute).
     let cleanupEffect: CleanupFn = () => {}
     if (getter) {
+      const isAttribute = property.includes('-')
       cleanupEffect = this.effect(() => {
-        el[property] = getter()
+        const value = getter()
+        if (isAttribute) {
+          if (value == null) element.removeAttribute(property)
+          else element.setAttribute(property, String(value))
+        } else {
+          el[property] = value
+        }
       })
     }
 

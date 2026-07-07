@@ -30,5 +30,14 @@ export { reactive } from './decorators'
 // Validation (DDR §5.7) — the from-view / parse contract
 export { ParseResult } from './parse-result'
 
+// Security data (DDR §3.2 / §7.1) — canonical home of the single auditable
+// allowlist; the compiler re-exports these
+export {
+  SAFE_SINKS,
+  PROPERTY_NAME_MAP,
+  canonicalizeSinkKey,
+  isDataOrAriaKey,
+} from './security'
+
 // Default export
 export { DiamondCore as default } from './core'

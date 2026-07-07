@@ -188,6 +188,23 @@ export class MyComponent {}
       expect(result.code).toContain('(v) => this.email = v')
     })
 
+    it('compiles data-*/aria-* outbound bindings as attribute writes', () => {
+      const r = compiler.compile(
+        '<div data-user-id.set="user.id" aria-label.to-view="labelText"></div>'
+      )
+      expect(r.code).toContain("el_div_0.setAttribute('data-user-id', this.user.id)")
+      expect(r.code).toContain("DiamondCore.bind(el_div_0, 'aria-label', () => this.labelText)")
+      // Attribute branch is gate-clean: no stink diagnostics
+      expect(r.diagnostics?.some((d) => d.code === 'stink:warn')).toBe(false)
+    })
+
+    it('rejects inbound bindings on dashed attribute names', () => {
+      const r = compiler.compile('<div data-user-id.two-way="user.id"></div>')
+      expect(
+        r.diagnostics?.some((d) => d.code === 'attr-binding-outbound-only')
+      ).toBe(true)
+    })
+
     it('compiles a counter component', () => {
       const template = `
         <div class="counter">

@@ -18,65 +18,15 @@
  */
 
 import type { Diagnostic, SinkOp, SourceLocation } from './types'
+import { SAFE_SINKS, isDataOrAriaKey } from '@diamondjs/runtime'
 
 /**
- * The safe-sink allowlist (canonical camelCase keys).
- *
- * Inclusion test: assigning an arbitrary attacker-controlled string to the
- * property cannot cause (a) HTML/markup parsing, (b) script execution, or
- * (c) navigation to a script-capable URL scheme. The §11.2 "load-bearing
- * unknown" — refine empirically (see impl_docs/working_notes.md).
- *
- * NOTE: any entry whose camelCase ≠ lowercase MUST also exist in the parser's
- * PROPERTY_NAME_MAP, or it arrives non-canonical and fails closed as a false
- * warn. Enforced by a unit test (SAFE_SINKS ⊆ PROPERTY_NAME_MAP ∪ lc-identical).
+ * The safe-sink allowlist's canonical home is @diamondjs/runtime (v2.1): the
+ * runtime spread gate (DDR §7.1) and this compile-time gate must consult the
+ * SAME single auditable set. Re-exported here so the compiler's public API is
+ * unchanged.
  */
-export const SAFE_SINKS: ReadonlySet<string> = new Set<string>([
-  // Text content (no markup parsing)
-  'textContent',
-  'innerText',
-  // Form value / selection state
-  'value',
-  'valueAsNumber',
-  'valueAsDate',
-  'checked',
-  'selected',
-  'selectedIndex',
-  // Class (not inline style)
-  'className',
-  // Boolean / scalar UI state
-  'disabled',
-  'readOnly',
-  'required',
-  'hidden',
-  'multiple',
-  'open',
-  // Numeric / layout scalars
-  'tabIndex',
-  'maxLength',
-  'minLength',
-  'rowSpan',
-  'colSpan',
-  'scrollTop',
-  'scrollLeft',
-  // Plain-text descriptors
-  'placeholder',
-  'title',
-  'alt',
-  'label',
-  'htmlFor',
-  // Constrained-token control props
-  'type',
-  'name',
-  'accept',
-  'autocomplete',
-  'inputMode',
-  'step',
-  'min',
-  'max',
-  'pattern',
-  'id',
-])
+export { SAFE_SINKS }
 
 /**
  * The raw command a developer should reach for to declare a given sink op.
@@ -110,7 +60,9 @@ export function gateSink(
   expression: string,
   location: SourceLocation | null
 ): Diagnostic | null {
-  const safe = SAFE_SINKS.has(property)
+  // data-*/aria-* pass through the attribute branch — inert metadata, never
+  // parsed as HTML/script/URL (Amendment A2; consistent with the §7.1 spread gate).
+  const safe = SAFE_SINKS.has(property) || isDataOrAriaKey(property)
 
   if (raw) {
     if (safe) {

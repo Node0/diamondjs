@@ -389,6 +389,26 @@ export class CodeGenerator {
       if (diag) this.diagnostics.push(diag)
     }
 
+    // Dashed names (data-*/aria-*) are attributes, not JS properties: only the
+    // outbound ops apply (set/to-view). There is no DOM property to sample for
+    // an inbound leg, so bind/two-way/from-view are authoring errors.
+    if (
+      binding.property.includes('-') &&
+      (binding.type === 'bind' ||
+        binding.type === 'two-way' ||
+        binding.type === 'from-view')
+    ) {
+      this.diagnostics.push({
+        severity: 'error',
+        code: 'attr-binding-outbound-only',
+        message:
+          `'${binding.property}' is an attribute (dashed name): use '.set' or '.to-view'. ` +
+          `There is no DOM property to sample for '${binding.type}'.`,
+        location: binding.location,
+      })
+      return
+    }
+
     // Parse the pipe once (segments is empty when there is no `|`).
     const parsed = parsePipe(binding.expression)
     for (const seg of parsed.segments) {
@@ -422,7 +442,15 @@ export class CodeGenerator {
         this.emitLine(
           `// [Diamond] ${rawTag}Set (static one-shot): ${binding.property} = ${binding.expression}`
         )
-        this.emitLine(`${varName}.${binding.property} = ${outbound};`, binding.location)
+        if (binding.property.includes('-')) {
+          // Attribute (data-*/aria-*): no JS property exists — write the attribute
+          this.emitLine(
+            `${varName}.setAttribute('${binding.property}', ${outbound});`,
+            binding.location
+          )
+        } else {
+          this.emitLine(`${varName}.${binding.property} = ${outbound};`, binding.location)
+        }
         break
       }
 

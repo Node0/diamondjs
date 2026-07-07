@@ -6,6 +6,7 @@
  */
 
 import { parseFragment, DefaultTreeAdapterMap } from 'parse5'
+import { PROPERTY_NAME_MAP } from '@diamondjs/runtime'
 import { scanInterpolations } from './pipe'
 import type {
   SourceLocation,
@@ -25,40 +26,16 @@ type Node = DefaultTreeAdapterMap['node']
 type DocumentFragment = DefaultTreeAdapterMap['documentFragment']
 
 /**
- * Map lowercase attribute names to camelCase DOM property names.
- * HTML attributes are case-insensitive and parse5 normalizes to lowercase, so
- * every property segment arrives lowercased and must be canonicalized here.
+ * PROPERTY_NAME_MAP's canonical home is @diamondjs/runtime (v2.1) — the runtime
+ * spread gate canonicalizes keys against the same map this parser uses, so a
+ * safe sink can't fail closed in one place and pass in the other. Re-exported
+ * here so the compiler's public API is unchanged.
  *
- * INVARIANT: every multi-case entry of SAFE_SINKS must appear here (else a safe
- * sink arrives non-canonical and fails closed as a false stink:warn). Enforced
- * by security.test.ts.
+ * INVARIANT: every multi-case entry of SAFE_SINKS must appear in the map (else
+ * a safe sink arrives non-canonical and fails closed as a false stink:warn).
+ * Enforced by security.test.ts.
  */
-export const PROPERTY_NAME_MAP: Record<string, string> = {
-  textcontent: 'textContent',
-  innerhtml: 'innerHTML',
-  innertext: 'innerText',
-  classname: 'className',
-  htmlfor: 'htmlFor',
-  tabindex: 'tabIndex',
-  readonly: 'readOnly',
-  maxlength: 'maxLength',
-  minlength: 'minLength',
-  cellpadding: 'cellPadding',
-  cellspacing: 'cellSpacing',
-  rowspan: 'rowSpan',
-  colspan: 'colSpan',
-  usemap: 'useMap',
-  frameborder: 'frameBorder',
-  contenteditable: 'contentEditable',
-  // Safe-sink canonicalizations (keep in sync with SAFE_SINKS)
-  scrolltop: 'scrollTop',
-  scrollleft: 'scrollLeft',
-  valueasnumber: 'valueAsNumber',
-  valueasdate: 'valueAsDate',
-  selectedindex: 'selectedIndex',
-  inputmode: 'inputMode',
-  // Add more as needed
-}
+export { PROPERTY_NAME_MAP }
 
 /**
  * Binding command surface (v2.0). Keyed by the lowercased command segment(s)

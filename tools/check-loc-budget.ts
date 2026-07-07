@@ -9,6 +9,7 @@
  */
 
 import { execSync } from 'child_process'
+import { Print } from '../packages/primafacie/src/primafacie'
 
 interface LOCBudget {
   name: string
@@ -41,6 +42,12 @@ const budgets: LOCBudget[] = [
     path: 'packages/converters/src',
     budget: 500,
     warningThreshold: 400
+  },
+  {
+    name: 'Primafacie (@diamondjs/primafacie)',
+    path: 'packages/primafacie/src',
+    budget: 400,
+    warningThreshold: 350
   }
 ]
 
@@ -103,10 +110,10 @@ function checkBudgets(): boolean {
   console.log(`   Usage:        ${((totalLOC / totalBudget) * 100).toFixed(1)}%`)
   
   if (!allPassed) {
-    console.log('\n❌ LOC BUDGET EXCEEDED - Reduce code before committing\n')
+    Print('CRITICAL', 'LOC BUDGET EXCEEDED - Reduce code before committing')
     process.exit(1)
   } else {
-    console.log('\n✅ All LOC budgets within limits\n')
+    Print('SUCCESS', 'All LOC budgets within limits')
   }
   
   return allPassed

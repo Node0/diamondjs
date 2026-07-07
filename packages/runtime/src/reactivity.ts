@@ -6,6 +6,7 @@
  */
 
 import { scheduler } from './scheduler'
+import { devWarn } from './dev-log'
 
 type EffectFn = () => void
 type CleanupFn = () => void
@@ -160,7 +161,8 @@ export class ReactivityEngine {
     if (warned.has(prop)) return
     warned.add(prop)
 
-    console.warn(
+    devWarn(
+      'ReactivityEngine.checkInboundSmell',
       `[Diamond] inbound corruption: property '${String(prop)}' held a number but ` +
         `received the non-numeric string ${JSON.stringify(newValue)}. A display-formatted ` +
         `value is leaking into the model — a two-way binding likely needs a parse (DDR §5.1). ` +

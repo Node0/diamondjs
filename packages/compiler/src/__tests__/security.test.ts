@@ -42,6 +42,16 @@ describe('gateSink decision table', () => {
     const d = gateSink('outerHTML', 'set', false, 'x', null)
     expect(d?.message).toContain('outerHTML.rawSet')
   })
+
+  it('passes data-*/aria-* through the attribute branch (Amendment A2)', () => {
+    expect(gateSink('data-user-id', 'set', false, 'user.id', null)).toBeNull()
+    expect(gateSink('aria-label', 'to-view', false, 'label', null)).toBeNull()
+  })
+
+  it('still fails closed on other dashed names', () => {
+    const d = gateSink('foo-bar', 'set', false, 'x', null)
+    expect(d?.code).toBe('stink:warn')
+  })
 })
 
 describe('SAFE_SINKS / PROPERTY_NAME_MAP invariant', () => {
