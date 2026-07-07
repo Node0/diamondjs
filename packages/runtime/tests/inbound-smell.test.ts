@@ -39,7 +39,7 @@ describe('inbound corruption smell check', () => {
     expect(warn).not.toHaveBeenCalled()
   })
 
-  it('does NOT warn for number→number or string→string writes', () => {
+  it('does NOT warn for number→number or plain string→string writes', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const state = DiamondCore.reactive({ n: 1, s: 'a' })
 
@@ -47,5 +47,47 @@ describe('inbound corruption smell check', () => {
     state.s = 'formatted'
 
     expect(warn).not.toHaveBeenCalled()
+  })
+
+  describe('v2.1 widening (user-ratified; §5.1 rows 2–3, best-effort dev heuristics)', () => {
+    it('warns when a locale-formatted date overwrites a canonical ISO date', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const state = DiamondCore.reactive({ due: '2026-03-01' })
+
+      state.due = '03/01/2026'
+
+      expect(warn).toHaveBeenCalledTimes(1)
+      expect(warn.mock.calls[0][0]).toContain('canonical ISO date')
+      expect(warn.mock.calls[0][0]).toContain('due')
+    })
+
+    it('does NOT warn for ISO→ISO date updates', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const state = DiamondCore.reactive({ due: '2026-03-01' })
+
+      state.due = '2026-04-15'
+
+      expect(warn).not.toHaveBeenCalled()
+    })
+
+    it('warns when a formatted phone overwrites a canonical 10-digit string', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const state = DiamondCore.reactive({ phone: '5551234567' })
+
+      state.phone = '(555) 123-4567'
+
+      expect(warn).toHaveBeenCalledTimes(1)
+      expect(warn.mock.calls[0][0]).toContain('canonical 10-digit')
+      expect(warn.mock.calls[0][0]).toContain('phone')
+    })
+
+    it('does NOT warn for 10-digit→10-digit phone updates', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const state = DiamondCore.reactive({ phone: '5551234567' })
+
+      state.phone = '5559876543'
+
+      expect(warn).not.toHaveBeenCalled()
+    })
   })
 })

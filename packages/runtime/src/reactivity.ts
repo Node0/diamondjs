@@ -19,6 +19,10 @@ type CleanupFn = () => void
  */
 export const ITERATE_KEY: unique symbol = Symbol('diamond.iterate')
 
+// Inbound smell-check heuristics (hoisted — the set trap is hot-path)
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}/
+const CANONICAL_PHONE_RE = /^\d{10}$/
+
 /**
  * Dev-only flag for the inbound smell check (DDR §3.3 row 3). Evaluated once; in
  * a production bundle `process.env.NODE_ENV` is replaced with the literal, so the
@@ -170,13 +174,34 @@ export class ReactivityEngine {
     oldValue: unknown,
     newValue: unknown
   ): void {
-    if (
-      typeof oldValue !== 'number' ||
-      typeof newValue !== 'string' ||
-      !Number.isNaN(Number(newValue))
-    ) {
-      return
+    // All three rules require a string inbound value — cheapest guard first.
+    if (typeof newValue !== 'string') return
+
+    // §5.1 row 1: number overwritten by a non-numeric string ("$1,250.00" over 1234.56)
+    let reason: string | null = null
+    if (typeof oldValue === 'number' && Number.isNaN(Number(newValue))) {
+      reason =
+        `held a number but received the non-numeric string ${JSON.stringify(newValue)}`
+    } else if (typeof oldValue === 'string') {
+      // v2.1 widening (user-ratified; §5.1 calls these rows "invisible by
+      // design" — this is a best-effort, dev-only, heuristic backstop; false
+      // positives are accepted as dev noise):
+      // §5.1 row 2: canonical ISO date string overwritten by a locale-formatted one
+      if (
+        ISO_DATE_RE.test(oldValue) &&
+        newValue.includes('/') &&
+        /\d/.test(newValue)
+      ) {
+        reason =
+          `held a canonical ISO date but received the display-formatted string ${JSON.stringify(newValue)}`
+      }
+      // §5.1 row 3: canonical 10-digit phone overwritten by a formatted one
+      else if (CANONICAL_PHONE_RE.test(oldValue) && /\D/.test(newValue)) {
+        reason =
+          `held a canonical 10-digit string but received the formatted string ${JSON.stringify(newValue)}`
+      }
     }
+    if (!reason) return
 
     let warned = this.smellWarned.get(target)
     if (!warned) {
@@ -188,9 +213,8 @@ export class ReactivityEngine {
 
     devWarn(
       'ReactivityEngine.checkInboundSmell',
-      `[Diamond] inbound corruption: property '${String(prop)}' held a number but ` +
-        `received the non-numeric string ${JSON.stringify(newValue)}. A display-formatted ` +
-        `value is leaking into the model — a two-way binding likely needs a parse (DDR §5.1). ` +
+      `[Diamond] inbound corruption: property '${String(prop)}' ${reason}. ` +
+        `A display-formatted value is leaking into the model — a two-way binding likely needs a parse (DDR §5.1). ` +
         `This is a thin backstop; the real defense is compile-time parse-required (§5.6).`
     )
   }

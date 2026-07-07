@@ -600,6 +600,18 @@ export class CodeGenerator {
     const dataExpr = this.prefixExpression(parsed.data)
     const rawTag = binding.raw ? 'RAW ' : ''
 
+    // error-into needs a ParseResult to read — i.e. at least one converter on
+    // the binding (only codegen knows segment kinds; parser can't check this).
+    if (binding.errorInto && !parsed.segments.some((s) => s.isConverter)) {
+      this.diagnostics.push({
+        severity: 'error',
+        code: 'error-into-no-converter',
+        message: `'${binding.property}.error-into' needs a converter on the binding (a ParseResult to read); "${binding.expression}" has none.`,
+        location: binding.location,
+      })
+      binding.errorInto = undefined
+    }
+
     // Raw OUTBOUND writes are unescaped and developer-owned. Name the security
     // contract explicitly so a cold-reading model cannot mistake an audited
     // opt-in for an accidental dangerous-sink write. (from-view raw is inbound —
@@ -648,7 +660,12 @@ export class CodeGenerator {
       case 'from-view': {
         // One-way DOM → model. NO getter (undefined) so the model can NEVER push
         // back into the sink — a from-view flow must not silently behave two-way.
-        const setter = this.buildFromViewSetter(parsed, dataExpr, binding.location)
+        const setter = this.buildFromViewSetter(
+          parsed,
+          dataExpr,
+          binding.location,
+          binding.errorInto
+        )
         const evt = this.updateOnArg(binding)
         this.emitLine(
           `// [Diamond] ${rawTag}From-view binding (one-way DOM → ${binding.expression}): ${binding.property}` +
@@ -671,7 +688,8 @@ export class CodeGenerator {
         const { getter, setter } = this.buildTwoWay(
           parsed,
           dataExpr,
-          binding.location
+          binding.location,
+          binding.errorInto
         )
         const evt = this.updateOnArg(binding)
         this.emitLine(
@@ -821,7 +839,8 @@ export class CodeGenerator {
   private buildFromViewSetter(
     parsed: ParsedPipe,
     dataExpr: string,
-    location: SourceLocation | null
+    location: SourceLocation | null,
+    errorInto?: string
   ): string | BlockSetter {
     const segs = parsed.segments
     if (segs.length === 0) return `(v) => ${dataExpr} = v`
@@ -845,12 +864,12 @@ export class CodeGenerator {
         direction: 'from-view',
         location,
       })
-      return {
-        body: [
-          `const r = ${seg.head}.parse(v${tail});`,
-          `if (r.valid) ${dataExpr} = r.value;`,
-        ],
+      const body = [`const r = ${seg.head}.parse(v${tail});`]
+      if (errorInto) {
+        body.push(`${this.prefixExpression(errorInto)} = r.valid ? null : r.error;`)
       }
+      body.push(`if (r.valid) ${dataExpr} = r.value;`)
+      return { body }
     }
     // plain function on inbound: direct call (no validation)
     return `(v) => ${dataExpr} = ${seg.head}(v${tail})`
@@ -858,14 +877,23 @@ export class CodeGenerator {
 
   /**
    * Build the two-way getter (FORMAT, model→DOM) + setter (PARSE, DOM→model).
-   * A two-way leg permits at most ONE converter class with parse; a plain
-   * function (non-invertible) or a multi-segment pipe is a compile error — this
-   * closes the §5.1 corruption hole the capitalization convention would open.
+   *
+   * v2.1 (working_notes §3.5, recorded in Amendment A2): a two-way leg may be a
+   * CHAIN — legal iff EVERY segment is a converter class with parse. The getter
+   * composes format left-to-right; the setter composes parse right-to-left,
+   * checking each step's ParseResult and failing fast — the model stays
+   * untouched (and the user's raw text preserved) unless every step is valid.
+   * One plain (camelCase) function anywhere poisons the chain: hard error,
+   * closing the §5.1 corruption hole.
+   *
+   * `errorInto` (when set) receives the FIRST failing step's error, and is
+   * cleared to null on full success (§5.7 / error-into grammar).
    */
   private buildTwoWay(
     parsed: ParsedPipe,
     dataExpr: string,
-    location: SourceLocation | null
+    location: SourceLocation | null,
+    errorInto?: string
   ): { getter: string; setter: string | BlockSetter } {
     const segs = parsed.segments
     const passthrough = {
@@ -874,43 +902,57 @@ export class CodeGenerator {
     }
     if (segs.length === 0) return passthrough
 
-    if (segs.length > 1) {
-      this.diagnostics.push({
-        severity: 'error',
-        code: 'pipe-two-way-multi',
-        message: `A two-way binding allows at most one converter (got ${segs.length}); split into to-view + from-view, or use a view-model getter.`,
-        location,
-      })
-      return passthrough
-    }
-
-    const seg = segs[0]
-    if (!seg.isConverter) {
+    const bad = segs.find((s) => !s.isConverter)
+    if (bad) {
       this.diagnostics.push({
         severity: 'error',
         code: 'pipe-two-way-noninvertible',
-        message: `A two-way binding requires a converter class with a parse method; '${seg.head}' is a plain (non-invertible) function. Use to-view for display, from-view for input, or a converter class.`,
+        message: `A two-way binding requires every pipe segment to be an invertible converter class with a parse method; '${bad.head}' is a plain (non-invertible) function. Use to-view for display, from-view for input, or converter classes throughout the chain.`,
         location,
       })
       return passthrough
     }
 
-    const tail = lowerArgs(seg, (e) => this.prefixExpression(e))
-    this.converterObligations.push({
-      name: seg.head,
-      needs: 'parse',
-      direction: 'two-way',
-      location,
-    })
-    return {
-      getter: `() => ${seg.head}.format(${dataExpr}${tail})`,
-      setter: {
-        body: [
-          `const r = ${seg.head}.parse(v${tail});`,
-          `if (r.valid) ${dataExpr} = r.value;`,
-        ],
-      },
+    for (const seg of segs) {
+      this.converterObligations.push({
+        name: seg.head,
+        needs: 'parse',
+        direction: 'two-way',
+        location,
+      })
     }
+
+    const getter = `() => ${lowerFormat(parsed, (e) => this.prefixExpression(e))}`
+    const errTarget = errorInto ? this.prefixExpression(errorInto) : null
+    const body: string[] = []
+
+    if (segs.length === 1) {
+      // Single converter — the common case keeps the canonical `r` shape.
+      const tail = lowerArgs(segs[0], (e) => this.prefixExpression(e))
+      body.push(`const r = ${segs[0].head}.parse(v${tail});`)
+      if (errTarget) body.push(`${errTarget} = r.valid ? null : r.error;`)
+      body.push(`if (r.valid) ${dataExpr} = r.value;`)
+      return { getter, setter: { body } }
+    }
+
+    // Chain: parse right-to-left (rN … r0 — numbered by segment index so the
+    // reverse order is visually self-evident), fail-fast at each step.
+    let prev = 'v'
+    for (let i = segs.length - 1; i >= 1; i--) {
+      const tail = lowerArgs(segs[i], (e) => this.prefixExpression(e))
+      body.push(`const r${i} = ${segs[i].head}.parse(${prev}${tail});`)
+      body.push(
+        errTarget
+          ? `if (!r${i}.valid) { ${errTarget} = r${i}.error; return; }`
+          : `if (!r${i}.valid) return;`
+      )
+      prev = `r${i}.value`
+    }
+    const tail0 = lowerArgs(segs[0], (e) => this.prefixExpression(e))
+    body.push(`const r0 = ${segs[0].head}.parse(${prev}${tail0});`)
+    if (errTarget) body.push(`${errTarget} = r0.valid ? null : r0.error;`)
+    body.push(`if (r0.valid) ${dataExpr} = r0.value;`)
+    return { getter, setter: { body } }
   }
 
   /**

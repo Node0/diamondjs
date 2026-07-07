@@ -71,6 +71,7 @@ export interface BindingInfo {
   raw: boolean          // v2.0: raw escape hatch (rawSet / rawBind.*) bypasses the allowlist
   location: SourceLocation | null
   updateOn?: string     // v2.0 §4.3: DOM event that samples the model (value.update-on="blur")
+  errorInto?: string    // v2.1: reactive prop receiving ParseResult.error (value.error-into="amountError")
 }
 
 /**

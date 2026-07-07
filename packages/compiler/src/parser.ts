@@ -330,6 +330,10 @@ export class TemplateParser {
       string,
       { event: string; location: SourceLocation | null }
     >()
+    const errorIntoMap = new Map<
+      string,
+      { target: string; location: SourceLocation | null }
+    >()
     let structural: StructuralInfo | undefined
 
     // Process attributes
@@ -394,10 +398,39 @@ export class TemplateParser {
         continue
       }
 
+      // Bare `error-into` — same ambiguity (v2.1)
+      if (name === 'error-into') {
+        this.diagnostics.push({
+          severity: 'error',
+          code: 'bare-error-into',
+          message: `Bare 'error-into' is ambiguous on multi-binding elements; scope it to a property, e.g. value.error-into="amountError".`,
+          location,
+        })
+        continue
+      }
+
       // Property-scoped binding-update timing: value.update-on="blur" (§4.3)
       if (segments.length === 2 && segments[1] === 'update-on') {
         const prop = PROPERTY_NAME_MAP[segments[0]] || segments[0]
         updateOnMap.set(prop, { event: attr.value, location })
+        continue
+      }
+
+      // Property-scoped ParseResult error surface: value.error-into="amountError"
+      // (v2.1, §5.7 rendering surface). The target must be a bare property path
+      // — it becomes reactive state the template renders like any other.
+      if (segments.length === 2 && segments[1] === 'error-into') {
+        const prop = PROPERTY_NAME_MAP[segments[0]] || segments[0]
+        if (!/^[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*)*$/.test(attr.value.trim())) {
+          this.diagnostics.push({
+            severity: 'error',
+            code: 'bad-error-into',
+            message: `'${prop}.error-into' expects a bare property path (e.g. "amountError" or "form.amountError"); got "${attr.value}".`,
+            location,
+          })
+          continue
+        }
+        errorIntoMap.set(prop, { target: attr.value.trim(), location })
         continue
       }
 
@@ -461,6 +494,36 @@ export class TemplateParser {
         continue
       }
       target.updateOn = uo.event
+    }
+
+    // Apply error-into modifiers to their matching inbound bindings (v2.1).
+    // Whether the binding actually HAS a converter (a ParseResult to read) is
+    // only known at codegen, which emits error-into-no-converter.
+    for (const [prop, ei] of errorIntoMap) {
+      const target = bindings.find((b) => b.property === prop)
+      if (!target) {
+        this.diagnostics.push({
+          severity: 'error',
+          code: 'error-into-no-binding',
+          message: `'${prop}.error-into' has no '${prop}' binding to read errors from; add a two-way or from-view binding with a converter.`,
+          location: ei.location,
+        })
+        continue
+      }
+      if (
+        target.type !== 'two-way' &&
+        target.type !== 'bind' &&
+        target.type !== 'from-view'
+      ) {
+        this.diagnostics.push({
+          severity: 'error',
+          code: 'error-into-not-inbound',
+          message: `'${prop}.error-into' only applies to the inbound leg (two-way / from-view) — ParseResult errors come from parse; '${prop}' is bound '${target.type}'.`,
+          location: ei.location,
+        })
+        continue
+      }
+      target.errorInto = ei.target
     }
 
     // Process children
