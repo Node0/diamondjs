@@ -1,6 +1,7 @@
 /**
- * Compilation test for Tasks.diamond.html — verifies the v2.0 compiler lowers
- * set / rawSet / if / else-if / repeat.for / .calls / two-way / interpolation.
+ * Compilation test for Tasks.diamond.html — verifies the compiler lowers
+ * set / rawSet / if / else-if / repeat.for / .calls / two-way / interpolation
+ * (v2.0) plus switch/case/default and ...attrs.bind (v2.1).
  */
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'fs'
@@ -56,5 +57,18 @@ describe('Tasks.diamond.html compilation', () => {
 
   it('lowers the two-way value binding', () => {
     expect(r.code).toMatch(/DiamondCore\.bind\(el_input_\d+, 'value', \(\) => this\.draft/)
+  })
+
+  it('lowers ...attrs.bind to a runtime-gated DiamondCore.spread call (v2.1)', () => {
+    expect(r.code).toMatch(/DiamondCore\.spread\(el_input_\d+, \(\) => this\.inputAttrs\)/)
+    expect(r.code).toContain('gate FIRST')
+  })
+
+  it('lowers switch/case/default to DiamondCore.switch with string-equality cases (v2.1)', () => {
+    expect(r.code).toMatch(/DiamondCore\.switch\(switchAnchor_\d+, \(\) => this\.mood, \[/)
+    expect(r.code).toContain("{ match: (v) => v === 'idle', make: () => {")
+    expect(r.code).toContain("{ match: (v) => v === 'cruising', make: () => {")
+    expect(r.code).toContain("{ match: (v) => v === 'busy', make: () => {")
+    expect(r.code).toContain('], () => {') // the default arm
   })
 })

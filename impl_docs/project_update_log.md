@@ -613,3 +613,58 @@ All LOC budgets within limits · stink gate green (1 declared raw: the example's
 
 ---
 
+## 2026-07-07 — v2.0 → v2.1 Complete
+
+Implemented the full v2.1 scope from `deferred_work_for_v2.1.md` (DDR §7/§11 + Amendment A1 backlog + all four architectural advisories + ALL working_notes §3 implementation-discovery deferrals) across seven checkpointed phases on `v2.1-implementation`. Every spec-silent design decision was surfaced, user-ratified, and recorded in **`impl_docs/plans/DiamondJS_v2.1_Amendment_A2_Design_Record.md`** — the spec remains authoritative. All packages bumped to **2.1.0**.
+
+### Phase 0 — Hygiene & foundations
+- `nextVar` → `el_<tag>_<n>` (kills the `h2`+`1` → `h21` fake-heading collision); ~26 test assertions swept
+- `generateNodes` refactor: `collectIfChain` + `generateStructural` extracted (depth 5/CC 12 → ≤3/≤6) ahead of switch landing in the same loop
+- Brace-depth interpolation scanner (`scanInterpolations`) replaces the regex; `${x | Conv('}')}` compiles; new `unterminated-interpolation` error
+- Multi-line `DiamondCore.bind()` for block-body setters — the `if (r.valid)` gate is visually prominent
+- `Component.mount` wraps `createTemplate` in `captureScope`: root cleanups now dispose on unmount (§3.3 closed)
+
+### Phase 1 — Security spine + primafacie
+- `SAFE_SINKS` + `PROPERTY_NAME_MAP` canonical home → `@diamondjs/runtime` (compiler re-exports; new acyclic package dep); `canonicalizeSinkKey` / `isDataOrAriaKey`
+- `data-*`/`aria-*` pass BOTH gates via the attribute branch; inbound ops on dashed names → `attr-binding-outbound-only`
+- New **`@diamondjs/primafacie`**: the stargate `Print(logType, message)` paradigm (15 types, symbol pairs, caller extraction; isomorphic ANSI/`%c`; `addSink`/`wsSink`/`fileSink`); wired into stink-check/check-loc summaries, transformer diagnostics, and (format-only, dependency-free `devWarn`) runtime dev warnings
+
+### Phase 2 — Attribute spread (§7.1)
+- `...attrs.bind` / `...attrs.rawBind`; `DiamondCore.spread` gates FIRST (canonicalize → allowlist ∪ data-/aria-; fail closed, dev warn-once), branches SECOND (property vs setAttribute); key-removal reconciliation; `rawBind` bypass emits a heavy auto-baselined `stink:declared`
+- Reactivity gains `ownKeys`/`deleteProperty` traps + `ITERATE_KEY` (shape changes retrigger)
+
+### Phase 3 — switch/case/default (A1 backlog closed)
+- Parser `processSwitch` (10 diagnostics); ratified case semantics (bare word = string equality; dotted/operators = expression); full container erasure
+- `DiamondCore.switch` (on-value evaluated ONCE per update, first match wins, branch cache mirrors `if()`); Option A static fast path (pure-literal `on=` + all-equality → winning branch only, zero runtime)
+- Dead static switch → `switch-static-dead` **warning** + inspectable DOM comment (ratified; not a build blocker)
+- Detection tokens `<switch` + `repeat.for=` added (bare `if=` deliberately excluded)
+
+### Phase 4 — Collection (2.1a) + delegation (2.1b)
+- `Collection<T>`: never-proxied items (identity preserved → repeat-compatible), one version signal through the existing engine, O(1) `push`, O(1) `byKey`, cached `sortBy` views, `binarySearch`, batch `mutate`, `notify()`; 10k pushes → one flush (verified)
+- `DiamondCore.delegate`: one container listener + `closest()` + repeat's WeakMap node→item registry; handler receives the DATA ITEM uniformly for arrays and Collections; runtime-API-only
+
+### Phase 5 — Pipes & inbound channel
+- Multi-segment two-way inversion: all-converter chains legal; format L→R, parse R→L fail-fast (`rN…r0`); obligation per segment; `pipe-two-way-multi` retired
+- `error-into` (ratified grammar): `value.error-into="amountError"` → `target = r.valid ? null : r.error` (chains: first failure wins); 5 diagnostics
+- Inbound smell check widened (best-effort, ratified): + ISO-date and canonical-phone corruption heuristics
+
+### Phase 6 — Compiler infrastructure
+- Real VLQ source maps (hand-rolled encoder, ~70 LOC; Phase-0 stub closed; snippet-relative caveat documented)
+- §5.6 re-export following: named (+`as`) and star barrels, 3-hop cap, cycle guard; barrel-resolved missing parse HARDENS to error
+- `<!-- @import { X } from './mod' -->` provenance (ratified grammar): standalone templates can use pipe heads; only uncovered heads error; obligations verified via new public `verifyObligations()`
+
+### Phase 7 — Versions, example, docs
+- All packages → 2.1.0; hello-world gains `<switch>`/spread in Tasks.diamond.html + a TaskBoard (Collection + delegate) component; README updated; Amendment A2 recorded
+
+### Final state
+```
+Runtime:      863 / 2,500 LOC   119 tests
+Compiler:   4,144 / 5,000 LOC   218 tests
+Parcel:       300 /   300 LOC    30 tests   ← AT the §2.2 ceiling (deliberate-increase decision now due)
+Converters:    84 /   500 LOC    11 tests
+Primafacie:   262 /   400 LOC     8 tests   (new package)
+Example:                          19 tests
+Total:      5,653 / 8,700 LOC   405 tests
+```
+All LOC budgets within limits · stink gate green (1 declared raw: the example's audited `rawSet`) · example builds via Parcel. Still open (recorded in A2 §17): structured ParseResult errors, plugin `asset.setMap` wiring, double-`mount()` guard, the §11.2 empirical allowlist probe (netpad).
+

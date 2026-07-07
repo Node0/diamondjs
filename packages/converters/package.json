@@ -1,6 +1,6 @@
 {
   "name": "@diamondjs/converters",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "DiamondJS batteries — format/parse converter classes (Currency, Date, Phone)",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
@@ -39,7 +39,7 @@
   },
   "license": "MIT",
   "dependencies": {
-    "@diamondjs/runtime": "^2.0.0"
+    "@diamondjs/runtime": "^2.1.0"
   },
   "devDependencies": {
     "tsup": "^8.0.0"

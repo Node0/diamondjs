@@ -1,6 +1,6 @@
 {
   "name": "@diamondjs/compiler",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "DiamondJS template compiler",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
@@ -37,7 +37,7 @@
   },
   "license": "MIT",
   "dependencies": {
-    "@diamondjs/runtime": "^2.0.0",
+    "@diamondjs/runtime": "^2.1.0",
     "parse5": "^7.1.2"
   },
   "devDependencies": {

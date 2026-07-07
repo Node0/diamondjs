@@ -1,6 +1,6 @@
 {
   "name": "@diamondjs/parcel-transformer-diamond",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Parcel 2 transformer for DiamondJS template compilation",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -30,8 +30,8 @@
   },
   "license": "MIT",
   "dependencies": {
-    "@diamondjs/compiler": "^2.0.0",
-    "@diamondjs/primafacie": "^2.0.0",
+    "@diamondjs/compiler": "^2.1.0",
+    "@diamondjs/primafacie": "^2.1.0",
     "@parcel/plugin": "^2.12.0"
   },
   "devDependencies": {

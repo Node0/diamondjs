@@ -1,5 +1,10 @@
 # DiamondJS — Deferred Work for v2.1
 
+> **STATUS (2026-07-07): SHIPPED.** Everything in this document landed in v2.1 — see
+> `project_update_log.md` (2026-07-07 entry) and the ratified design record
+> `plans/DiamondJS_v2.1_Amendment_A2_Design_Record.md` (whose §17 lists the few
+> items that remain open AFTER v2.1). Kept for historical traceability.
+
 **Context.** v2.0 (the v1.5.1→v2.0 migration) is complete — see `project_update_log.md` (2026-06-29 entry) and `v2.0_migration_chronicle.md`. This file consolidates everything deliberately left outside the closed v2.0 boundary, in three buckets:
 
 1. **DDR §7 — formally deferred features** (the spec's own v2.1 scope, with dependency ordering)

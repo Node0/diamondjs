@@ -157,3 +157,31 @@ ParseResult stays in `@diamondjs/runtime` (the validation contract; batteries + 
 - Standalone `.diamond.html` can't import a named transform → emit a diagnostic (named pipe transforms require the component-inject path). Inject path leaves the author's converter imports intact (no auto-import).
 - Interpolation extraction regex `/\$\{([^}]+)\}/g` breaks on `}` inside pipe args (`${x | Conv('}')}`) — pre-existing; document, fix later with a brace scanner if needed.
 - Compiler checks `parse` EXISTS, not its signature (§5.4 — TS checks arity when the module type-checks).
+
+---
+
+# v2.1 — Implementation working notes (2026-07-07)
+
+Ratified design decisions live in `impl_docs/plans/DiamondJS_v2.1_Amendment_A2_Design_Record.md`; these are the parser/tooling/runtime realities discovered while implementing them.
+
+## Compiler / parser
+- `<switch>`/`<case>`/`<default>` are consumed WHOLE by `processSwitch` in `processChildren` — `<case if>` never reaches `tryStructural`, so it cannot collide with the structural `if`. A `case`/`default` reached via the normal path has, by construction, no `<switch>` parent → `*-outside-switch` error.
+- Spread detection must run BEFORE the attr-name dot-split (`'...attrs.bind'.split('.')` shreds into `['','','attrs','bind']` and would fall into unknown-command).
+- The @import directive scan runs on the RAW template text in `DiamondCompiler.compile()` — parse5 comments never reach `processChildren`, so the node tree can't carry them. A second `IMPORT_LIKE_RE` pass makes malformed `@import`-shaped comments fail loudly instead of silently no-op'ing.
+- `emitBindCall` decides single- vs multi-line: block-body setters are ALWAYS multi-line (the `if (r.valid)` prominence is the point, not line length); concise setters split only past 100 chars.
+- `combineRoots` is where the erased-wrapper semantics live (multi-root case bodies → DocumentFragment). `generate()` keeps its fixed `root` name (test-compat); only switch bodies use the hint-named variant.
+- Static-switch equality uses strict `===` between the decoded `on=` literal and the decoded case literal — a numeric case `if="3"` matches `on="3"` (both decode to number) but not `on="'3'"`.
+
+## Runtime
+- `DiamondCore.switch` slot layout: `built[cases.length]` is the default branch. `onGetter()` runs once per effect; expression-case predicates still read reactive state inside the master effect, so their deps track (same reads-before-builds reasoning as `if()`).
+- Spread's property-restore reconciliation snapshots the PRE-first-write property value (`prior`), not the previous spread value.
+- `ITERATE_KEY` is a module-level symbol; the set trap triggers it only for NEW keys (`!Reflect.has` before the write) — plain value updates don't wake key-set iterators.
+- Collection's version signal is a one-field micro-proxy (`createProxy({n:0})`) — reads/bumps ride the existing engine + scheduler; `rev` is a plain untracked mirror used only for sortBy cache invalidation (bumps also increment it inside `mutate`, which slightly over-invalidates the cache — harmless).
+- `repeat` registers node→item in a WeakMap at row BUILD; reused rows keep their mapping; disposed rows are deleted eagerly (WeakMap would GC them anyway, but a still-referenced removed node must not resolve).
+- Compiler tests import the runtime through its built dist (workspace resolution) — **rebuild the runtime before compiler tests** whenever security.ts/core.ts change (same stale-dist footgun as parcel-plugin ↔ compiler).
+
+## Tooling
+- BSD sed has no `\b`; the rename sweeps used perl.
+- stink-check now ignores `reference_files/` (prior-project material was tripping 183 errors / 57 warns).
+- npm does NOT topologically order `--workspaces` scripts; the root build explicitly builds runtime + primafacie first.
+- parcel-plugin src is at exactly 300/300 LOC (tests count toward the budget) — the §2.2 deliberate-increase decision is now due before ANY further growth.
