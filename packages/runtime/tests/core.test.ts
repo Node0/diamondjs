@@ -222,11 +222,13 @@ describe('DiamondCore', () => {
     })
   })
 
-  describe('delegate (removed in v2.0, DDR §6.4)', () => {
-    it('no longer exists on DiamondCore', () => {
-      expect(
-        (DiamondCore as unknown as Record<string, unknown>).delegate
-      ).toBeUndefined()
+  describe('delegate (removed in v2.0 §6.4; reintroduced in v2.1 as 2.1b)', () => {
+    it('exists as the clean-slate data-delegation API (item-resolving, not the Aurelia stub)', () => {
+      // The v2.0 removal killed an orphaned event-fallback stub. The v2.1
+      // delegate is a different contract entirely: container listener +
+      // closest() + repeat's node→item registry (see delegate.test.ts).
+      expect(typeof DiamondCore.delegate).toBe('function')
+      expect(DiamondCore.delegate.length).toBe(4) // container, event, selector, handler
     })
   })
 })

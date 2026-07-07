@@ -8,6 +8,7 @@
 import { reactivityEngine } from './reactivity'
 import { SAFE_SINKS, canonicalizeSinkKey, isDataOrAriaKey } from './security'
 import { devWarn } from './dev-log'
+import { Collection, type CollectionOptions } from './collection'
 
 type CleanupFn = () => void
 
@@ -380,6 +381,8 @@ export class DiamondCore {
             node: captured.value as ChildNode,
             cleanup: captured.cleanup,
           }
+          // node → item registry powers delegate() (v2.1, DDR §7.2 / 2.1b)
+          this.itemRegistry.set(entry.node, item)
         }
         next.set(key, entry)
         ordered.push(entry.node)
@@ -389,6 +392,7 @@ export class DiamondCore {
       for (const gone of current.values()) {
         gone.node.remove()
         gone.cleanup()
+        this.itemRegistry.delete(gone.node)
       }
 
       // Insert / reorder nodes into document order before the anchor
@@ -485,9 +489,68 @@ export class DiamondCore {
     return fullCleanup
   }
 
-  // NOTE: DiamondCore.delegate() was removed in v2.0 (DDR §6.4) as an orphaned
-  // Aurelia-era stub, and returns in v2.1 as a clean-slate design (see delegate()
-  // below, added with the Collection/2.1b work).
+  /**
+   * repeat()'s node → item registry (v2.1). Whatever repeat iterated — reactive
+   * proxy items or plain Collection items — is registered against its rendered
+   * node; delegate() resolves events back to the item through it. WeakMap
+   * semantics: GC'd rows vanish on their own; live removals are deleted eagerly.
+   */
+  private static itemRegistry = new WeakMap<Node, unknown>()
+
+  /**
+   * Data delegation (v2.1, DDR §7.2 / 2.1b) — a clean-slate design, NOT the
+   * removed Aurelia stub. ONE listener on a container serves every repeat row
+   * beneath it: the event resolves via closest(selector), then walks up to the
+   * first node repeat registered, and the handler receives the DATA ITEM —
+   * uniformly, whether repeat iterated a reactive array or a Collection (that
+   * uniformity IS the homogenization). Per-node listener thrash on huge lists
+   * (the Neuron DOM/SVG case) disappears.
+   *
+   * A selector match with no registered item is a no-op (ratified A2 decision).
+   *
+   * @example
+   * DiamondCore.delegate(listEl, 'click', 'li', (item, e, node) => this.select(item))
+   */
+  static delegate<T = unknown>(
+    container: Element,
+    eventType: string,
+    selector: string,
+    handler: (item: T, event: Event, node: Element) => void
+  ): CleanupFn {
+    const listener = (event: Event): void => {
+      const target = event.target as Element | null
+      const node = target?.closest(selector)
+      if (!node || !container.contains(node)) return
+      let cur: Node | null = node
+      while (cur && cur !== container) {
+        if (this.itemRegistry.has(cur)) {
+          handler(this.itemRegistry.get(cur) as T, event, node)
+          return
+        }
+        cur = cur.parentNode
+      }
+    }
+    container.addEventListener(eventType, listener)
+    const cleanup: CleanupFn = () =>
+      container.removeEventListener(eventType, listener)
+    this.track(cleanup)
+    return cleanup
+  }
+
+  /**
+   * Create a Collection (v2.1, DDR §7.2 / 2.1a) — the collection-at-scale
+   * primitive: plain (never-proxied) items, coarse-grained version-signal
+   * reactivity, O(1) append, O(1) byKey, cached sorted views, batch mutate.
+   *
+   * @example
+   * cogits = DiamondCore.collection(bigJson.cogits, { key: (c) => c.id })
+   */
+  static collection<T>(
+    items?: Iterable<T>,
+    options?: CollectionOptions<T>
+  ): Collection<T> {
+    return new Collection(items, options)
+  }
 
   /**
    * Get the appropriate input event name for two-way binding

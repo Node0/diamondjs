@@ -24,6 +24,9 @@
 export { DiamondCore } from './core'
 export { Component } from './component'
 
+// Collection-at-scale (v2.1, DDR §7.2 / 2.1a)
+export { Collection, type CollectionOptions } from './collection'
+
 // Decorator
 export { reactive } from './decorators'
 
