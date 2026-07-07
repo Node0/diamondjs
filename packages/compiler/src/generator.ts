@@ -20,12 +20,26 @@ import type {
 } from './types'
 import { isElementInfo, isTextInfo } from './types'
 import { gateSink } from './security'
-import { parsePipe, lowerFormat, lowerArgs, type ParsedPipe } from './pipe'
+import {
+  parsePipe,
+  lowerFormat,
+  lowerArgs,
+  scanInterpolations,
+  type ParsedPipe,
+} from './pipe'
 
 interface SourceMapping {
   generated: { line: number; column: number }
   original: { line: number; column: number }
   source: string
+}
+
+/**
+ * A setter whose body is a statement block (converter parse + validity gate).
+ * Kept structured so emitBindCall can place each statement on its own line.
+ */
+interface BlockSetter {
+  body: string[]
 }
 
 /**
@@ -137,46 +151,8 @@ export class CodeGenerator {
       const node = nodes[i]
 
       if (isElementInfo(node) && node.structural) {
-        const kind = node.structural.type
-
-        if (kind === 'if') {
-          // Collect this if + consecutive else-if siblings (skip whitespace text)
-          const branches: ElementInfo[] = [node]
-          let j = i + 1
-          while (j < nodes.length) {
-            const n = nodes[j]
-            if (isTextInfo(n) && !n.content.trim()) {
-              j++
-              continue
-            }
-            if (isElementInfo(n) && n.structural?.type === 'else-if') {
-              branches.push(n)
-              j++
-              continue
-            }
-            break
-          }
-          vars.push(this.generateConditional(branches))
-          i = j
-          continue
-        }
-
-        if (kind === 'else-if') {
-          this.diagnostics.push({
-            severity: 'error',
-            code: 'orphan-else-if',
-            message: `'else-if' must immediately follow an 'if' or 'else-if' sibling.`,
-            location: node.structural.location,
-          })
-          i++
-          continue
-        }
-
-        if (kind === 'repeat') {
-          vars.push(this.generateRepeat(node))
-          i++
-          continue
-        }
+        i = this.generateStructural(node, nodes, i, vars)
+        continue
       }
 
       if (isElementInfo(node)) {
@@ -189,6 +165,66 @@ export class CodeGenerator {
     }
 
     return vars
+  }
+
+  /**
+   * Dispatch one structural construct at nodes[i]; returns the next index.
+   */
+  private generateStructural(
+    node: ElementInfo,
+    nodes: NodeInfo[],
+    i: number,
+    vars: string[]
+  ): number {
+    const kind = node.structural!.type
+
+    if (kind === 'if') {
+      const { branches, next } = this.collectIfChain(nodes, i)
+      vars.push(this.generateConditional(branches))
+      return next
+    }
+
+    if (kind === 'else-if') {
+      this.diagnostics.push({
+        severity: 'error',
+        code: 'orphan-else-if',
+        message: `'else-if' must immediately follow an 'if' or 'else-if' sibling.`,
+        location: node.structural!.location,
+      })
+      return i + 1
+    }
+
+    // repeat
+    vars.push(this.generateRepeat(node))
+    return i + 1
+  }
+
+  /**
+   * Collect nodes[i] (an `if`) plus its consecutive `else-if` siblings into one
+   * branch chain, skipping whitespace-only text nodes between them.
+   */
+  private collectIfChain(
+    nodes: NodeInfo[],
+    i: number
+  ): { branches: ElementInfo[]; next: number } {
+    const branches: ElementInfo[] = [nodes[i] as ElementInfo]
+    let j = i + 1
+
+    while (j < nodes.length) {
+      const n = nodes[j]
+      if (isTextInfo(n) && !n.content.trim()) {
+        j++
+        continue
+      }
+      if (isElementInfo(n) && n.structural?.type === 'else-if') {
+        branches.push(n)
+        j++
+        continue
+      }
+      break
+    }
+
+    return { branches, next: j }
   }
 
   /**
@@ -256,7 +292,7 @@ export class CodeGenerator {
    * Generate code for an element
    */
   private generateElement(element: ElementInfo): string {
-    const varName = this.nextVar(element.tagName)
+    const varName = this.nextVar(`el_${element.tagName}`)
 
     // Create element
     this.emitLine(
@@ -395,8 +431,12 @@ export class CodeGenerator {
         this.emitLine(
           `// [Diamond] ${rawTag}One-way binding: ${binding.property} ← ${binding.expression}`
         )
-        this.emitLine(
-          `DiamondCore.bind(${varName}, '${binding.property}', () => ${outbound});`,
+        this.emitBindCall(
+          varName,
+          binding.property,
+          `() => ${outbound}`,
+          null,
+          '',
           binding.location
         )
         break
@@ -411,8 +451,12 @@ export class CodeGenerator {
           `// [Diamond] ${rawTag}From-view binding (one-way DOM → ${binding.expression}): ${binding.property}` +
             (binding.updateOn ? ` [update-on: ${binding.updateOn}]` : '')
         )
-        this.emitLine(
-          `DiamondCore.bind(${varName}, '${binding.property}', undefined, ${setter}${evt});`,
+        this.emitBindCall(
+          varName,
+          binding.property,
+          'undefined',
+          setter,
+          evt,
           binding.location
         )
         break
@@ -431,13 +475,65 @@ export class CodeGenerator {
           `// [Diamond] ${rawTag}Two-way binding: ${binding.property} ↔ ${binding.expression}` +
             (binding.updateOn ? ` [update-on: ${binding.updateOn}]` : '')
         )
-        this.emitLine(
-          `DiamondCore.bind(${varName}, '${binding.property}', ${getter}, ${setter}${evt});`,
+        this.emitBindCall(
+          varName,
+          binding.property,
+          getter,
+          setter,
+          evt,
           binding.location
         )
         break
       }
     }
+  }
+
+  /**
+   * Emit a DiamondCore.bind(...) call.
+   *
+   * Multi-line whenever the setter has a block body — the security-load-bearing
+   * `if (r.valid)` gate must sit on its own line, visually prominent, not buried
+   * at the end of a ~140-char line — or when the composed single line would
+   * exceed 100 chars. Concise passthroughs stay single-line.
+   */
+  private emitBindCall(
+    varName: string,
+    property: string,
+    getter: string,
+    setter: string | BlockSetter | null,
+    evt: string, // '' or `, '<event>'`
+    location?: SourceLocation | null
+  ): void {
+    const isBlock = typeof setter === 'object' && setter !== null
+
+    if (!isBlock) {
+      const args = [`'${property}'`, getter]
+      if (setter) args.push(setter as string)
+      const line = `DiamondCore.bind(${varName}, ${args.join(', ')}${evt});`
+      if (this.indent * 2 + line.length <= 100) {
+        this.emitLine(line, location)
+        return
+      }
+    }
+
+    this.emitLine(`DiamondCore.bind(${varName}, '${property}',`, location)
+    this.indent++
+    if (setter === null) {
+      this.emitLine(`${getter}${evt ? ',' : ''}`)
+    } else if (typeof setter === 'string') {
+      this.emitLine(`${getter},`)
+      this.emitLine(`${setter}${evt ? ',' : ''}`)
+    } else {
+      this.emitLine(`${getter},`)
+      this.emitLine(`(v) => {`)
+      this.indent++
+      for (const stmt of setter.body) this.emitLine(stmt)
+      this.indent--
+      this.emitLine(`}${evt ? ',' : ''}`)
+    }
+    if (evt) this.emitLine(evt.slice(2)) // the event name, own line (strip ', ')
+    this.indent--
+    this.emitLine(`);`)
   }
 
   /**
@@ -486,7 +582,7 @@ export class CodeGenerator {
     parsed: ParsedPipe,
     dataExpr: string,
     location: SourceLocation | null
-  ): string {
+  ): string | BlockSetter {
     const segs = parsed.segments
     if (segs.length === 0) return `(v) => ${dataExpr} = v`
 
@@ -509,7 +605,12 @@ export class CodeGenerator {
         direction: 'from-view',
         location,
       })
-      return `(v) => { const r = ${seg.head}.parse(v${tail}); if (r.valid) ${dataExpr} = r.value; }`
+      return {
+        body: [
+          `const r = ${seg.head}.parse(v${tail});`,
+          `if (r.valid) ${dataExpr} = r.value;`,
+        ],
+      }
     }
     // plain function on inbound: direct call (no validation)
     return `(v) => ${dataExpr} = ${seg.head}(v${tail})`
@@ -525,7 +626,7 @@ export class CodeGenerator {
     parsed: ParsedPipe,
     dataExpr: string,
     location: SourceLocation | null
-  ): { getter: string; setter: string } {
+  ): { getter: string; setter: string | BlockSetter } {
     const segs = parsed.segments
     const passthrough = {
       getter: `() => ${dataExpr}`,
@@ -563,7 +664,12 @@ export class CodeGenerator {
     })
     return {
       getter: `() => ${seg.head}.format(${dataExpr}${tail})`,
-      setter: `(v) => { const r = ${seg.head}.parse(v${tail}); if (r.valid) ${dataExpr} = r.value; }`,
+      setter: {
+        body: [
+          `const r = ${seg.head}.parse(v${tail});`,
+          `if (r.valid) ${dataExpr} = r.value;`,
+        ],
+      },
     }
   }
 
@@ -631,13 +737,26 @@ export class CodeGenerator {
    * Build interpolation template expression
    */
   private buildInterpolationExpr(content: string): string {
-    // Replace ${expr} with the lowered (pipe-aware) outbound expression.
-    const escaped = content
-      .replace(/`/g, '\\`')
-      .replace(/\$\{([^}]+)\}/g, (_match, expr) => {
-        return '${' + this.lowerOutbound(expr.trim()) + '}'
-      })
-    return '`' + escaped + '`'
+    // Rebuild via the brace-depth scanner (same spans the parser saw): static
+    // chunks are escaped, each ${expr} becomes the lowered (pipe-aware)
+    // outbound expression. An unterminated span (parser already errored) is
+    // emitted as escaped literal text so codegen never crashes on it.
+    const escapeStatic = (s: string) =>
+      s.replace(/`/g, '\\`').replace(/\$\{/g, '\\${')
+
+    let result = ''
+    let last = 0
+    for (const span of scanInterpolations(content)) {
+      result += escapeStatic(content.slice(last, span.start))
+      if (span.unterminated) {
+        result += escapeStatic(content.slice(span.start, span.end))
+      } else {
+        result += '${' + this.lowerOutbound(span.expression.trim()) + '}'
+      }
+      last = span.end
+    }
+    result += escapeStatic(content.slice(last))
+    return '`' + result + '`'
   }
 
   /**
@@ -682,10 +801,12 @@ export class CodeGenerator {
   }
 
   /**
-   * Generate next variable name
+   * Generate next variable name. The `_` separator keeps the tag segment and
+   * the counter visually distinct (`el_h2_1`, not `h21` — which reads to an
+   * HTML-trained model as a 21-level heading tag).
    */
   private nextVar(hint: string): string {
-    return `${hint}${this.varCounter++}`
+    return `${hint}_${this.varCounter++}`
   }
 
   /**

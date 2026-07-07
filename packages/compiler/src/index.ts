@@ -14,8 +14,8 @@
  * // // [Diamond] Compiler-generated instance template method
  * // createTemplate() {
  * //   // [Diamond] Two-way binding: value ↔ this.name
- * //   DiamondCore.bind(input0, 'value', () => this.name, (v) => this.name = v);
- * //   return input0;
+ * //   DiamondCore.bind(el_input_0, 'value', () => this.name, (v) => this.name = v);
+ * //   return el_input_0;
  * // }
  */
 

@@ -6,6 +6,8 @@
  * Uses 'this' to reference component properties and methods — no 'vm' indirection.
  */
 
+import { DiamondCore } from './core'
+
 /**
  * Component base class
  *
@@ -53,7 +55,13 @@ export abstract class Component {
    * @param hostElement - Parent DOM element to append to
    */
   mount(hostElement: HTMLElement): void {
-    this.element = this.createTemplate()
+    // Capture root-level binding/listener/structural cleanups (they would
+    // otherwise be discarded — DiamondCore's scope is null at the root) and
+    // register them against this component's teardown, so unmount() disposes
+    // the whole tree uniformly.
+    const { value, cleanup } = DiamondCore.captureScope(() => this.createTemplate())
+    this.element = value
+    this.registerCleanup(cleanup)
     hostElement.appendChild(this.element)
   }
 

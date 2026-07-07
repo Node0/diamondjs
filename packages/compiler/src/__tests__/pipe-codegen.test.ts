@@ -29,7 +29,7 @@ describe('pipe lowering — outbound (display)', () => {
 
   it('lowers set (one-shot) through the format chain', () => {
     expect(code(`<span textContent.set="amount | CurrencyConverter('USD')"></span>`)).toContain(
-      "span0.textContent = CurrencyConverter.format(this.amount, 'USD')"
+      "el_span_0.textContent = CurrencyConverter.format(this.amount, 'USD')"
     )
   })
 
@@ -38,15 +38,34 @@ describe('pipe lowering — outbound (display)', () => {
       "upper(this.name || 'Anon')"
     )
   })
+
+  it("survives a '}' inside pipe args (brace-depth scanner, not regex)", () => {
+    expect(code(`<span>\${x | Conv('}')}</span>`)).toContain(
+      "Conv.format(this.x, '}')"
+    )
+  })
+
+  it("survives a nested object literal inside an interpolation", () => {
+    expect(code('<span>${ cfg.debug }</span>')).toContain('this.cfg.debug')
+    expect(code('<span>${a} } ${b}</span>')).toContain('${this.a} } ${this.b}')
+  })
+
+  it('emits a diagnostic for an unterminated interpolation', () => {
+    const r = compile('<span>${a.b</span>')
+    expect(
+      r.diagnostics?.some((d) => d.code === 'unterminated-interpolation')
+    ).toBe(true)
+  })
 })
 
 describe('pipe lowering — inbound (parse / ParseResult)', () => {
   it('two-way converter: format getter + validated parse setter + obligation', () => {
     const r = compile(`<input value.two-way="amount | CurrencyConverter('USD')">`)
     expect(r.code).toContain("() => CurrencyConverter.format(this.amount, 'USD')")
-    expect(r.code).toContain(
-      "(v) => { const r = CurrencyConverter.parse(v, 'USD'); if (r.valid) this.amount = r.value; }"
-    )
+    // Block-body setter is emitted multi-line so the `if (r.valid)` security
+    // gate sits on its own, visually prominent line.
+    expect(r.code).toContain("const r = CurrencyConverter.parse(v, 'USD');")
+    expect(r.code).toContain('if (r.valid) this.amount = r.value;')
     expect(r.converterObligations).toEqual([
       expect.objectContaining({ name: 'CurrencyConverter', needs: 'parse', direction: 'two-way' }),
     ])
@@ -54,9 +73,10 @@ describe('pipe lowering — inbound (parse / ParseResult)', () => {
 
   it('from-view converter: validated parse (undefined getter) + obligation', () => {
     const r = compile(`<input value.from-view="amount | CurrencyConverter('USD')">`)
-    expect(r.code).toContain(
-      "DiamondCore.bind(input0, 'value', undefined, (v) => { const r = CurrencyConverter.parse(v, 'USD'); if (r.valid) this.amount = r.value; })"
-    )
+    expect(r.code).toContain("DiamondCore.bind(el_input_0, 'value',")
+    expect(r.code).toContain('undefined,')
+    expect(r.code).toContain("const r = CurrencyConverter.parse(v, 'USD');")
+    expect(r.code).toContain('if (r.valid) this.amount = r.value;')
     expect(r.converterObligations?.[0]).toMatchObject({
       name: 'CurrencyConverter',
       direction: 'from-view',
@@ -94,13 +114,13 @@ describe('two-way enforcement (closes the §5.1 hole)', () => {
 describe('non-pipe bindings are unchanged', () => {
   it('two-way without a pipe', () => {
     expect(code('<input value.two-way="name">')).toContain(
-      "DiamondCore.bind(input0, 'value', () => this.name, (v) => this.name = v)"
+      "DiamondCore.bind(el_input_0, 'value', () => this.name, (v) => this.name = v)"
     )
   })
 
   it('from-view without a pipe stays one-way', () => {
     expect(code('<input value.from-view="q">')).toContain(
-      "DiamondCore.bind(input0, 'value', undefined, (v) => this.q = v)"
+      "DiamondCore.bind(el_input_0, 'value', undefined, (v) => this.q = v)"
     )
   })
 })

@@ -36,6 +36,9 @@ const IGNORE = new Set([
   'coverage',
   'README_files',
   '.memory',
+  // Reference material (prior-project code, vendored docs/examples) — not
+  // DiamondJS source; must not enter the gate.
+  'reference_files',
 ])
 
 // Mirror of the parcel transformer's detection (kept inline so the gate has no

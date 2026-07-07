@@ -55,6 +55,6 @@ describe('Tasks.diamond.html compilation', () => {
   })
 
   it('lowers the two-way value binding', () => {
-    expect(r.code).toMatch(/DiamondCore\.bind\(input\d+, 'value', \(\) => this\.draft/)
+    expect(r.code).toMatch(/DiamondCore\.bind\(el_input_\d+, 'value', \(\) => this\.draft/)
   })
 })

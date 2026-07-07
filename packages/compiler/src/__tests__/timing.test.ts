@@ -13,13 +13,13 @@ const diags = (t: string) => compiler.compile(t, { sourceMap: false }).diagnosti
 describe('value.update-on (binding-update timing)', () => {
   it('emits the event arg for a two-way binding', () => {
     expect(code(`<input value.two-way="amount" value.update-on="blur">`)).toContain(
-      "DiamondCore.bind(input0, 'value', () => this.amount, (v) => this.amount = v, 'blur')"
+      "DiamondCore.bind(el_input_0, 'value', () => this.amount, (v) => this.amount = v, 'blur')"
     )
   })
 
   it('emits the event arg for a from-view binding', () => {
     expect(code(`<input value.from-view="q" value.update-on="change">`)).toContain(
-      "DiamondCore.bind(input0, 'value', undefined, (v) => this.q = v, 'change')"
+      "DiamondCore.bind(el_input_0, 'value', undefined, (v) => this.q = v, 'change')"
     )
   })
 

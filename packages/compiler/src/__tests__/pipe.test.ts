@@ -2,7 +2,13 @@
  * Pipe parser/lowerer tests (DDR §5.3–5.4) — adversarial grammar coverage.
  */
 import { describe, it, expect } from 'vitest'
-import { splitTopLevel, hasPipe, parsePipe, lowerFormat } from '../pipe'
+import {
+  splitTopLevel,
+  hasPipe,
+  parsePipe,
+  lowerFormat,
+  scanInterpolations,
+} from '../pipe'
 
 // A stand-in prefixer that mimics the generator (this.-prefix bare identifiers,
 // leave string/number literals). Good enough to assert composition shape.
@@ -71,6 +77,36 @@ describe('parsePipe', () => {
   it('flags a malformed segment', () => {
     const p = parsePipe('a | ')
     expect(p.segments[0].malformed).toBe(true)
+  })
+})
+
+describe('scanInterpolations', () => {
+  it('scans simple interpolations with spans', () => {
+    const spans = scanInterpolations('Hello ${name}!')
+    expect(spans).toEqual([{ expression: 'name', start: 6, end: 13 }])
+  })
+
+  it("does not terminate on a '}' inside a string literal (pipe args)", () => {
+    const spans = scanInterpolations("${x | Conv('}')}")
+    expect(spans).toHaveLength(1)
+    expect(spans[0].expression).toBe("x | Conv('}')")
+    expect(spans[0].unterminated).toBeUndefined()
+  })
+
+  it("does not terminate on a '}' inside nested braces", () => {
+    const spans = scanInterpolations('${ {a:1}.a } end')
+    expect(spans[0].expression).toBe(' {a:1}.a ')
+  })
+
+  it("handles a static '}' between two interpolations", () => {
+    const spans = scanInterpolations('${a} } ${b}')
+    expect(spans.map((s) => s.expression)).toEqual(['a', 'b'])
+  })
+
+  it('flags an unterminated interpolation', () => {
+    const spans = scanInterpolations('text ${a.b')
+    expect(spans[0].unterminated).toBe(true)
+    expect(spans[0].expression).toBe('a.b')
   })
 })
 

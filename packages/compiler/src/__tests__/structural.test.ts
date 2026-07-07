@@ -118,6 +118,16 @@ describe('structural directives — codegen', () => {
     expect(code).toContain('`${row.label}`')
   })
 
+  it('collects an else-if separated by whitespace and an HTML comment', () => {
+    // Comments are dropped by processChildren; whitespace text is skipped by
+    // collectIfChain — either way the chain stays intact.
+    const code = compile(
+      '<div><span if="a">A</span>\n  <!-- note -->\n  <span else-if="b">B</span></div>'
+    )
+    expect(code).toContain('// [Diamond] Conditional: if="a" (+1 else-if)')
+    expect(code).toContain('{ when: () => this.b, make: () => {')
+  })
+
   it('reports an orphan else-if', () => {
     const result = compiler.compile('<div><span else-if="a">x</span></div>', {
       sourceMap: false,

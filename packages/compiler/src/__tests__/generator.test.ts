@@ -61,8 +61,16 @@ describe('CodeGenerator', () => {
       const result = generator.generate(nodes)
 
       expect(result.code).toContain('document.createDocumentFragment()')
-      expect(result.code).toContain('root.appendChild(div0)')
-      expect(result.code).toContain('root.appendChild(span1)')
+      expect(result.code).toContain('root.appendChild(el_div_0)')
+      expect(result.code).toContain('root.appendChild(el_span_1)')
+    })
+
+    it('separates tag and counter in variable names (h2 at index 1 is el_h2_1, not h21)', () => {
+      const nodes: NodeInfo[] = [createElement('div'), createElement('h2')]
+      const result = generator.generate(nodes)
+
+      expect(result.code).toContain("const el_h2_1 = document.createElement('h2')")
+      expect(result.code).not.toMatch(/\bh21\b/)
     })
 
     it('handles empty template', () => {
@@ -79,7 +87,7 @@ describe('CodeGenerator', () => {
       const nodes: NodeInfo[] = [createElement('div', { staticAttrs: attrs })]
       const result = generator.generate(nodes)
 
-      expect(result.code).toContain("div0.className = 'container'")
+      expect(result.code).toContain("el_div_0.className = 'container'")
     })
 
     it('generates other attributes with setAttribute', () => {
@@ -87,8 +95,8 @@ describe('CodeGenerator', () => {
       const nodes: NodeInfo[] = [createElement('div', { staticAttrs: attrs })]
       const result = generator.generate(nodes)
 
-      expect(result.code).toContain("div0.setAttribute('id', 'main')")
-      expect(result.code).toContain("div0.setAttribute('data-value', 'test')")
+      expect(result.code).toContain("el_div_0.setAttribute('id', 'main')")
+      expect(result.code).toContain("el_div_0.setAttribute('data-value', 'test')")
     })
 
     it('escapes special characters in attributes', () => {
@@ -113,7 +121,7 @@ describe('CodeGenerator', () => {
       })]
       const result = generator.generate(nodes)
 
-      expect(result.code).toContain('span0.textContent = this.title')
+      expect(result.code).toContain('el_span_0.textContent = this.title')
       expect(result.code).not.toContain('DiamondCore.bind')
       expect(result.code).toContain('// [Diamond] Set (static one-shot)')
     })
@@ -130,7 +138,7 @@ describe('CodeGenerator', () => {
       })]
       const result = generator.generate(nodes)
 
-      expect(result.code).toContain("DiamondCore.bind(span0, 'textContent', () => this.message)")
+      expect(result.code).toContain("DiamondCore.bind(el_span_0, 'textContent', () => this.message)")
       expect(result.code).not.toContain('(v) =>')
       expect(result.code).toContain('// [Diamond] One-way binding')
     })
@@ -148,7 +156,7 @@ describe('CodeGenerator', () => {
       const result = generator.generate(nodes)
 
       // undefined getter — DOM → model only
-      expect(result.code).toContain("DiamondCore.bind(input0, 'value', undefined, (v) => this.query = v)")
+      expect(result.code).toContain("DiamondCore.bind(el_input_0, 'value', undefined, (v) => this.query = v)")
       // must NOT wire a model → DOM getter (that would be two-way)
       expect(result.code).not.toContain('() => this.query,')
       expect(result.code).toContain('// [Diamond] From-view binding (one-way')
@@ -166,7 +174,7 @@ describe('CodeGenerator', () => {
       })]
       const result = generator.generate(nodes)
 
-      expect(result.code).toContain("DiamondCore.bind(input0, 'value', () => this.name, (v) => this.name = v)")
+      expect(result.code).toContain("DiamondCore.bind(el_input_0, 'value', () => this.name, (v) => this.name = v)")
       expect(result.code).toContain('// [Diamond] Two-way binding')
     })
 
@@ -183,7 +191,7 @@ describe('CodeGenerator', () => {
       const result = generator.generate(nodes)
 
       expect(result.code).toContain('// [Diamond] RAW One-way binding')
-      expect(result.code).toContain("DiamondCore.bind(div0, 'innerHTML', () => this.userHtml)")
+      expect(result.code).toContain("DiamondCore.bind(el_div_0, 'innerHTML', () => this.userHtml)")
     })
 
     it('handles property paths', () => {
@@ -213,7 +221,7 @@ describe('CodeGenerator', () => {
       })]
       const result = generator.generate(nodes)
 
-      expect(result.code).toContain("span0.textContent = 'hello'")
+      expect(result.code).toContain("el_span_0.textContent = 'hello'")
       expect(result.code).not.toContain("this.'hello'")
     })
   })
@@ -301,7 +309,7 @@ describe('CodeGenerator', () => {
       })]
       const result = generator.generate(nodes)
 
-      expect(result.code).toContain("DiamondCore.on(button0, 'click', (e) => this.save())")
+      expect(result.code).toContain("DiamondCore.on(el_button_0, 'click', (e) => this.save())")
       expect(result.code).toContain('// [Diamond] Event binding')
     })
 
@@ -317,7 +325,7 @@ describe('CodeGenerator', () => {
       })]
       const result = generator.generate(nodes)
 
-      expect(result.code).toContain("DiamondCore.on(div0, 'click', (e) => this.onCapture(), true)")
+      expect(result.code).toContain("DiamondCore.on(el_div_0, 'click', (e) => this.onCapture(), true)")
       expect(result.code).toContain('// [Diamond] Capture event')
     })
 
@@ -373,7 +381,7 @@ describe('CodeGenerator', () => {
       const result = generator.generate(nodes)
 
       expect(result.code).toContain("document.createTextNode('')")
-      expect(result.code).toContain("DiamondCore.bind(text1, 'textContent', () => `Hello ${this.name}!`)")
+      expect(result.code).toContain("DiamondCore.bind(text_1, 'textContent', () => `Hello ${this.name}!`)")
       expect(result.code).toContain('// [Diamond] Text interpolation: Hello ${name}!')
     })
 
@@ -404,8 +412,8 @@ describe('CodeGenerator', () => {
       expect(result.code).toContain("document.createElement('div')")
       expect(result.code).toContain("document.createElement('span')")
       expect(result.code).toContain("document.createElement('p')")
-      expect(result.code).toContain('div0.appendChild(span1)')
-      expect(result.code).toContain('div0.appendChild(p2)')
+      expect(result.code).toContain('el_div_0.appendChild(el_span_1)')
+      expect(result.code).toContain('el_div_0.appendChild(el_p_2)')
     })
   })
 

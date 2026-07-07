@@ -103,7 +103,7 @@ describe('compileTemplate', () => {
     expect(outputCode).toContain("import { DiamondCore } from '@diamondjs/runtime'")
     expect(outputCode).toContain('// [Diamond] Compiled from: test.html')
     expect(outputCode).toContain('export function createTemplate()')
-    expect(result.code).toContain("DiamondCore.bind(input0, 'value'")
+    expect(result.code).toContain("DiamondCore.bind(el_input_0, 'value'")
     expect(result.map).toBeDefined()
   })
 
@@ -140,7 +140,7 @@ describe('compileTemplate', () => {
     const { outputCode } = compileTemplate(template, 'counter.html')
 
     expect(outputCode).toContain("document.createElement('div')")
-    expect(outputCode).toContain("div0.className = 'counter'")
+    expect(outputCode).toContain("el_div_0.className = 'counter'")
     expect(outputCode).toContain('this.decrement()')
     expect(outputCode).toContain('this.increment()')
     expect(outputCode).toContain('this.count')

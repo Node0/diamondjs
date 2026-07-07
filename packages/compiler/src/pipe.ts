@@ -92,6 +92,71 @@ export function hasPipe(expr: string): boolean {
   return splitTopLevel(expr, '|').length > 1
 }
 
+export interface InterpolationSpan {
+  /** Expression text between `${` and its matching `}` */
+  expression: string
+  /** Offset of the `$` in the input */
+  start: number
+  /** Offset one past the closing `}` (input end when unterminated) */
+  end: number
+  /** True when the `${` was never closed before end of input */
+  unterminated?: boolean
+}
+
+/**
+ * Scan `${...}` interpolations with brace-depth + string-literal awareness
+ * (same quote/escape discipline as splitTopLevel). Unlike the old regex, a `}`
+ * inside a nested brace pair or a string literal — `${x | Conv('}')}` — does
+ * not terminate the span.
+ */
+export function scanInterpolations(content: string): InterpolationSpan[] {
+  const spans: InterpolationSpan[] = []
+  let i = 0
+
+  while (i < content.length) {
+    if (content[i] !== '$' || content[i + 1] !== '{') {
+      i++
+      continue
+    }
+
+    const start = i
+    i += 2
+    const exprStart = i
+    let depth = 1
+    let quote: string | null = null
+
+    while (i < content.length && depth > 0) {
+      const c = content[i]
+      if (quote) {
+        if (c === '\\') {
+          i += 2 // skip the escaped char
+          continue
+        }
+        if (c === quote) quote = null
+        i++
+        continue
+      }
+      if (c === "'" || c === '"' || c === '`') quote = c
+      else if (c === '{') depth++
+      else if (c === '}') depth--
+      i++
+    }
+
+    if (depth === 0) {
+      spans.push({ expression: content.slice(exprStart, i - 1), start, end: i })
+    } else {
+      spans.push({
+        expression: content.slice(exprStart),
+        start,
+        end: content.length,
+        unterminated: true,
+      })
+    }
+  }
+
+  return spans
+}
+
 /**
  * Parse `data | seg1 | seg2(args)` into a structured pipe.
  * Returns `segments: []` (no transforms) when there is no pipe.

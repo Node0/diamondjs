@@ -6,6 +6,7 @@
  */
 
 import { parseFragment, DefaultTreeAdapterMap } from 'parse5'
+import { scanInterpolations } from './pipe'
 import type {
   SourceLocation,
   BindingInfo,
@@ -409,13 +410,22 @@ export class TemplateParser {
     node: TextNode
   ): InterpolationInfo[] {
     const interpolations: InterpolationInfo[] = []
-    const regex = /\$\{([^}]+)\}/g
-    let match
 
-    while ((match = regex.exec(content)) !== null) {
-      this.checkRemovedAmpersand(match[1], this.getTextLocation(node))
+    // Brace-depth scanner (not a regex): a `}` inside nested braces or a string
+    // literal — `${x | Conv('}')}` — does not terminate the interpolation.
+    for (const span of scanInterpolations(content)) {
+      if (span.unterminated) {
+        this.diagnostics.push({
+          severity: 'error',
+          code: 'unterminated-interpolation',
+          message: `Unterminated interpolation: '\${${span.expression.trim()}' has no closing '}'.`,
+          location: this.getTextLocation(node),
+        })
+        continue
+      }
+      this.checkRemovedAmpersand(span.expression, this.getTextLocation(node))
       interpolations.push({
-        expression: match[1].trim(),
+        expression: span.expression.trim(),
         location: this.getTextLocation(node), // Simplified - same as text node
       })
     }
