@@ -280,6 +280,73 @@ export class DiamondCore {
   }
 
   /**
+   * Reactive exhaustive multi-state rendering (v2.1, Amendment A1 §7.3 —
+   * <switch>/<case>/<default>). The on-value is evaluated ONCE per update, then
+   * tested against each case's match predicate in document order; first match
+   * wins. `defaultMake` renders when no case matches — its scope is the switch
+   * itself (the container the construct purchased), so unlike bare `else` it
+   * needs no positional pairing. Branches are built lazily and cached, exactly
+   * like if().
+   *
+   * @example
+   * const a = document.createComment('switch')
+   * DiamondCore.switch(a, () => this.status, [
+   *   { match: (v) => v === 'loading', make: () => buildLoading() },
+   *   { match: (v) => v === 'ready',   make: () => buildReady() },
+   * ], () => buildUnexpected())
+   */
+  static switch(
+    anchor: Comment,
+    onGetter: () => unknown,
+    cases: Array<{ match: (v: unknown) => boolean; make: () => Node }>,
+    defaultMake?: () => Node
+  ): void {
+    // Slot cases.length holds the default branch (when present)
+    const built: Array<{ node: Node; cleanup: CleanupFn } | null> = new Array(
+      cases.length + 1
+    ).fill(null)
+    let activeIndex = -1
+
+    // onGetter + match predicates run inside the master effect, so both the
+    // on-value's deps and any expression-case deps are tracked (same
+    // reads-before-builds reasoning as if()).
+    const cleanup = this.effect(() => {
+      const v = onGetter()
+      let matched = -1
+      for (let i = 0; i < cases.length; i++) {
+        if (cases[i].match(v)) {
+          matched = i
+          break
+        }
+      }
+      if (matched < 0 && defaultMake) matched = cases.length
+      if (matched === activeIndex) return
+
+      // Detach the current branch (kept cached for reuse on re-activation)
+      if (activeIndex >= 0) {
+        const prev = built[activeIndex]
+        ;(prev?.node as ChildNode | undefined)?.remove()
+      }
+      activeIndex = matched
+      if (matched < 0) return
+
+      let entry = built[matched]
+      if (!entry) {
+        const make = matched === cases.length ? defaultMake! : cases[matched].make
+        const captured = this.captureScope(() => make())
+        entry = { node: captured.value, cleanup: captured.cleanup }
+        built[matched] = entry
+      }
+      anchor.parentNode?.insertBefore(entry.node, anchor)
+    })
+
+    this.track(cleanup)
+    this.track(() => {
+      for (const b of built) b?.cleanup()
+    })
+  }
+
+  /**
    * Reactive keyed list rendering (DDR §6.3, repeat.for). Builds one subtree per
    * item — keyed by item identity — reusing and reordering nodes across updates
    * and disposing the effects/listeners of removed items.

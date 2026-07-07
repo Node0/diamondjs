@@ -17,6 +17,7 @@ import type {
   Diagnostic,
   SinkOp,
   SourceLocation,
+  SwitchInfo,
 } from './types'
 import { isElementInfo, isTextInfo } from './types'
 import { gateSink } from './security'
@@ -155,6 +156,13 @@ export class CodeGenerator {
         continue
       }
 
+      if (isElementInfo(node) && node.switchInfo) {
+        const switchVar = this.generateSwitch(node.switchInfo)
+        if (switchVar) vars.push(switchVar)
+        i++
+        continue
+      }
+
       if (isElementInfo(node)) {
         vars.push(this.generateElement(node))
       } else if (isTextInfo(node)) {
@@ -257,6 +265,165 @@ export class CodeGenerator {
     this.indent--
     this.emitLine(`]);`)
     return anchor
+  }
+
+  /**
+   * Generate a <switch>/<case>/<default> construct (v2.1, Amendment A1 §7.3).
+   *
+   * Lowering is Option B (thin DiamondCore.switch runtime) with an Option A
+   * fast path: when on= is a pure literal and every case is equality-kind, the
+   * winner is decidable at compile time and only its DOM code is emitted (no
+   * anchor, no runtime call). A statically-dead switch (no winner, no default)
+   * emits a DOM comment carrying the dead source + a switch-static-dead
+   * warning ("unused code") — per the ratified Amendment A2 decision.
+   *
+   * Returns the var to append (anchor / static body / dead-switch comment),
+   * or null when a static default-less switch resolves to nothing... which
+   * cannot happen (dead switches emit the comment node), kept for type safety.
+   */
+  private generateSwitch(info: SwitchInfo): string | null {
+    const staticVar = this.tryStaticSwitch(info)
+    if (staticVar !== null) return staticVar
+
+    const anchor = this.nextVar('switchAnchor')
+    this.emitLine(
+      `const ${anchor} = document.createComment('switch');`,
+      info.location
+    )
+    this.emitLine(
+      `// [Diamond] Switch: on="${info.onExpression}" (${info.cases.length} case${
+        info.cases.length === 1 ? '' : 's'
+      }${info.defaultChildren ? ' + default' : ''})`
+    )
+    const onGetter = `() => ${this.prefixExpression(info.onExpression)}`
+    this.emitLine(`DiamondCore.switch(${anchor}, ${onGetter}, [`)
+    this.indent++
+    for (const c of info.cases) {
+      const cond =
+        c.kind === 'equality'
+          ? `v === ${this.literalJs(c.literal)}`
+          : this.prefixExpression(c.match)
+      this.emitLine(
+        `// [Diamond] case if="${c.match}" → ${
+          c.kind === 'equality' ? cond : `${cond} (boolean expression)`
+        }`
+      )
+      this.emitLine(`{ match: (v) => ${cond}, make: () => {`)
+      this.indent++
+      const bodyVars = this.generateNodes(c.children)
+      const root = this.combineRoots(bodyVars, 'caseRoot')
+      this.emitLine(`return ${root};`)
+      this.indent--
+      this.emitLine(`} },`)
+    }
+    this.indent--
+    if (info.defaultChildren) {
+      this.emitLine(`], () => {`)
+      this.indent++
+      this.emitLine(`// [Diamond] default — renders when no case matches`)
+      const defVars = this.generateNodes(info.defaultChildren)
+      const defRoot = this.combineRoots(defVars, 'defaultRoot')
+      this.emitLine(`return ${defRoot};`)
+      this.indent--
+      this.emitLine(`});`)
+    } else {
+      this.emitLine(`]);`)
+    }
+    return anchor
+  }
+
+  /**
+   * Option A static fast path. Applicable iff on= is a pure literal AND every
+   * case is equality-kind (an expression case could preempt at runtime, making
+   * the winner undecidable at compile time). Returns the emitted var, or null
+   * when the switch must lower to the runtime construct.
+   */
+  private tryStaticSwitch(info: SwitchInfo): string | null {
+    const onLiteral = this.parseStaticLiteral(info.onExpression)
+    if (onLiteral === undefined) return null
+    if (info.cases.some((c) => c.kind !== 'equality')) return null
+
+    const winner = info.cases.find((c) => c.literal === onLiteral.value)
+    if (winner) {
+      this.emitLine(
+        `// [Diamond] Switch on=${JSON.stringify(info.onExpression)} resolved at compile time → case if="${winner.match}" (zero runtime cost)`
+      )
+      return this.combineRoots(this.generateNodes(winner.children), 'caseRoot')
+    }
+    if (info.defaultChildren) {
+      this.emitLine(
+        `// [Diamond] Switch on=${JSON.stringify(info.onExpression)} resolved at compile time → default (no case matched)`
+      )
+      return this.combineRoots(this.generateNodes(info.defaultChildren), 'defaultRoot')
+    }
+
+    // Statically dead: no case matches and there is no default. Ratified
+    // behavior (Amendment A2): warn as unused code + mount an inspectable DOM
+    // comment carrying the dead source — never silently drop, never hard-fail.
+    this.diagnostics.push({
+      severity: 'warn',
+      code: 'switch-static-dead',
+      message:
+        `Dead <switch>: on=${JSON.stringify(info.onExpression)} matches no case ` +
+        `(${info.cases.map((c) => `'${c.match}'`).join(', ')}) and there is no <default> — unused code.`,
+      location: info.location,
+    })
+    const deadVar = this.nextVar('deadSwitch')
+    const summary = `[Diamond] dead switch: on=${info.onExpression} | cases: ${info.cases
+      .map((c) => c.match)
+      .join(', ')} — matched none, no default`
+    // DOM comments cannot contain '--'
+    const commentSafe = this.escapeString(summary.replace(/--/g, '—'))
+    this.emitLine(
+      `// [Diamond] DEAD switch (switch-static-dead): unused code, emitted as an inspectable comment node`
+    )
+    this.emitLine(
+      `const ${deadVar} = document.createComment(' ${commentSafe} ');`,
+      info.location
+    )
+    return deadVar
+  }
+
+  /**
+   * Parse a pure-literal expression (quoted string / number / true / false /
+   * null). Returns { value } or undefined when the expression is not static
+   * (a bare identifier is reactive component state, never static).
+   */
+  private parseStaticLiteral(
+    expr: string
+  ): { value: string | number | boolean | null } | undefined {
+    const t = expr.trim()
+    if (/^'[^']*'$/.test(t) || /^"[^"]*"$/.test(t)) {
+      return { value: t.slice(1, -1) }
+    }
+    if (/^-?\d+(\.\d+)?$/.test(t)) return { value: Number(t) }
+    if (t === 'true') return { value: true }
+    if (t === 'false') return { value: false }
+    if (t === 'null') return { value: null }
+    return undefined
+  }
+
+  /** Emit a JS literal for an equality-case value. */
+  private literalJs(literal: string | number | boolean | null | undefined): string {
+    return typeof literal === 'string' ? `'${this.escapeString(literal)}'` : String(literal)
+  }
+
+  /**
+   * Combine N generated root vars into one node var: zero → empty comment,
+   * one → itself, many → DocumentFragment. This is where the erased-wrapper
+   * semantics of <switch>/<case>/<default> live: a case body with multiple
+   * roots mounts as a fragment, no container element ships.
+   */
+  private combineRoots(vars: string[], hint: string): string {
+    if (vars.length === 1) return vars[0]
+    const v = this.nextVar(hint)
+    if (vars.length === 0) {
+      this.emitLine(`const ${v} = document.createComment('empty');`)
+      return v
+    }
+    this.emitLine(`const ${v} = document.createDocumentFragment();`)
+    for (const child of vars) this.emitLine(`${v}.appendChild(${child});`)
+    return v
   }
 
   /**

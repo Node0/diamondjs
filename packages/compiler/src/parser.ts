@@ -13,6 +13,7 @@ import type {
   BindingInfo,
   BindingType,
   StructuralInfo,
+  SwitchCaseInfo,
   Diagnostic,
   InterpolationInfo,
   ElementInfo,
@@ -100,6 +101,22 @@ export class TemplateParser {
 
     for (const node of nodes) {
       if (this.isElement(node)) {
+        // <switch>/<case>/<default> (v2.1): switch is consumed whole by
+        // processSwitch; a case/default reached HERE has no <switch> parent.
+        if (node.tagName === 'switch') {
+          const sw = this.processSwitch(node)
+          if (sw) result.push(sw)
+          continue
+        }
+        if (node.tagName === 'case' || node.tagName === 'default') {
+          this.diagnostics.push({
+            severity: 'error',
+            code: `${node.tagName}-outside-switch`,
+            message: `<${node.tagName}> is only valid as a direct child of <switch> (v2.1).`,
+            location: this.getElementLocation(node),
+          })
+          continue
+        }
         result.push(this.processElement(node))
       } else if (this.isTextNode(node)) {
         const textInfo = this.processTextNode(node)
@@ -110,6 +127,196 @@ export class TemplateParser {
     }
 
     return result
+  }
+
+  /**
+   * Process a <switch on="..."> construct (v2.1, Amendment A1 backlog).
+   *
+   * The three elements are compile-time-erasable wrappers with structural
+   * semantics only — they have no DOM target, so ANY attribute beyond
+   * switch[on] / case[if] is an error. Cases are checked in document order,
+   * first match wins; <default> must be the last non-whitespace child.
+   */
+  private processSwitch(element: Element): ElementInfo | null {
+    const location = this.getElementLocation(element)
+    let onExpression: string | null = null
+
+    for (const attr of element.attrs) {
+      if (attr.name === 'on') {
+        onExpression = attr.value
+      } else {
+        this.diagnostics.push({
+          severity: 'error',
+          code: 'switch-extraneous-attr',
+          message: `<switch> takes only 'on' (got '${attr.name}'). The element is erased at compile time — there is no DOM target for other attributes.`,
+          location,
+        })
+      }
+    }
+
+    if (onExpression === null || onExpression.trim() === '') {
+      this.diagnostics.push({
+        severity: 'error',
+        code: 'switch-no-on',
+        message: `<switch> requires on="<expression>" — the value the cases match against.`,
+        location,
+      })
+      return null
+    }
+
+    const cases: SwitchCaseInfo[] = []
+    let defaultChildren: NodeInfo[] | null = null
+    let sawDefault = false
+
+    for (const child of element.childNodes) {
+      if (this.isTextNode(child)) {
+        if (child.value.trim()) {
+          this.diagnostics.push({
+            severity: 'error',
+            code: 'switch-bad-child',
+            message: `Text is not valid directly inside <switch>; wrap it in a <case> or <default>.`,
+            location,
+          })
+        }
+        continue
+      }
+      if (!this.isElement(child)) continue // comments etc.
+
+      if (child.tagName === 'case') {
+        if (sawDefault) {
+          this.diagnostics.push({
+            severity: 'error',
+            code: 'switch-default-not-last',
+            message: `<default> must be the last child of <switch>; a <case> follows it.`,
+            location: this.getElementLocation(child),
+          })
+        }
+        const info = this.processCase(child)
+        if (info) cases.push(info)
+        continue
+      }
+
+      if (child.tagName === 'default') {
+        if (sawDefault) {
+          this.diagnostics.push({
+            severity: 'error',
+            code: 'switch-multiple-default',
+            message: `<switch> allows at most one <default>.`,
+            location: this.getElementLocation(child),
+          })
+          continue
+        }
+        sawDefault = true
+        for (const attr of child.attrs) {
+          this.diagnostics.push({
+            severity: 'error',
+            code: 'switch-extraneous-attr',
+            message: `<default> takes no attributes (got '${attr.name}') — it renders when no case matches.`,
+            location: this.getElementLocation(child),
+          })
+        }
+        defaultChildren = this.processChildren(child.childNodes)
+        continue
+      }
+
+      this.diagnostics.push({
+        severity: 'error',
+        code: 'switch-bad-child',
+        message: `<${child.tagName}> is not valid directly inside <switch>; only <case> and <default> are.`,
+        location: this.getElementLocation(child),
+      })
+    }
+
+    if (cases.length === 0 && !defaultChildren) {
+      this.diagnostics.push({
+        severity: 'error',
+        code: 'switch-empty',
+        message: `<switch> has no <case> or <default> — it can never render anything.`,
+        location,
+      })
+      return null
+    }
+
+    return {
+      tagName: 'switch',
+      bindings: [],
+      events: [],
+      interpolations: [],
+      staticAttrs: new Map(),
+      children: [],
+      location,
+      switchInfo: {
+        onExpression: onExpression.trim(),
+        cases,
+        defaultChildren,
+        location,
+      },
+    }
+  }
+
+  /** Process one <case if="..."> arm; consumed inside processSwitch only. */
+  private processCase(element: Element): SwitchCaseInfo | null {
+    const location = this.getElementLocation(element)
+    let match: string | null = null
+
+    for (const attr of element.attrs) {
+      if (attr.name === 'if') {
+        match = attr.value
+      } else {
+        this.diagnostics.push({
+          severity: 'error',
+          code: 'switch-extraneous-attr',
+          message: `<case> takes only 'if' (got '${attr.name}'). The element is erased at compile time — there is no DOM target for other attributes.`,
+          location,
+        })
+      }
+    }
+
+    if (match === null || match.trim() === '') {
+      this.diagnostics.push({
+        severity: 'error',
+        code: 'case-no-if',
+        message: `<case> requires if="<value or boolean expression>".`,
+        location,
+      })
+      return null
+    }
+
+    const { kind, literal } = this.classifyCaseMatch(match.trim())
+    return {
+      match: match.trim(),
+      kind,
+      literal,
+      children: this.processChildren(element.childNodes),
+      location,
+    }
+  }
+
+  /**
+   * Classify a case's if-value (Amendment A1 §7.3, recorded in Amendment A2):
+   *  - quoted string / numeric / true / false / null → equality vs that literal
+   *  - bare single word (identifier-shaped, dashes allowed) → equality vs the
+   *    STRING (if="loading" matches on === 'loading' — A1's own example)
+   *  - anything else (operators, spaces, dots, parens) → boolean expression;
+   *    a dotted path like if="user.role" is truthiness, NOT equality.
+   */
+  private classifyCaseMatch(value: string): {
+    kind: 'equality' | 'expression'
+    literal?: string | number | boolean | null
+  } {
+    if (/^'[^']*'$/.test(value) || /^"[^"]*"$/.test(value)) {
+      return { kind: 'equality', literal: value.slice(1, -1) }
+    }
+    if (/^-?\d+(\.\d+)?$/.test(value)) {
+      return { kind: 'equality', literal: Number(value) }
+    }
+    if (value === 'true') return { kind: 'equality', literal: true }
+    if (value === 'false') return { kind: 'equality', literal: false }
+    if (value === 'null') return { kind: 'equality', literal: null }
+    if (/^[A-Za-z_$][\w$-]*$/.test(value)) {
+      return { kind: 'equality', literal: value }
+    }
+    return { kind: 'expression' }
   }
 
   /**

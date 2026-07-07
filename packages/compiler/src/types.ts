@@ -99,6 +99,38 @@ export interface StructuralInfo {
 }
 
 /**
+ * One <case if="..."> arm of a <switch> (v2.1, Amendment A1 backlog).
+ *
+ * `kind` records the compile-time classification of the `if` value:
+ *  - 'equality':   a single bare word or literal — matches when the switch
+ *                  value strictly equals `literal` (bare word ⇒ string).
+ *  - 'expression': anything with operators/spaces/dots — a boolean expression
+ *                  evaluated against component state (cannot see the on-value).
+ */
+export interface SwitchCaseInfo {
+  /** Raw if="..." text */
+  match: string
+  kind: 'equality' | 'expression'
+  /** equality only: the decoded compile-time value */
+  literal?: string | number | boolean | null
+  children: NodeInfo[]
+  location: SourceLocation | null
+}
+
+/**
+ * A <switch on="..."> construct. The container element is fully erased at
+ * compile time — the scope boundary it provides is exactly what bare `else`
+ * lacked (A1): <default> needs no positional pairing, its parent IS its scope.
+ */
+export interface SwitchInfo {
+  onExpression: string
+  cases: SwitchCaseInfo[]
+  /** <default> body, or null when absent */
+  defaultChildren: NodeInfo[] | null
+  location: SourceLocation | null
+}
+
+/**
  * Element information extracted from AST
  */
 export interface ElementInfo {
@@ -111,6 +143,8 @@ export interface ElementInfo {
   location: SourceLocation | null
   /** Structural directive (if/else-if/repeat), if present */
   structural?: StructuralInfo
+  /** <switch> construct (v2.1) — set only when tagName === 'switch' */
+  switchInfo?: SwitchInfo
 }
 
 /**

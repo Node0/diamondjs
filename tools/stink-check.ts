@@ -47,8 +47,9 @@ const IGNORE = new Set([
 const DIAMOND_RE =
   /\.\s*(set|rawset|bind|rawbind|to-view|from-view|two-way|calls|capture|one-time|trigger|delegate)\s*=/i
 const INTERP_RE = /\$\{[^}]+\}/
+const STRUCTURAL_RE = /<switch[\s>]|repeat\.for\s*=/i
 function isDiamondTemplate(code: string): boolean {
-  return DIAMOND_RE.test(code) || INTERP_RE.test(code)
+  return DIAMOND_RE.test(code) || INTERP_RE.test(code) || STRUCTURAL_RE.test(code)
 }
 
 function walk(dir: string, out: string[] = []): string[] {

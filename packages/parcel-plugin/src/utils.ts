@@ -19,8 +19,17 @@ export function isDiamondTemplate(code: string): boolean {
     /\.\s*(set|rawset|bind|rawbind|to-view|from-view|two-way|calls|capture|one-time|trigger|delegate)\s*=/i
   // Interpolation syntax: ${...}
   const interpolationPattern = /\$\{[^}]+\}/
+  // v2.1 structural-only templates: <switch> and repeat.for= are unambiguous
+  // Diamond tokens (a bare if= is NOT used — false-positive risk on non-Diamond
+  // HTML; an if-only template with zero bindings/interpolations stays undetected,
+  // documented in Amendment A2).
+  const structuralPattern = /<switch[\s>]|repeat\.for\s*=/i
 
-  return bindingPattern.test(code) || interpolationPattern.test(code)
+  return (
+    bindingPattern.test(code) ||
+    interpolationPattern.test(code) ||
+    structuralPattern.test(code)
+  )
 }
 
 /**
