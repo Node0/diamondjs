@@ -224,11 +224,13 @@ export class DiamondCore {
   }
 
   /**
-   * Reactive conditional inclusion (DDR §6.2). Renders the first branch whose
-   * `when()` is truthy by inserting it before `anchor`; removes it when none
-   * match. Branches are built lazily and cached, so toggling reuses the same
-   * subtree. `if` / `else-if` compile to this — there is no sink, no raw, and
-   * it is always reactive.
+   * Reactive conditional inclusion (DDR §6.2, A3). Renders the first branch
+   * whose `when()` is truthy by inserting it before `anchor`; removes it when
+   * none match. Branches are built lazily; a branch that is toggled off is
+   * DISPOSED with its subtree (detached means disposed — the one disposal rule
+   * shared with switch()/repeat()) and rebuilt fresh on re-activation.
+   * `if` / `else-if` compile to this — there is no sink, no raw, and it is
+   * always reactive.
    *
    * @example
    * const a = document.createComment('if')
@@ -241,8 +243,7 @@ export class DiamondCore {
     anchor: Comment,
     branches: Array<{ when: () => boolean; make: () => Node }>
   ): void {
-    const built: Array<{ node: Node; cleanup: CleanupFn } | null> =
-      branches.map(() => null)
+    let active: { node: Node; cleanup: CleanupFn } | null = null
     let activeIndex = -1
 
     // Conditions are read here (before make()) so the master effect tracks their
@@ -257,26 +258,24 @@ export class DiamondCore {
       }
       if (matched === activeIndex) return
 
-      // Detach the current branch (kept cached for reuse on re-activation)
-      if (activeIndex >= 0) {
-        const prev = built[activeIndex]
-        ;(prev?.node as ChildNode | undefined)?.remove()
+      // Dispose the outgoing branch eagerly (same shape as repeat's
+      // gone.cleanup()); it is rebuilt from make() if re-activated.
+      if (active) {
+        ;(active.node as ChildNode).remove()
+        active.cleanup()
+        active = null
       }
       activeIndex = matched
       if (matched < 0) return
 
-      let entry = built[matched]
-      if (!entry) {
-        const captured = this.captureScope(() => branches[matched].make())
-        entry = { node: captured.value, cleanup: captured.cleanup }
-        built[matched] = entry
-      }
-      anchor.parentNode?.insertBefore(entry.node, anchor)
+      const captured = this.captureScope(() => branches[matched].make())
+      active = { node: captured.value, cleanup: captured.cleanup }
+      anchor.parentNode?.insertBefore(active.node, anchor)
     })
 
     this.track(cleanup)
     this.track(() => {
-      for (const b of built) b?.cleanup()
+      active?.cleanup()
     })
   }
 
@@ -286,8 +285,8 @@ export class DiamondCore {
    * tested against each case's match predicate in document order; first match
    * wins. `defaultMake` renders when no case matches — its scope is the switch
    * itself (the container the construct purchased), so unlike bare `else` it
-   * needs no positional pairing. Branches are built lazily and cached, exactly
-   * like if().
+   * needs no positional pairing. Branches are built lazily and disposed on
+   * detach, exactly like if() (detached means disposed, per A3).
    *
    * @example
    * const a = document.createComment('switch')
@@ -302,10 +301,8 @@ export class DiamondCore {
     cases: Array<{ match: (v: unknown) => boolean; make: () => Node }>,
     defaultMake?: () => Node
   ): void {
-    // Slot cases.length holds the default branch (when present)
-    const built: Array<{ node: Node; cleanup: CleanupFn } | null> = new Array(
-      cases.length + 1
-    ).fill(null)
+    // Index cases.length denotes the default branch (when present)
+    let active: { node: Node; cleanup: CleanupFn } | null = null
     let activeIndex = -1
 
     // onGetter + match predicates run inside the master effect, so both the
@@ -323,27 +320,25 @@ export class DiamondCore {
       if (matched < 0 && defaultMake) matched = cases.length
       if (matched === activeIndex) return
 
-      // Detach the current branch (kept cached for reuse on re-activation)
-      if (activeIndex >= 0) {
-        const prev = built[activeIndex]
-        ;(prev?.node as ChildNode | undefined)?.remove()
+      // Dispose the outgoing branch eagerly (same shape as repeat's
+      // gone.cleanup()); it is rebuilt from make() if re-activated.
+      if (active) {
+        ;(active.node as ChildNode).remove()
+        active.cleanup()
+        active = null
       }
       activeIndex = matched
       if (matched < 0) return
 
-      let entry = built[matched]
-      if (!entry) {
-        const make = matched === cases.length ? defaultMake! : cases[matched].make
-        const captured = this.captureScope(() => make())
-        entry = { node: captured.value, cleanup: captured.cleanup }
-        built[matched] = entry
-      }
-      anchor.parentNode?.insertBefore(entry.node, anchor)
+      const make = matched === cases.length ? defaultMake! : cases[matched].make
+      const captured = this.captureScope(() => make())
+      active = { node: captured.value, cleanup: captured.cleanup }
+      anchor.parentNode?.insertBefore(active.node, anchor)
     })
 
     this.track(cleanup)
     this.track(() => {
-      for (const b of built) b?.cleanup()
+      active?.cleanup()
     })
   }
 

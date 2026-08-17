@@ -84,12 +84,12 @@ Must add new tokens AND retain retired ones: detect `calls|set|rawset|rawbind|ca
 
 ## Runtime (core.ts)
 - Cleanup scope: `currentScope: CleanupFn[] | null`. `bind`/`on`/`if`/`repeat` register teardown via `track()` when a scope is active. Top-level (component root) scope is null → matches existing no-cleanup-at-root behavior.
-- `captureScope(fn)` → `{ value, cleanup }`: collects all teardown registered during `fn`. Structural directives dispose a removed branch/item with it.
-- `DiamondCore.if(anchor, branches)`: first truthy `when()` wins; branches built lazily + cached (toggle reuses subtree). Reactive reads (the `when()`s) happen BEFORE `make()` so the master effect tracks condition deps (the engine nulls activeEffect after a nested effect, so reads must precede builds).
+- `captureScope(fn)` → `{ value, cleanup }`: collects all teardown registered during `fn`. Structural directives dispose a removed branch/item with it. **[Corrected v2.1.1, D-1]** In v2.1 this claim was false for the `if`/`switch` toggle path (branches were cached and detached without cleanup); as of v2.1.1 the branch cache is removed and **detached means disposed** across all three structural directives. Note also: a bare structural directive outside any `captureScope` registers no cleanup at all (`track()` is a no-op when `currentScope` is null).
+- `DiamondCore.if(anchor, branches)`: first truthy `when()` wins; branches built lazily; a toggled-off branch is **disposed eagerly** (node removed + captured cleanup invoked, same shape as repeat's `gone.cleanup()`) and rebuilt fresh on re-activation — there is **no branch cache** (removed in v2.1.1, D-1). Reactive reads (the `when()`s) happen BEFORE `make()` so the master effect tracks condition deps (the engine nulls activeEffect after a nested effect, so reads must precede builds).
 - `DiamondCore.repeat(anchor, itemsGetter, makeItem)`: keyed by **item identity** (default). Reuses/reorders nodes via `insertBefore(node, anchor)` in document order; disposes gone items. Known limit: duplicate primitive items collide on identity (acceptable; most repeats are over objects). `itemsGetter()` read before builds for correct dep tracking.
 
 ## Known limitation (pre-existing, not worsened)
-Top-level compiled bindings still don't auto-clean on unmount (Phase 0/1 behavior). Structural directives DO clean their branch subtrees (via captureScope), which is stricter than the root. A holistic root-cleanup pass is deferred.
+Top-level compiled bindings still don't auto-clean on unmount (Phase 0/1 behavior). Structural directives DO clean their branch subtrees (via captureScope) — **as of v2.1.1 (D-1) this holds uniformly, including the `if`/`switch` toggle path**, which is stricter than the root. (In v2.1 the toggle path detached without disposing; the "stricter than the root" claim was false for that path.) A holistic root-cleanup pass is deferred.
 
 ---
 

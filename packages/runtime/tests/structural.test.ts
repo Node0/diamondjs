@@ -111,18 +111,18 @@ describe('DiamondCore.if', () => {
     expect(host.querySelector('span')?.textContent).toBe('A')
   })
 
-  it('reuses the cached node when toggled back on', async () => {
+  it('rebuilds a fresh subtree when toggled back on (detached means disposed, A3)', async () => {
     const state = DiamondCore.reactive({ show: true })
     const { host, anchor } = setup()
-    DiamondCore.if(anchor, [
-      { when: () => state.show, make: () => document.createElement('span') },
-    ])
+    const make = vi.fn(() => document.createElement('span'))
+    DiamondCore.if(anchor, [{ when: () => state.show, make }])
     const first = host.querySelector('span')
     state.show = false
     await tick()
     state.show = true
     await tick()
-    expect(host.querySelector('span')).toBe(first)
+    expect(make).toHaveBeenCalledTimes(2) // disposed on detach, rebuilt on re-activation
+    expect(host.querySelector('span')).not.toBe(first)
   })
 
   it('inserts the branch before the anchor (document order preserved)', () => {

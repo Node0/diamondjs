@@ -70,7 +70,7 @@ The generator emits a **simplified Phase-0 source map** (`mappings: ''` — no V
 `extractInterpolations` / `buildInterpolationExpr` use `/\$\{([^}]+)\}/g`, which terminates early on a `}` inside pipe args (`${x | Conv('}')}`). Replace with a brace-depth scanner (can share `pipe.ts`'s `splitTopLevel` machinery).
 
 ### 3.3 Holistic root cleanup on unmount
-Top-level compiled bindings still **don't auto-clean on unmount** (Phase 0/1 behavior — the compiled `createTemplate` discards `bind`/`on` cleanups). Structural directives DO clean their branch subtrees (via `captureScope`), which is stricter than the root. A root-level pass (compiled output registers binding cleanups against the component teardown registry) would close the gap uniformly.
+Top-level compiled bindings still **don't auto-clean on unmount** (Phase 0/1 behavior — the compiled `createTemplate` discards `bind`/`on` cleanups). Structural directives DO clean their branch subtrees (via `captureScope`) — **as of v2.1.1 (D-1) uniformly, including the `if`/`switch` toggle path** (in v2.1 that path detached cached branches without disposing them, so the earlier "stricter than the root" claim was false there). A root-level pass (compiled output registers binding cleanups against the component teardown registry) would close the gap uniformly.
 
 ### 3.4 `ParseResult` error-rendering surface (§5.7)
 The validation-error **seam** exists (`valid`/`error` on `ParseResult`; the from-view setter gates on `valid`). The **rendering surface is deferred** — `error: string` for v2 (renders directly); noted seam to structured `{ code, message }` for i18n later.
