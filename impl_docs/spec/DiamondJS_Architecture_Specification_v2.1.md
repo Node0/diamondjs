@@ -162,7 +162,7 @@ export abstract class Component {
 
 `mount()` wraps `createTemplate()` in `DiamondCore.captureScope()` and registers the returned disposer, which is what makes **root-level** `bind`/`on`/`if`/`repeat`/`switch` cleanups survive to `unmount()` (without the wrapper, `currentScope` is `null` at the root and `track()` silently discards). `debounce`/`throttle` are `protected` and **self-register** their `cancel` against the cleanup registry at creation time, so the class-field one-liner `handleInput = this.debounce(v => this.query = v, 500)` is leak-safe with no visible timer-cancel burden. This relies on JS field-init order: base fields (`cleanups = []`) initialize during `super()`, before any subclass field initializer runs.
 
-> **Re-mount caveat.** `unmount()` empties the cleanup registry. A component that is unmounted and re-mounted works, but `debounce`/`throttle` cancels registered at *construction* were dropped on the first unmount and are not re-registered. Calling `mount()` twice without an intervening `unmount()` is unguarded and leaks the first DOM subtree (§16 D-6).
+> **Re-mount caveat.** `unmount()` empties the cleanup registry. A component that is unmounted and re-mounted works, but `debounce`/`throttle` cancels registered at *construction* were dropped on the first unmount and are not re-registered. Calling `mount()` twice without an intervening `unmount()` throws (§16 D-6, guarded as of v2.1.1).
 
 ### 4.5 Parent–child communication
 
@@ -779,7 +779,7 @@ Shipped v2.1 (`00db3c6`) meets the contracts above except for the items below. E
 
 ### Accepted limitations (document, don't smooth over)
 
-- **D-6 — Double-`mount()` leaks a DOM element (correct-the-record).** A2 called this a scope leak; it is not — both scopes' cleanups land on one registry and dispose. What leaks is the **first DOM subtree**: `this.element` is overwritten on the second mount, so `unmount()` only removes the second. Still open (no `mounted` guard). *This spec adopts "DOM-node leak."*
+- **D-6 — Double-`mount()` leaks a DOM element (correct-the-record).** A2 called this a scope leak; it is not — both scopes' cleanups land on one registry and dispose. What leaks is the **first DOM subtree**: `this.element` is overwritten on the second mount, so `unmount()` only removes the second. *This spec adopts "DOM-node leak."* **Guarded as of v2.1.1:** a `mounted` boolean on `Component`; a second `mount()` without an intervening `unmount()` throws with a clear message.
 
 - **D-11 — VLQ source maps are unreachable on the default toolchain.** The compiler generates real maps, but the Parcel transformer passes `sourceMap = false` and has no `setMap` call (stale "Phase 0/1" comments remain). The seam exists; the wiring does not.
 

@@ -37,6 +37,13 @@ export abstract class Component {
   private cleanups: Array<() => void> = []
 
   /**
+   * §16 D-6: a second mount() without an unmount() would overwrite
+   * this.element and leak the first DOM subtree (unmount() would only
+   * remove the second). Guarded — double-mount throws.
+   */
+  private mounted = false
+
+  /**
    * Compiler-generated instance method that builds the DOM tree.
    * Uses 'this' to reference component properties and methods.
    *
@@ -55,6 +62,14 @@ export abstract class Component {
    * @param hostElement - Parent DOM element to append to
    */
   mount(hostElement: HTMLElement): void {
+    if (this.mounted) {
+      throw new Error(
+        `[Diamond] ${this.constructor.name} is already mounted. ` +
+          `Call unmount() before mounting again — a second mount() would ` +
+          `orphan the first DOM subtree (D-6).`
+      )
+    }
+    this.mounted = true
     // Capture root-level binding/listener/structural cleanups (they would
     // otherwise be discarded — DiamondCore's scope is null at the root) and
     // register them against this component's teardown, so unmount() disposes
@@ -89,6 +104,7 @@ export abstract class Component {
     this.cleanups = []
     this.element?.remove()
     this.element = null
+    this.mounted = false
   }
 
   /**
