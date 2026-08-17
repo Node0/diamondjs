@@ -435,6 +435,20 @@ export class TemplateParser {
       }
 
       if (segments.length < 2) {
+        // §16 D-3: attribute interpolation compiles the literal silently —
+        // diagnose it (support is a future decision, not a shipped feature).
+        if (attr.value.includes('${')) {
+          this.diagnostics.push({
+            severity: 'error',
+            code: 'attr-interpolation-unsupported',
+            message:
+              `Attribute interpolation is not supported: ${name}="${attr.value}" ` +
+              `would ship the literal text. Use a binding instead, e.g. ` +
+              `${name}.to-view="${this.suggestConcatExpression(attr.value)}".`,
+            location,
+          })
+          continue
+        }
         staticAttrs.set(name, attr.value)
         continue
       }
@@ -671,6 +685,26 @@ export class TemplateParser {
       interpolations,
       location: this.getTextLocation(node),
     }
+  }
+
+  /**
+   * Rewrite an interpolated attribute value as the equivalent concatenation
+   * expression for the D-3 remediation message: `Hello ${name}` →
+   * `'Hello ' + name`. Best-effort (an unterminated span falls back to a
+   * quoted literal); the output is a suggestion, never emitted code.
+   */
+  private suggestConcatExpression(value: string): string {
+    const parts: string[] = []
+    let last = 0
+    for (const span of scanInterpolations(value)) {
+      const staticPart = value.slice(last, span.start)
+      if (staticPart) parts.push(`'${staticPart.replace(/'/g, "\\'")}'`)
+      if (!span.unterminated) parts.push(span.expression.trim())
+      last = span.end
+    }
+    const tail = value.slice(last)
+    if (tail) parts.push(`'${tail.replace(/'/g, "\\'")}'`)
+    return parts.join(' + ') || "''"
   }
 
   /**

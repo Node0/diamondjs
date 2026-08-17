@@ -6,7 +6,7 @@
  */
 
 import { scheduler } from './scheduler'
-import { devWarn } from './dev-log'
+import { Print } from '@diamondjs/primafacie'
 
 type EffectFn = () => void
 type CleanupFn = () => void
@@ -22,18 +22,6 @@ export const ITERATE_KEY: unique symbol = Symbol('diamond.iterate')
 // Inbound smell-check heuristics (hoisted — the set trap is hot-path)
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}/
 const CANONICAL_PHONE_RE = /^\d{10}$/
-
-/**
- * Dev-only flag for the inbound smell check (DDR §3.3 row 3). Evaluated once; in
- * a production bundle `process.env.NODE_ENV` is replaced with the literal, so the
- * hot-path cost in prod is a single boolean.
- */
-let IS_DEV: boolean
-try {
-  IS_DEV = process.env.NODE_ENV !== 'production'
-} catch {
-  IS_DEV = true
-}
 
 /**
  * ReactivityEngine - Internal engine for reactive state management
@@ -86,7 +74,7 @@ export class ReactivityEngine {
         const oldValue = Reflect.get(target, prop, receiver)
         const result = Reflect.set(target, prop, value, receiver)
         if (oldValue !== value) {
-          if (IS_DEV) this.checkInboundSmell(target, prop, oldValue, value)
+          this.checkInboundSmell(target, prop, oldValue, value)
           this.triggerEffects(target, prop)
           // A NEW key changes the object's shape — wake key-set iterators
           if (!hadKey) this.triggerEffects(target, ITERATE_KEY)
@@ -164,9 +152,10 @@ export class ReactivityEngine {
    * Flags a display-formatted string overwriting a numeric model value (e.g.
    * "$1,250.00" written over 1234.56) — the corruption a two-way binding without
    * a `parse` causes. This is NOT the compile-time `stink:warn`; it is a distinct
-   * runtime channel, dev-only, warn-once-per-property. It only catches the
-   * number→non-numeric-string row; the real defense is §5.6 compile-time
-   * parse-required (a non-throwing string→string corruption can't be caught here).
+   * runtime channel — a stink signal, PROD-VISIBLE by design (v2.2, §6.6) —
+   * warn-once-per-property. It only catches the number→non-numeric-string row;
+   * the real defense is §5.6 compile-time parse-required (a non-throwing
+   * string→string corruption can't be caught here).
    */
   private checkInboundSmell(
     target: object,
@@ -211,8 +200,8 @@ export class ReactivityEngine {
     if (warned.has(prop)) return
     warned.add(prop)
 
-    devWarn(
-      'ReactivityEngine.checkInboundSmell',
+    Print(
+      'WARNING',
       `[Diamond] inbound corruption: property '${String(prop)}' ${reason}. ` +
         `A display-formatted value is leaking into the model — a two-way binding likely needs a parse (DDR §5.1). ` +
         `This is a thin backstop; the real defense is compile-time parse-required (§5.6).`
@@ -227,7 +216,7 @@ export class ReactivityEngine {
    * @returns Cleanup function to stop tracking
    */
   createEffect(fn: EffectFn): CleanupFn {
-    const effectFn = () => {
+    const effectFn: EffectFn & { disposed?: boolean } = () => {
       this.activeEffect = effectFn
       try {
         fn()
@@ -239,8 +228,13 @@ export class ReactivityEngine {
     // Run immediately to collect dependencies
     effectFn()
 
-    // Return cleanup function
-    return () => this.cleanupEffect(effectFn)
+    // Return cleanup function. The disposed flag makes the scheduler drop
+    // this effect if it was queued before disposal (§16 D-7) — flushing it
+    // would re-arm tracking and re-subscribe a dead effect.
+    return () => {
+      effectFn.disposed = true
+      this.cleanupEffect(effectFn)
+    }
   }
 
   /**

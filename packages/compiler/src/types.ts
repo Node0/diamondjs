@@ -236,4 +236,9 @@ export interface CompileResult {
   pipeTransforms?: string[]
   /** <!-- @import --> provenance directives found in the raw template (v2.1) */
   templateImports?: TemplateImport[]
+  /** Hyphenated (custom-element) tags seen during codegen (§16 D-21).
+   *  compileAndInject checks each against the component module's imports:
+   *  a matching PascalCase import means the author expects template component
+   *  composition, which is not shipped → component-composition-unsupported. */
+  customElementTags?: Array<{ tagName: string; location: SourceLocation | null }>
 }

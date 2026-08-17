@@ -1,6 +1,6 @@
 {
   "name": "@diamondjs/runtime",
-  "version": "2.1.0",
+  "version": "2.2.1",
   "description": "DiamondJS runtime - reactive framework core",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
@@ -37,6 +37,9 @@
     "directory": "packages/runtime"
   },
   "license": "MIT",
+  "dependencies": {
+    "@diamondjs/primafacie": "^2.2.1"
+  },
   "devDependencies": {
     "happy-dom": "^20.5.0",
     "tsup": "^8.0.0"

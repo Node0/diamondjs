@@ -42,5 +42,19 @@ export {
   isDataOrAriaKey,
 } from './security'
 
+// Router (v2.2 §3) — single entry point, no subpaths (§11).
+// Destination (v2.2.1) is THE navigation-destination vocabulary: route
+// redirects and Guard.deny() speak the same tagged union. Deny is retired.
+export {
+  Router,
+  type RouteMap,
+  type RouteDefinition,
+  type RouteId,
+  type Destination,
+  type QueryParams,
+} from './router'
+export { Guard, type GuardContext } from './guard'
+export { Pending } from './pending'
+
 // Default export
 export { DiamondCore as default } from './core'

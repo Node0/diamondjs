@@ -2,9 +2,13 @@
 /**
  * DiamondJS stink gate (DDR §3.4) — the two-tier security audit.
  *
- *   - error (retired/unknown command)            → FAIL (broken source)
- *   - stink:warn (unsafe sink, no raw declared)  → FAIL (hard gate; any > 0 blocks)
- *   - stink:declared (intentional raw)           → baselined; drift reported, NOT gated
+ * Routing is by SEVERITY, never by code prefix (§16 D-8 — a non-`stink:` warn
+ * like switch-static-dead must not slip the gate):
+ *
+ *   - severity error    (retired/unknown command, …)  → FAIL (broken source)
+ *   - severity warn     (stink:warn, switch-static-dead, …) → FAIL (hard gate)
+ *   - severity declared (intentional raw)             → baselined; drift reported, NOT gated
+ *   - severity info                                   → advisory, never gated
  *
  * The asymmetry is intentional: stink:warn is a latent hole nobody declared, so it
  * blocks. stink:declared is an audited escape hatch — adding one is allowed; it just
@@ -47,7 +51,7 @@ const IGNORE = new Set([
 const DIAMOND_RE =
   /\.\s*(set|rawset|bind|rawbind|to-view|from-view|two-way|calls|capture|one-time|trigger|delegate)\s*=/i
 const INTERP_RE = /\$\{[^}]+\}/
-const STRUCTURAL_RE = /<switch[\s>]|repeat\.for\s*=/i
+const STRUCTURAL_RE = /<switch[\s>]|repeat\.for\s*=|<outlet[\s>]/i
 function isDiamondTemplate(code: string): boolean {
   return DIAMOND_RE.test(code) || INTERP_RE.test(code) || STRUCTURAL_RE.test(code)
 }
@@ -85,11 +89,12 @@ function collect() {
     const result = compiler.compile(code, { filePath: rel, sourceMap: false })
     for (const d of result.diagnostics ?? []) {
       const line = d.location?.line ?? 0
+      // §16 D-8: route on the severity FIELD, not the code prefix.
       if (d.severity === 'error') {
         errors.push({ file: rel, line, message: d.message })
-      } else if (d.code === 'stink:warn') {
-        warns.push({ file: rel, line, message: d.message })
-      } else if (d.code === 'stink:declared') {
+      } else if (d.severity === 'warn') {
+        warns.push({ file: rel, line, message: `[${d.code}] ${d.message}` })
+      } else if (d.severity === 'declared') {
         declared.push({
           id: `${rel}:${line}:${d.property}:${d.op}`,
           file: rel,
@@ -152,7 +157,7 @@ if (warns.length) {
   failed = true
   Print(
     'FAILURE',
-    `${warns.length} stink:warn — unsafe sink(s) written without raw (hard gate):`
+    `${warns.length} warn-severity diagnostic(s) — unsafe sinks without raw, dead switches, … (hard gate):`
   )
   for (const w of warns) console.log(`   - ${w.file}:${w.line} ${w.message}`)
 }

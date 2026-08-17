@@ -53,6 +53,25 @@ describe('Component', () => {
 
       expect(host.children[0].textContent).toBe('Hello, Diamond!')
     })
+
+    it('throws on a second mount() without unmount() (D-6)', () => {
+      const host = document.createElement('div')
+      const component = new TestComponent()
+
+      component.mount(host)
+      expect(() => component.mount(host)).toThrow(/already mounted/)
+      expect(host.children.length).toBe(1) // no orphaned subtree
+    })
+
+    it('allows re-mount after unmount() (D-6 negative)', () => {
+      const host = document.createElement('div')
+      const component = new TestComponent()
+
+      component.mount(host)
+      component.unmount()
+      expect(() => component.mount(host)).not.toThrow()
+      expect(host.children.length).toBe(1)
+    })
   })
 
   describe('unmount', () => {

@@ -111,18 +111,18 @@ describe('DiamondCore.if', () => {
     expect(host.querySelector('span')?.textContent).toBe('A')
   })
 
-  it('reuses the cached node when toggled back on', async () => {
+  it('rebuilds a fresh subtree when toggled back on (detached means disposed, A3)', async () => {
     const state = DiamondCore.reactive({ show: true })
     const { host, anchor } = setup()
-    DiamondCore.if(anchor, [
-      { when: () => state.show, make: () => document.createElement('span') },
-    ])
+    const make = vi.fn(() => document.createElement('span'))
+    DiamondCore.if(anchor, [{ when: () => state.show, make }])
     const first = host.querySelector('span')
     state.show = false
     await tick()
     state.show = true
     await tick()
-    expect(host.querySelector('span')).toBe(first)
+    expect(make).toHaveBeenCalledTimes(2) // disposed on detach, rebuilt on re-activation
+    expect(host.querySelector('span')).not.toBe(first)
   })
 
   it('inserts the branch before the anchor (document order preserved)', () => {
@@ -212,5 +212,47 @@ describe('DiamondCore.repeat', () => {
     const reordered = Array.from(host.querySelectorAll('li'))
     expect(reordered.map((li) => li.textContent)).toEqual(['b', 'a'])
     expect(reordered[1]).toBe(liA) // same node, moved
+  })
+
+  it('renders duplicate primitive items as distinct rows (D-2)', async () => {
+    const state = DiamondCore.reactive({ items: ['x', 'x', 'y'] as string[] })
+    const { host, anchor } = setup()
+    let builds = 0
+    DiamondCore.repeat(anchor, () => state.items, (it) => {
+      builds++
+      const li = document.createElement('li')
+      li.textContent = it
+      return li
+    })
+    expect(texts(host)).toEqual(['x', 'x', 'y']) // no collapse to one slot
+    expect(builds).toBe(3)
+
+    // Stable across updates: adding a third 'x' builds exactly one new row
+    state.items = ['x', 'x', 'y', 'x']
+    await tick()
+    expect(texts(host)).toEqual(['x', 'x', 'y', 'x'])
+    expect(builds).toBe(4)
+
+    // Removing one duplicate removes exactly one row
+    state.items = ['x', 'y', 'x']
+    await tick()
+    expect(texts(host)).toEqual(['x', 'y', 'x'])
+
+    // Clear disposes everything — no phantom rows
+    state.items = []
+    await tick()
+    expect(texts(host)).toEqual([])
+    expect(host.querySelectorAll('li').length).toBe(0)
+  })
+
+  it('does not confuse primitives of different types with equal string forms (D-2)', () => {
+    const state = DiamondCore.reactive({ items: [1, '1'] as Array<number | string> })
+    const { host, anchor } = setup()
+    DiamondCore.repeat(anchor, () => state.items, (it) => {
+      const li = document.createElement('li')
+      li.textContent = typeof it
+      return li
+    })
+    expect(texts(host)).toEqual(['number', 'string'])
   })
 })

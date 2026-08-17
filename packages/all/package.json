@@ -1,0 +1,18 @@
+{
+  "name": "@diamondjs/all",
+  "version": "2.2.1",
+  "description": "DiamondJS full meta-package: the union of @diamondjs/app and @diamondjs/dev, exact-pinned as one tested constellation.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Node0/diamondjs.git",
+    "directory": "packages/all"
+  },
+  "dependencies": {
+    "@diamondjs/app": "2.2.1",
+    "@diamondjs/dev": "2.2.1"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

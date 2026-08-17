@@ -12,7 +12,7 @@
 
 import { Transformer } from '@parcel/plugin'
 import { Print, type LogType } from '@diamondjs/primafacie'
-import { isDiamondTemplate, compileTemplate } from './utils'
+import { isDiamondTemplate, compileTemplate, readRunMode } from './utils'
 
 /** Map non-throwing diagnostic severities onto primafacie log types. */
 const LOG_TYPE_FOR_SEVERITY: Record<string, LogType> = {
@@ -22,7 +22,7 @@ const LOG_TYPE_FOR_SEVERITY: Record<string, LogType> = {
 }
 
 export default new Transformer({
-  async transform({ asset }) {
+  async transform({ asset, options }) {
     // Only process HTML files
     if (asset.type !== 'html') {
       return [asset]
@@ -38,8 +38,12 @@ export default new Transformer({
 
     const filePath = asset.filePath
 
+    // v2.2 Phase 2: resolve run_mode once per build against the Parcel
+    // project root (cached; malformed config throws = build error).
+    const runMode = readRunMode(options.projectRoot)
+
     // Compile the template (skip source maps for Phase 0)
-    const { outputCode, result } = compileTemplate(code, filePath, false)
+    const { outputCode, result } = compileTemplate(code, filePath, false, runMode)
 
     // Throw on error-severity diagnostics (retired/unknown commands = broken
     // source). Stink (warn/declared/info) passes through — enforcement is the
@@ -81,4 +85,10 @@ export default new Transformer({
 })
 
 // Re-export utilities for external use
-export { isDiamondTemplate, compileTemplate } from './utils'
+export {
+  isDiamondTemplate,
+  compileTemplate,
+  readRunMode,
+  resetRunModeCache,
+  type RunMode,
+} from './utils'

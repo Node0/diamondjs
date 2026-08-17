@@ -7,18 +7,10 @@
 
 import { reactivityEngine } from './reactivity'
 import { SAFE_SINKS, canonicalizeSinkKey, isDataOrAriaKey } from './security'
-import { devWarn } from './dev-log'
+import { Print } from '@diamondjs/primafacie'
 import { Collection, type CollectionOptions } from './collection'
 
 type CleanupFn = () => void
-
-/** Dev-only flag (bundlers replace process.env.NODE_ENV with a literal). */
-let IS_DEV: boolean
-try {
-  IS_DEV = process.env.NODE_ENV !== 'production'
-} catch {
-  IS_DEV = true
-}
 
 /**
  * DiamondCore - The main runtime API class
@@ -224,11 +216,13 @@ export class DiamondCore {
   }
 
   /**
-   * Reactive conditional inclusion (DDR §6.2). Renders the first branch whose
-   * `when()` is truthy by inserting it before `anchor`; removes it when none
-   * match. Branches are built lazily and cached, so toggling reuses the same
-   * subtree. `if` / `else-if` compile to this — there is no sink, no raw, and
-   * it is always reactive.
+   * Reactive conditional inclusion (DDR §6.2, A3). Renders the first branch
+   * whose `when()` is truthy by inserting it before `anchor`; removes it when
+   * none match. Branches are built lazily; a branch that is toggled off is
+   * DISPOSED with its subtree (detached means disposed — the one disposal rule
+   * shared with switch()/repeat()) and rebuilt fresh on re-activation.
+   * `if` / `else-if` compile to this — there is no sink, no raw, and it is
+   * always reactive.
    *
    * @example
    * const a = document.createComment('if')
@@ -241,8 +235,7 @@ export class DiamondCore {
     anchor: Comment,
     branches: Array<{ when: () => boolean; make: () => Node }>
   ): void {
-    const built: Array<{ node: Node; cleanup: CleanupFn } | null> =
-      branches.map(() => null)
+    let active: { node: Node; cleanup: CleanupFn } | null = null
     let activeIndex = -1
 
     // Conditions are read here (before make()) so the master effect tracks their
@@ -257,26 +250,24 @@ export class DiamondCore {
       }
       if (matched === activeIndex) return
 
-      // Detach the current branch (kept cached for reuse on re-activation)
-      if (activeIndex >= 0) {
-        const prev = built[activeIndex]
-        ;(prev?.node as ChildNode | undefined)?.remove()
+      // Dispose the outgoing branch eagerly (same shape as repeat's
+      // gone.cleanup()); it is rebuilt from make() if re-activated.
+      if (active) {
+        ;(active.node as ChildNode).remove()
+        active.cleanup()
+        active = null
       }
       activeIndex = matched
       if (matched < 0) return
 
-      let entry = built[matched]
-      if (!entry) {
-        const captured = this.captureScope(() => branches[matched].make())
-        entry = { node: captured.value, cleanup: captured.cleanup }
-        built[matched] = entry
-      }
-      anchor.parentNode?.insertBefore(entry.node, anchor)
+      const captured = this.captureScope(() => branches[matched].make())
+      active = { node: captured.value, cleanup: captured.cleanup }
+      anchor.parentNode?.insertBefore(active.node, anchor)
     })
 
     this.track(cleanup)
     this.track(() => {
-      for (const b of built) b?.cleanup()
+      active?.cleanup()
     })
   }
 
@@ -286,8 +277,8 @@ export class DiamondCore {
    * tested against each case's match predicate in document order; first match
    * wins. `defaultMake` renders when no case matches — its scope is the switch
    * itself (the container the construct purchased), so unlike bare `else` it
-   * needs no positional pairing. Branches are built lazily and cached, exactly
-   * like if().
+   * needs no positional pairing. Branches are built lazily and disposed on
+   * detach, exactly like if() (detached means disposed, per A3).
    *
    * @example
    * const a = document.createComment('switch')
@@ -302,10 +293,8 @@ export class DiamondCore {
     cases: Array<{ match: (v: unknown) => boolean; make: () => Node }>,
     defaultMake?: () => Node
   ): void {
-    // Slot cases.length holds the default branch (when present)
-    const built: Array<{ node: Node; cleanup: CleanupFn } | null> = new Array(
-      cases.length + 1
-    ).fill(null)
+    // Index cases.length denotes the default branch (when present)
+    let active: { node: Node; cleanup: CleanupFn } | null = null
     let activeIndex = -1
 
     // onGetter + match predicates run inside the master effect, so both the
@@ -323,34 +312,34 @@ export class DiamondCore {
       if (matched < 0 && defaultMake) matched = cases.length
       if (matched === activeIndex) return
 
-      // Detach the current branch (kept cached for reuse on re-activation)
-      if (activeIndex >= 0) {
-        const prev = built[activeIndex]
-        ;(prev?.node as ChildNode | undefined)?.remove()
+      // Dispose the outgoing branch eagerly (same shape as repeat's
+      // gone.cleanup()); it is rebuilt from make() if re-activated.
+      if (active) {
+        ;(active.node as ChildNode).remove()
+        active.cleanup()
+        active = null
       }
       activeIndex = matched
       if (matched < 0) return
 
-      let entry = built[matched]
-      if (!entry) {
-        const make = matched === cases.length ? defaultMake! : cases[matched].make
-        const captured = this.captureScope(() => make())
-        entry = { node: captured.value, cleanup: captured.cleanup }
-        built[matched] = entry
-      }
-      anchor.parentNode?.insertBefore(entry.node, anchor)
+      const make = matched === cases.length ? defaultMake! : cases[matched].make
+      const captured = this.captureScope(() => make())
+      active = { node: captured.value, cleanup: captured.cleanup }
+      anchor.parentNode?.insertBefore(active.node, anchor)
     })
 
     this.track(cleanup)
     this.track(() => {
-      for (const b of built) b?.cleanup()
+      active?.cleanup()
     })
   }
 
   /**
-   * Reactive keyed list rendering (DDR §6.3, repeat.for). Builds one subtree per
-   * item — keyed by item identity — reusing and reordering nodes across updates
-   * and disposing the effects/listeners of removed items.
+   * Reactive keyed list rendering (DDR §6.3, repeat.for). Builds one subtree
+   * per item — keyed by item identity for objects, by value + occurrence index
+   * for primitives (§16 D-2: duplicate primitives must not collapse to one
+   * slot) — reusing and reordering nodes across updates and disposing the
+   * effects/listeners of removed items.
    *
    * @example
    * const a = document.createComment('repeat')
@@ -362,6 +351,8 @@ export class DiamondCore {
     makeItem: (item: T, index: number) => Node
   ): void {
     let current = new Map<unknown, { node: ChildNode; cleanup: CleanupFn }>()
+    const isIdentityKeyed = (item: unknown): boolean =>
+      (typeof item === 'object' && item !== null) || typeof item === 'function'
 
     // itemsGetter() is read first so the master effect tracks the collection.
     const cleanup = this.effect(() => {
@@ -369,9 +360,17 @@ export class DiamondCore {
       const next = new Map<unknown, { node: ChildNode; cleanup: CleanupFn }>()
       const parent = anchor.parentNode
       const ordered: ChildNode[] = []
+      // Per-pass occurrence counts so the Nth duplicate of a primitive maps
+      // stably to the previous pass's Nth duplicate (D-2).
+      const occurrences = new Map<unknown, number>()
 
       items.forEach((item, i) => {
-        const key: unknown = item
+        let key: unknown = item
+        if (!isIdentityKeyed(item)) {
+          const n = occurrences.get(item) ?? 0
+          occurrences.set(item, n + 1)
+          key = `${typeof item}:${String(item)}#${n}`
+        }
         let entry = current.get(key)
         if (entry) {
           current.delete(key)
@@ -449,12 +448,14 @@ export class DiamondCore {
         const value = obj[key] // per-key read — tracked on proxy sources
         const canonical = canonicalizeSinkKey(key)
 
-        // [Diamond] gate FIRST, branch SECOND (DDR §7.1) — unknown keys fail closed
+        // [Diamond] gate FIRST, branch SECOND (DDR §7.1) — unknown keys fail closed.
+        // The warning is a STINK SIGNAL, prod-visible by design (v2.2, §12.5);
+        // warn-once-per-key dedup keeps it from flooding.
         if (!raw && !SAFE_SINKS.has(canonical) && !isDataOrAriaKey(key)) {
-          if (IS_DEV && !warnedKeys.has(key)) {
+          if (!warnedKeys.has(key)) {
             warnedKeys.add(key)
-            devWarn(
-              'DiamondCore.spread',
+            Print(
+              'WARNING',
               `[Diamond] spread: unsafe key '${key}' skipped (fails closed). ` +
                 `Declare intent with ...attrs.rawBind if you own every key.`
             )
@@ -504,7 +505,7 @@ export class DiamondCore {
    * first node repeat registered, and the handler receives the DATA ITEM —
    * uniformly, whether repeat iterated a reactive array or a Collection (that
    * uniformity IS the homogenization). Per-node listener thrash on huge lists
-   * (the Neuron DOM/SVG case) disappears.
+   * (the huge-DOM/SVG visualization case) disappears.
    *
    * A selector match with no registered item is a no-op (ratified A2 decision).
    *

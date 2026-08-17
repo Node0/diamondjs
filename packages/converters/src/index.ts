@@ -12,3 +12,5 @@
 export { CurrencyConverter } from './currency'
 export { DateConverter } from './date'
 export { PhoneConverter } from './phone'
+export { IntConverter } from './int'
+export { SlugConverter } from './slug'

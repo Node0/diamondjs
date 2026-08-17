@@ -20,7 +20,7 @@ import type {
   SwitchInfo,
 } from './types'
 import { isElementInfo, isTextInfo } from './types'
-import { gateSink } from './security'
+import { gateSink, canonicalizeSinkKey } from './security'
 import {
   parsePipe,
   lowerFormat,
@@ -77,6 +77,10 @@ export class CodeGenerator {
   private converterObligations: ConverterObligation[] = []
   private pipeHeads = new Set<string>()
   private scopeVars = new Set<string>()
+  private customElementTags: Array<{
+    tagName: string
+    location: SourceLocation | null
+  }> = []
   private options: CompilerOptions
 
   constructor(options: CompilerOptions = {}) {
@@ -127,6 +131,7 @@ export class CodeGenerator {
       diagnostics: this.diagnostics,
       converterObligations: this.converterObligations,
       pipeTransforms: [...this.pipeHeads],
+      customElementTags: this.customElementTags,
     }
 
     if (this.options.sourceMap && this.options.filePath) {
@@ -462,14 +467,35 @@ export class CodeGenerator {
   private generateElement(element: ElementInfo): string {
     const varName = this.nextVar(`el_${element.tagName}`)
 
+    // §16 D-21: a hyphenated tag is a plain custom element to this compiler
+    // (valid passthrough; existing sink gating applies). Whether its
+    // PascalCase form is an imported component class — which would signal
+    // unshipped template composition — is only checkable where the component
+    // module is visible, so the tag is recorded for compileAndInject to judge.
+    if (element.tagName.includes('-')) {
+      this.customElementTags.push({
+        tagName: element.tagName,
+        location: element.location ?? null,
+      })
+    }
+
     // Create element
     this.emitLine(
       `const ${varName} = document.createElement('${element.tagName}');`,
       element.location
     )
 
-    // Set static attributes
+    // Set static attributes. §16 D-10: these pass the SAME allowlist gate as
+    // bound writes — an inline <div onclick="..."> must produce a stink:warn
+    // and a baseline diff, never compile invisibly. The gate never changes the
+    // emitted code (permission/audit decision only); literal allowlisted attrs
+    // (class, id, ...) gate clean and are unchanged.
     for (const [name, value] of element.staticAttrs) {
+      const canonical =
+        name === 'class' ? 'className' : name === 'for' ? 'htmlFor' : canonicalizeSinkKey(name)
+      const diag = gateSink(canonical, 'set', false, value, element.location)
+      if (diag) this.diagnostics.push(diag)
+
       if (name === 'class') {
         this.emitLine(`${varName}.className = '${this.escapeString(value)}';`)
       } else {
@@ -619,7 +645,7 @@ export class CodeGenerator {
     // a different contract — so it is excluded here.)
     if (binding.raw && binding.type !== 'from-view') {
       this.emitLine(
-        `// [Diamond] raw sink — explicit opt-in (developer-owned, unescaped); audited in stink-baseline.json, no runtime XSS protection here`
+        `// [Diamond] raw sink — explicit opt-in (developer-owned, unescaped); recorded for stink-baseline review, no runtime XSS protection here`
       )
     }
 
@@ -780,7 +806,7 @@ export class CodeGenerator {
         expression: binding.expression,
       })
       this.emitLine(
-        `// [Diamond] raw sink — explicit opt-in (developer-owned, unescaped); audited in stink-baseline.json, no runtime XSS protection here`
+        `// [Diamond] raw sink — explicit opt-in (developer-owned, unescaped); recorded for stink-baseline review, no runtime XSS protection here`
       )
       this.emitLine(
         `// [Diamond] RAW attribute spread: ...attrs.rawBind="${binding.expression}" — allowlist bypassed; developer owns every key (incl. innerHTML/on*)`
@@ -1086,10 +1112,13 @@ export class CodeGenerator {
   /**
    * Generate next variable name. The `_` separator keeps the tag segment and
    * the counter visually distinct (`el_h2_1`, not `h21` — which reads to an
-   * HTML-trained model as a 21-level heading tag).
+   * HTML-trained model as a 21-level heading tag). The hint is sanitized to a
+   * valid JS identifier (§16 D-21): a hyphenated custom-element tag becomes
+   * `el_child_component_0`, never the invalid `el_child-component_0`.
    */
   private nextVar(hint: string): string {
-    return `${hint}_${this.varCounter++}`
+    const sanitized = hint.replace(/[^A-Za-z0-9_$]/g, '_')
+    return `${sanitized}_${this.varCounter++}`
   }
 
   /**
@@ -1116,6 +1145,7 @@ export class CodeGenerator {
     this.converterObligations = []
     this.pipeHeads.clear()
     this.scopeVars.clear()
+    this.customElementTags = []
   }
 
   /**

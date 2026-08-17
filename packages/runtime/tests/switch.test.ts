@@ -73,7 +73,7 @@ describe('DiamondCore.switch', () => {
     expect(onGetter).toHaveBeenCalledTimes(2)
   })
 
-  it('caches branches: re-activating a case reuses the same subtree', async () => {
+  it('disposes on detach: re-activating a case rebuilds a fresh subtree (A3)', async () => {
     const { host, anchor } = mount()
     const state = DiamondCore.reactive({ s: 'a' })
     const makeA = vi.fn(div('A'))
@@ -88,8 +88,8 @@ describe('DiamondCore.switch', () => {
     state.s = 'a'
     await tick()
 
-    expect(makeA).toHaveBeenCalledTimes(1) // built once, reused
-    expect(host.firstChild).toBe(firstNode) // same node identity
+    expect(makeA).toHaveBeenCalledTimes(2) // disposed on detach, rebuilt on re-activation
+    expect(host.firstChild).not.toBe(firstNode) // fresh node identity
   })
 
   it('tracks reactive deps of expression-style match predicates', async () => {

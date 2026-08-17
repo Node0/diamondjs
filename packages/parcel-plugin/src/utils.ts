@@ -2,7 +2,59 @@
  * Utility functions for the DiamondJS Parcel transformer
  */
 
+import { existsSync, readFileSync } from 'fs'
+import { join } from 'path'
 import { DiamondCompiler, type CompileResult } from '@diamondjs/compiler'
+
+export type RunMode = 'dev' | 'prod'
+
+/** run_mode cache — read once per build (per project root). Dev/prod is a
+ *  build-time property; flipping requires a rebuild (v2.2 Phase 2). */
+const runModeCache = new Map<string, RunMode>()
+
+/**
+ * Read `app.settings.run_mode` from `<projectRoot>/app/config/config.json`
+ * (v2.2 Phase 2). Fail-closed defaults: absent file or absent key → 'prod'.
+ * Malformed JSON that exists but cannot parse — and a present run_mode with a
+ * value outside 'dev' | 'prod' — is a BUILD ERROR, never a silent prod default.
+ */
+export function readRunMode(projectRoot: string): RunMode {
+  const cached = runModeCache.get(projectRoot)
+  if (cached) return cached
+
+  const configPath = join(projectRoot, 'app', 'config', 'config.json')
+  let mode: RunMode = 'prod'
+  if (existsSync(configPath)) {
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(readFileSync(configPath, 'utf-8'))
+    } catch (e) {
+      throw new Error(
+        `[Diamond] ${configPath} exists but is not valid JSON — refusing to ` +
+          `silently default to prod. Fix or remove the file. (${(e as Error).message})`
+      )
+    }
+    const value = (parsed as { app?: { settings?: { run_mode?: unknown } } })
+      ?.app?.settings?.run_mode
+    if (value === undefined) {
+      mode = 'prod' // absent key — fail-closed default
+    } else if (value === 'dev' || value === 'prod') {
+      mode = value
+    } else {
+      throw new Error(
+        `[Diamond] ${configPath}: app.settings.run_mode is ${JSON.stringify(value)}; ` +
+          `expected "dev" or "prod". Refusing to silently default to prod.`
+      )
+    }
+  }
+  runModeCache.set(projectRoot, mode)
+  return mode
+}
+
+/** Test seam: clear the once-per-build run_mode cache. */
+export function resetRunModeCache(): void {
+  runModeCache.clear()
+}
 
 /**
  * Check if HTML content is a DiamondJS template.
@@ -21,9 +73,10 @@ export function isDiamondTemplate(code: string): boolean {
   const interpolationPattern = /\$\{[^}]+\}/
   // v2.1 structural-only templates: <switch> and repeat.for= are unambiguous
   // Diamond tokens (a bare if= is NOT used — false-positive risk on non-Diamond
-  // HTML; an if-only template with zero bindings/interpolations stays undetected,
-  // documented in Amendment A2).
-  const structuralPattern = /<switch[\s>]|repeat\.for\s*=/i
+  // HTML; an if-only template with zero bindings/interpolations stays undetected
+  // — D-18, narrowed in v2.2). v2.2 adds <outlet: the canonical app shell —
+  // static chrome + outlets, zero bindings — must be detected and compiled.
+  const structuralPattern = /<switch[\s>]|repeat\.for\s*=|<outlet[\s>]/i
 
   return (
     bindingPattern.test(code) ||
@@ -41,7 +94,8 @@ export function isDiamondTemplate(code: string): boolean {
 export function compileTemplate(
   code: string,
   filePath: string,
-  sourceMap: boolean = true
+  sourceMap: boolean = true,
+  runMode?: RunMode
 ): { outputCode: string; result: CompileResult } {
   const compiler = new DiamondCompiler()
 
@@ -104,9 +158,20 @@ export function compileTemplate(
     'function createTemplate()'
   )
 
+  // v2.2 Phase 2: inject the compile-time constant. True iff run_mode is
+  // "dev"; also mirrored onto globalThis so the runtime (router startup
+  // table, §3.7) can read the build's mode.
+  const devConstLines =
+    runMode !== undefined
+      ? `// [Diamond] run_mode: ${runMode} (build-time property; flip requires rebuild)
+const __DIAMOND_DEV__ = ${runMode === 'dev'};
+globalThis.__DIAMOND_DEV__ = __DIAMOND_DEV__;
+`
+      : ''
+
   // Wrap in a module that exports the createTemplate function
   const outputCode = `import { DiamondCore } from '@diamondjs/runtime';
-${importLines ? importLines + '\n' : ''}
+${importLines ? importLines + '\n' : ''}${devConstLines}
 // [Diamond] Compiled from: ${filePath}
 ${hintLine}
 export ${functionCode}

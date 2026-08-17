@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { CurrencyConverter, DateConverter, PhoneConverter } from '../src/index'
+import { CurrencyConverter, DateConverter, PhoneConverter, IntConverter, SlugConverter } from '../src/index'
 
 describe('CurrencyConverter', () => {
   it('formats a number to a localized currency string', () => {
@@ -61,5 +61,43 @@ describe('PhoneConverter', () => {
 
   it('fails on too few digits', () => {
     expect(PhoneConverter.parse('555-1234').valid).toBe(false)
+  })
+})
+
+describe('IntConverter (v2.2.1 — route-param battery)', () => {
+  it('parses whole numbers strictly', () => {
+    expect(IntConverter.parse('42')).toMatchObject({ valid: true, value: 42 })
+    expect(IntConverter.parse('-7')).toMatchObject({ valid: true, value: -7 })
+  })
+  it('rejects floats, text, and empty', () => {
+    for (const raw of ['3.5', 'abc', '', '4two', '1e3']) {
+      expect(IntConverter.parse(raw).valid, raw).toBe(false)
+    }
+  })
+  it('rejects out-of-safe-range integers', () => {
+    expect(IntConverter.parse('9007199254740993').valid).toBe(false)
+  })
+  it('formats integers back to decimal strings', () => {
+    expect(IntConverter.format(42)).toBe('42')
+    expect(IntConverter.format(3.5)).toBe('')
+  })
+})
+
+describe('SlugConverter (v2.2.1 — route-param battery)', () => {
+  it('parses lowercase kebab-case slugs with a leading letter', () => {
+    expect(SlugConverter.parse('kafka-orders')).toMatchObject({
+      valid: true,
+      value: 'kafka-orders',
+    })
+    expect(SlugConverter.parse('a1')).toMatchObject({ valid: true, value: 'a1' })
+  })
+  it('rejects uppercase, snake_case, leading digits, and symbols', () => {
+    for (const raw of ['Kafka', 'snake_case', '1st', 'bad!slug', '-lead', '']) {
+      expect(SlugConverter.parse(raw).valid, raw).toBe(false)
+    }
+  })
+  it('format passes canonical slugs through and blanks non-slugs', () => {
+    expect(SlugConverter.format('kafka-orders')).toBe('kafka-orders')
+    expect(SlugConverter.format('Not A Slug')).toBe('')
   })
 })

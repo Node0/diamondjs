@@ -136,15 +136,24 @@ interface PrimafacieConfig {
   console: boolean
 }
 
+/**
+ * enableDebug default: ON, but the env vars actually gate (v2.2 — the earlier
+ * `(A || B) || true` initializer was dead: always true, env ignored).
+ * DEBUG_LOGGING=false turns DEBUG lines off; DEBUG_LOGGING/TRACE_LOGGING=true
+ * are explicit ons; absent env keeps the default.
+ */
+function initialEnableDebug(): boolean {
+  const env = typeof process !== 'undefined' ? process.env : undefined
+  if (env?.DEBUG_LOGGING === 'false') return false
+  if (env?.DEBUG_LOGGING === 'true' || env?.TRACE_LOGGING === 'true') return true
+  return true
+}
+
 const config: PrimafacieConfig = {
   enableTrace:
     (typeof process !== 'undefined' && process.env?.TRACE_LOGGING === 'true') ||
     false,
-  enableDebug:
-    (typeof process !== 'undefined' &&
-      (process.env?.DEBUG_LOGGING === 'true' ||
-        process.env?.TRACE_LOGGING === 'true')) ||
-    true,
+  enableDebug: initialEnableDebug(),
   console: true,
 }
 

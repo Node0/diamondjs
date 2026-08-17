@@ -6,18 +6,29 @@
  */
 
 /**
+ * An effect as the scheduler sees it. `disposed` is set by effect cleanup
+ * (§16 D-7): an effect queued before its disposal must be dropped at flush,
+ * never run — running it would re-arm dependency tracking and re-subscribe
+ * the dead effect (permanent retention of its component + detached DOM).
+ */
+export interface SchedulableEffect {
+  (): void
+  disposed?: boolean
+}
+
+/**
  * Scheduler class for managing effect execution
  * Uses microtask queue to batch updates
  */
 export class Scheduler {
-  private queue: Set<() => void> = new Set()
+  private queue: Set<SchedulableEffect> = new Set()
   private flushing = false
 
   /**
    * Queue an effect to run on next microtask
    * Duplicate effects are deduplicated via Set
    */
-  queueEffect(effect: () => void): void {
+  queueEffect(effect: SchedulableEffect): void {
     this.queue.add(effect)
 
     if (!this.flushing) {
@@ -27,7 +38,8 @@ export class Scheduler {
   }
 
   /**
-   * Flush all queued effects
+   * Flush all queued effects, skipping (and dropping) any disposed
+   * between queueing and flush (§16 D-7).
    */
   private flush(): void {
     const effects = Array.from(this.queue)
@@ -35,6 +47,7 @@ export class Scheduler {
     this.flushing = false
 
     for (const effect of effects) {
+      if (effect.disposed) continue
       try {
         effect()
       } catch (error) {
