@@ -45,6 +45,7 @@ export type {
   NodeInfo,
   CompilerOptions,
   CompileResult,
+  TemplateImport,
 } from './types'
 
 export { isElementInfo, isTextInfo } from './types'
