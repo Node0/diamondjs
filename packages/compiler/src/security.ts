@@ -18,7 +18,7 @@
  */
 
 import type { Diagnostic, SinkOp, SourceLocation } from './types'
-import { SAFE_SINKS, isDataOrAriaKey } from '@diamondjs/runtime'
+import { SAFE_SINKS, isDataOrAriaKey, canonicalizeSinkKey } from '@diamondjs/runtime'
 
 /**
  * The safe-sink allowlist's canonical home is @diamondjs/runtime (v2.1): the
@@ -26,7 +26,7 @@ import { SAFE_SINKS, isDataOrAriaKey } from '@diamondjs/runtime'
  * SAME single auditable set. Re-exported here so the compiler's public API is
  * unchanged.
  */
-export { SAFE_SINKS }
+export { SAFE_SINKS, canonicalizeSinkKey }
 
 /**
  * The raw command a developer should reach for to declare a given sink op.

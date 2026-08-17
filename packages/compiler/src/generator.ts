@@ -20,7 +20,7 @@ import type {
   SwitchInfo,
 } from './types'
 import { isElementInfo, isTextInfo } from './types'
-import { gateSink } from './security'
+import { gateSink, canonicalizeSinkKey } from './security'
 import {
   parsePipe,
   lowerFormat,
@@ -468,8 +468,17 @@ export class CodeGenerator {
       element.location
     )
 
-    // Set static attributes
+    // Set static attributes. §16 D-10: these pass the SAME allowlist gate as
+    // bound writes — an inline <div onclick="..."> must produce a stink:warn
+    // and a baseline diff, never compile invisibly. The gate never changes the
+    // emitted code (permission/audit decision only); literal allowlisted attrs
+    // (class, id, ...) gate clean and are unchanged.
     for (const [name, value] of element.staticAttrs) {
+      const canonical =
+        name === 'class' ? 'className' : name === 'for' ? 'htmlFor' : canonicalizeSinkKey(name)
+      const diag = gateSink(canonical, 'set', false, value, element.location)
+      if (diag) this.diagnostics.push(diag)
+
       if (name === 'class') {
         this.emitLine(`${varName}.className = '${this.escapeString(value)}';`)
       } else {

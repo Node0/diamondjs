@@ -3,6 +3,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { gateSink, SAFE_SINKS } from '../security'
+import { DiamondCompiler } from '../compiler'
 import { PROPERTY_NAME_MAP } from '../parser'
 
 describe('gateSink decision table', () => {
@@ -76,5 +77,36 @@ describe('SAFE_SINKS / PROPERTY_NAME_MAP invariant', () => {
     for (const s of ['textContent', 'value', 'className']) {
       expect(SAFE_SINKS.has(s)).toBe(true)
     }
+  })
+})
+
+describe('static attribute gating (D-10)', () => {
+  it('produces stink:warn for an inline on* handler', () => {
+    const compiler = new DiamondCompiler()
+    const result = compiler.compile('<div onclick="alert(1)"></div>')
+    const diag = result.diagnostics.find(
+      (d) => d.code === 'stink:warn' && d.property === 'onclick'
+    )
+    expect(diag?.severity).toBe('warn')
+    // Gate never changes the emitted code — the write still ships (audited).
+    expect(result.code).toContain(`setAttribute('onclick', 'alert(1)')`)
+  })
+
+  it('produces stink:warn for an off-list static attr (href)', () => {
+    const compiler = new DiamondCompiler()
+    const result = compiler.compile('<a href="https://example.com">x</a>')
+    expect(
+      result.diagnostics.some(
+        (d) => d.code === 'stink:warn' && d.property === 'href'
+      )
+    ).toBe(true)
+  })
+
+  it('leaves literal allowlisted attrs ungated (class, id, data-*, aria-*)', () => {
+    const compiler = new DiamondCompiler()
+    const result = compiler.compile(
+      '<div class="container" id="main" data-x="1" aria-label="ok" title="t"></div>'
+    )
+    expect(result.diagnostics.filter((d) => d.code === 'stink:warn')).toHaveLength(0)
   })
 })
