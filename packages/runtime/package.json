@@ -37,6 +37,9 @@
     "directory": "packages/runtime"
   },
   "license": "MIT",
+  "dependencies": {
+    "@diamondjs/primafacie": "^2.1.1"
+  },
   "devDependencies": {
     "happy-dom": "^20.5.0",
     "tsup": "^8.0.0"

@@ -7,18 +7,10 @@
 
 import { reactivityEngine } from './reactivity'
 import { SAFE_SINKS, canonicalizeSinkKey, isDataOrAriaKey } from './security'
-import { devWarn } from './dev-log'
+import { Print } from '@diamondjs/primafacie'
 import { Collection, type CollectionOptions } from './collection'
 
 type CleanupFn = () => void
-
-/** Dev-only flag (bundlers replace process.env.NODE_ENV with a literal). */
-let IS_DEV: boolean
-try {
-  IS_DEV = process.env.NODE_ENV !== 'production'
-} catch {
-  IS_DEV = true
-}
 
 /**
  * DiamondCore - The main runtime API class
@@ -456,12 +448,14 @@ export class DiamondCore {
         const value = obj[key] // per-key read — tracked on proxy sources
         const canonical = canonicalizeSinkKey(key)
 
-        // [Diamond] gate FIRST, branch SECOND (DDR §7.1) — unknown keys fail closed
+        // [Diamond] gate FIRST, branch SECOND (DDR §7.1) — unknown keys fail closed.
+        // The warning is a STINK SIGNAL, prod-visible by design (v2.2, §12.5);
+        // warn-once-per-key dedup keeps it from flooding.
         if (!raw && !SAFE_SINKS.has(canonical) && !isDataOrAriaKey(key)) {
-          if (IS_DEV && !warnedKeys.has(key)) {
+          if (!warnedKeys.has(key)) {
             warnedKeys.add(key)
-            devWarn(
-              'DiamondCore.spread',
+            Print(
+              'WARNING',
               `[Diamond] spread: unsafe key '${key}' skipped (fails closed). ` +
                 `Declare intent with ...attrs.rawBind if you own every key.`
             )

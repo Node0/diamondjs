@@ -15,6 +15,9 @@ export interface WsLogMessage {
   message: string
   timestamp: string
   functionName: string
+  /** The fully formatted line, formatted exactly ONCE (in the browser) —
+   *  the server-side receiver appends it verbatim, byte-identical (v2.2). */
+  plain: string
   url: string
   userAgent: string
 }
@@ -48,6 +51,7 @@ export function wsSink(url: string): LogSink {
       message: record.message,
       timestamp: record.timestamp,
       functionName: record.functionName,
+      plain: record.plain,
       url: typeof location !== 'undefined' ? location.href : '',
       userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
     }
