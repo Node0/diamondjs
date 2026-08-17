@@ -241,3 +241,51 @@ describe('CompileError', () => {
     expect(error.location.column).toBe(7)
   })
 })
+
+describe('hyphenated tags / component composition boundary (D-21)', () => {
+  const compiler = new DiamondCompiler()
+
+  it('generates valid identifiers for hyphenated tags (hyphens → underscores)', () => {
+    const result = compiler.compile('<my-widget class="w"></my-widget>')
+    expect(result.code).toContain('el_my_widget_0')
+    expect(result.code).not.toContain('el_my-widget')
+    expect(result.code).toContain(`document.createElement('my-widget')`)
+  })
+
+  it('errors when a hyphenated tag matches an imported PascalCase component', () => {
+    const componentSource = [
+      `import { ChildComponent } from './child-component'`,
+      `import { Component } from '@diamondjs/runtime'`,
+      `export class Parent extends Component {`,
+      `}`,
+    ].join('\n')
+    const result = compiler.compileAndInject(
+      '<div><child-component></child-component></div>',
+      componentSource
+    )
+    const diag = result.diagnostics?.find(
+      (d) => d.code === 'component-composition-unsupported'
+    )
+    expect(diag?.severity).toBe('error')
+    expect(diag?.message).toContain('ChildComponent')
+    expect(diag?.message).toContain('v2.3')
+  })
+
+  it('passes a hyphenated tag with no matching import as a plain custom element', () => {
+    const componentSource = [
+      `import { Component } from '@diamondjs/runtime'`,
+      `export class Parent extends Component {`,
+      `}`,
+    ].join('\n')
+    const result = compiler.compileAndInject(
+      '<div><ion-icon name="star"></ion-icon></div>',
+      componentSource
+    )
+    expect(
+      result.diagnostics?.some(
+        (d) => d.code === 'component-composition-unsupported'
+      )
+    ).toBe(false)
+    expect(result.code).toContain(`document.createElement('ion-icon')`)
+  })
+})

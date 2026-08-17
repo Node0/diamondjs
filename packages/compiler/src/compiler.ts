@@ -220,6 +220,34 @@ export class DiamondCompiler {
       if (diag) diagnostics.push(diag)
     }
 
+    // §16 D-21: a hyphenated tag whose PascalCase form is imported by the
+    // component module signals the author expects template component
+    // composition — design intent (§4.5), not shipped machinery. Error with a
+    // forward pointer rather than silently mounting an inert custom element.
+    // A hyphenated tag with NO matching import stays a valid plain custom
+    // element passthrough (existing sink gating applies).
+    for (const tag of compiled.customElementTags ?? []) {
+      const pascal = tag.tagName
+        .split('-')
+        .map((seg) => (seg ? seg[0].toUpperCase() + seg.slice(1) : seg))
+        .join('')
+      const importRe = new RegExp(
+        `import[^;]*\\b${pascal}\\b[^;]*from\\s+['"][^'"]+['"]`
+      )
+      if (importRe.test(componentSource)) {
+        diagnostics.push({
+          severity: 'error',
+          code: 'component-composition-unsupported',
+          message:
+            `<${tag.tagName}> matches the imported component class '${pascal}', ` +
+            `but template component composition is not shipped in v2.x — §4.5 is ` +
+            `design intent. Mount the child imperatively (new ${pascal}().mount(host)) ` +
+            `for now; template composition lands in v2.3.`,
+          location: tag.location,
+        })
+      }
+    }
+
     // Find the class to inject into
     const className = options.className || this.detectClassName(componentSource)
     if (!className) {

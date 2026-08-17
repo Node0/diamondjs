@@ -164,9 +164,13 @@ export abstract class Component {
 
 > **Re-mount caveat.** `unmount()` empties the cleanup registry. A component that is unmounted and re-mounted works, but `debounce`/`throttle` cancels registered at *construction* were dropped on the first unmount and are not re-registered. Calling `mount()` twice without an intervening `unmount()` throws (§16 D-6, guarded as of v2.1.1).
 
-### 4.5 Parent–child communication
+### 4.5 Parent–child communication — design intent, NOT shipped (§16 D-21)
 
-**Props down, explicit:** `<child-component name.bind="parentName">` compiles to a `child.update({ name: this.parentName })` inside an effect. **Events up, standard DOM:** children `dispatchEvent(new CustomEvent(...))`; parents handle via `event-name.calls="handler($event)"`. No implicit event bus — all communication is explicit and traceable.
+**This section describes design intent carried forward from v1.5.1 text, not shipped machinery.** No compiler support for template component composition exists in v2.x: a hyphenated tag never resolves to a component class, `name.bind` on one never becomes `child.update(...)`, and no child lifecycle is driven by a parent template.
+
+The intended shape — recorded so v2.3 designs against it, not from scratch: **props down, explicit** (`<child-component name.bind="parentName">` compiling to `child.update({ name: this.parentName })` inside an effect); **events up, standard DOM** (children `dispatchEvent(new CustomEvent(...))`; parents handle via `event-name.calls="handler($event)"`); no implicit event bus.
+
+What ships today: children are mounted **imperatively** (`new Child().mount(host)`). As of v2.1.1 the compiler enforces the boundary: a hyphenated tag whose PascalCase form is imported by the component module errors with `component-composition-unsupported` (the author expects composition; pointing at v2.3 beats mounting an inert custom element). A hyphenated tag with no matching import is a valid plain custom element passthrough — existing sink gating applies. **Template component composition is scheduled for v2.3.0 (own DDR conversation).**
 
 ---
 
@@ -776,6 +780,8 @@ Shipped v2.1 (`00db3c6`) meets the contracts above except for the items below. E
 - **D-8 — `switch-static-dead` slips the stink gate.** It carries `severity: 'warn'` with a non-`stink:` code, so the stink-check routing (`error` → `stink:warn` → `stink:declared`) drops it silently; it surfaces only via the Parcel transformer. The same structural gap hits any future non-`stink:` warn code. Fix: route on severity, not code prefix.
 
 - **D-9 — `check-loc-budget` fails open.** A `cloc` resolution failure (offline, no npx cache) is swallowed to `0 LOC`, printing green `✅ OK` for every package and exiting success. Fix: fail closed on a `cloc` error.
+
+- **D-21 — §4.5 "props down" described unshipped machinery (recorded v2.1.1).** The parent–child communication section carried v1.5.1 text forward as if template component composition existed; no compiler support ships in v2.x. Additionally, a hyphenated tag produced an invalid generated identifier (`el_child-component_0`). Fixes: §4.5 rewritten as design-intent-not-shipped with a forward pointer to v2.3 component composition; `nextVar` sanitizes identifiers (hyphens → underscores, `el_child_component_0`); a hyphenated tag whose PascalCase form is imported by the component module errors with `component-composition-unsupported` (points at v2.3), while a hyphenated tag with no matching import remains a valid plain custom-element passthrough under existing sink gating.
 
 ### Accepted limitations (document, don't smooth over)
 
