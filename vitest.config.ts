@@ -1,6 +1,15 @@
 import { defineConfig } from 'vitest/config'
+import { resolve } from 'path'
 
 export default defineConfig({
+  resolve: {
+    // Tests always run against workspace SOURCE, never a stale dist build.
+    alias: [
+      { find: /^@diamondjs\/runtime$/, replacement: resolve(__dirname, 'packages/runtime/src/index.ts') },
+      { find: /^@diamondjs\/primafacie$/, replacement: resolve(__dirname, 'packages/primafacie/src/index.ts') },
+      { find: /^@diamondjs\/compiler$/, replacement: resolve(__dirname, 'packages/compiler/src/index.ts') },
+    ],
+  },
   test: {
     globals: true,
     // Vendored prior-project/reference material — not DiamondJS source; its

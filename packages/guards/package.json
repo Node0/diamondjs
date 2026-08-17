@@ -1,0 +1,50 @@
+{
+  "name": "@diamondjs/guards",
+  "version": "2.1.1",
+  "description": "DiamondJS batteries — abstract policy guard mid-classes (tier 2). Converters are the data batteries; guards are the policy batteries.",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts --clean",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint src --ext .ts",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "diamondjs",
+    "guards",
+    "router",
+    "policy",
+    "authorization"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Node0/diamondjs.git",
+    "directory": "packages/guards"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@diamondjs/runtime": "^2.1.1"
+  },
+  "devDependencies": {
+    "tsup": "^8.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
