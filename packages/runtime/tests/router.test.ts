@@ -7,7 +7,8 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { Router, type RouteMap } from '../src/router'
-import { Guard, type GuardContext, type Deny } from '../src/guard'
+import { Guard, type GuardContext } from '../src/guard'
+import type { Destination } from '../src/router'
 import { Component } from '../src/component'
 import { DiamondCore } from '../src/core'
 import { configure } from '@diamondjs/primafacie'
@@ -159,8 +160,8 @@ describe('transaction atomicity & races (priority 2)', () => {
       static override check(): boolean {
         return false
       }
-      static override deny(): Deny {
-        return { path: '/start' }
+      static override deny(): Destination {
+        return { type: 'route-id', target: 'start' }
       }
     }
     const routes: RouteMap = {
@@ -225,8 +226,8 @@ describe('transaction atomicity & races (priority 2)', () => {
       static override check(): boolean {
         return false
       }
-      static override deny(): Deny {
-        return { path: '/open' }
+      static override deny(): Destination {
+        return { type: 'route-id', target: 'open' }
       }
     }
     const routes: RouteMap = {
@@ -253,8 +254,8 @@ describe('transaction atomicity & races (priority 2)', () => {
       static override check(): boolean {
         throw new Error('boom')
       }
-      static override deny(): Deny {
-        return { path: '/safe' }
+      static override deny(): Destination {
+        return { type: 'route-id', target: 'safe' }
       }
     }
     class HangGuard extends Guard {
@@ -262,8 +263,8 @@ describe('transaction atomicity & races (priority 2)', () => {
       static override check(): Promise<boolean> {
         return new Promise(() => {}) // never settles
       }
-      static override deny(): Deny {
-        return { path: '/safe' }
+      static override deny(): Destination {
+        return { type: 'route-id', target: 'safe' }
       }
     }
     const routes: RouteMap = {
@@ -293,8 +294,8 @@ describe('transaction atomicity & races (priority 2)', () => {
       static override check(): boolean {
         return false
       }
-      static override deny(): Deny {
-        return { external: 'https://idp.example.com/login' }
+      static override deny(): Destination {
+        return { type: 'external-url', target: 'https://idp.example.com/login' }
       }
     }
     const routes: RouteMap = {
@@ -315,8 +316,8 @@ describe('transaction atomicity & races (priority 2)', () => {
       static override check(): boolean {
         return false
       }
-      static override deny(): Deny {
-        return { path: '/public' }
+      static override deny(): Destination {
+        return { type: 'route-id', target: 'public' }
       }
     }
     const routes: RouteMap = {
@@ -346,8 +347,8 @@ describe('recognition table (priority 3 — reference cases)', () => {
         outlet: 'main',
         params: { id: IntConverter },
       },
-      legacy: { path: 'old-home', redirect: 'home' },
-      'legacy-two': { path: 'older-home', redirect: 'legacy' },
+      legacy: { path: 'old-home', redirect: { type: 'route-id', target: 'home' } },
+      'legacy-two': { path: 'older-home', redirect: { type: 'route-path', target: '/old-home' } },
       'not-found': { path: '*', component: makePage('nf'), outlet: 'main' },
     }
   }

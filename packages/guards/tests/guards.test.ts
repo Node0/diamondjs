@@ -25,7 +25,8 @@ describe('@diamondjs/guards scaffold', () => {
     }
     expect(Probe.timeoutMs).toBe(5000)
     expect(Probe.deny({ to: '/x', from: null, params: {}, routeId: 'x' })).toEqual({
-      path: '/not-found',
+      type: 'route-id',
+      target: 'not-found',
     })
   })
 })

@@ -106,26 +106,149 @@ export function checkRoutes(
     ...Object.values(inventory.byComponent).flat(),
   ])
 
+  // Structural path resolution for route-path / site-path targets: a target
+  // segment matches a pattern ':param' (anything) or an equal static; a
+  // target ':param' placeholder matches only a pattern ':param'. The bare
+  // catch-all (pattern exactly ['*']) is excluded — matching only the
+  // wildcard is unresolvable in intent, and every site-path would "shadow"
+  // it. There is NO arm classifier here — validation checks arm/target
+  // agreement; it never infers the arm.
+  const SCHEME_RE = /^[a-z][a-z0-9+.-]*:/i
+  const resolvePath = (target: string): Flat | null => {
+    const segs = target.split('/').filter(Boolean)
+    for (const candidate of flat) {
+      const pat = candidate.segments
+      if (pat.length === 1 && pat[0] === '*') continue // bare catch-all
+      let ok = pat.length > 0
+      for (let i = 0; i < pat.length && ok; i++) {
+        const p = pat[i]
+        if (p === '*') break // subtree wildcard consumes the rest
+        if (i >= segs.length) ok = false
+        else if (p.startsWith(':')) ok = true // accepts static or placeholder
+        else ok = p === segs[i]
+      }
+      if (ok && !pat.includes('*') && pat.length !== segs.length) ok = false
+      if (ok) return candidate
+    }
+    return null
+  }
+
   for (const r of flat) {
     const def = r.def
 
     if ('redirect' in def) {
-      // redirect-cycle / unknown-redirect-target
-      const visited = new Set<string>([r.id])
-      let cur: string = def.redirect
+      const dest = def.redirect
+      switch (dest.type) {
+        case 'route-id': {
+          if (dest.target.startsWith('/')) {
+            err(
+              'destination-arm-mismatch',
+              r.id,
+              `Route '${r.id}': route IDs never start with '/'. Did you mean type: 'route-path'?`
+            )
+            break
+          }
+          if (!byId.has(dest.target)) {
+            const pathForm = resolvePath('/' + dest.target)
+            err(
+              'unknown-redirect-target',
+              r.id,
+              `Route '${r.id}': unknown route ID '${dest.target}'.` +
+                (pathForm
+                  ? ` Did you mean { type: 'route-path', target: '/${dest.target}' }?`
+                  : '')
+            )
+          }
+          break
+        }
+        case 'route-path': {
+          if (SCHEME_RE.test(dest.target)) {
+            err(
+              'destination-arm-mismatch',
+              r.id,
+              `Route '${r.id}': paths never carry a scheme. Did you mean type: 'external-url'?`
+            )
+            break
+          }
+          if (!resolvePath(dest.target)) {
+            err(
+              'unresolvable-route-path',
+              r.id,
+              `Route '${r.id}': route-path '${dest.target}' does not match any route in the map.`
+            )
+          }
+          break
+        }
+        case 'site-path': {
+          if (SCHEME_RE.test(dest.target)) {
+            err(
+              'destination-arm-mismatch',
+              r.id,
+              `Route '${r.id}': paths never carry a scheme. Did you mean type: 'external-url'?`
+            )
+            break
+          }
+          if (/\/:[^/]/.test(dest.target)) {
+            err(
+              'static-target-has-params',
+              r.id,
+              `Route '${r.id}': site-path targets are static-only (open-redirect rail); ':param' is not substituted here.`
+            )
+          }
+          const shadowed = resolvePath(dest.target)
+          if (shadowed) {
+            err(
+              'site-path-shadows-route',
+              r.id,
+              `Route '${r.id}': site-path '${dest.target}' matches SPA route '${shadowed.id}' — ` +
+                `mislabeled; the user would get a hard reload where SPA navigation was intended. ` +
+                `Did you mean type: 'route-path'?`
+            )
+          }
+          break
+        }
+        case 'external-url': {
+          if (!/^https:\/\//.test(dest.target)) {
+            err(
+              'external-redirect-invalid',
+              r.id,
+              `Route '${r.id}': external-url targets must be https://-schemed; got '${dest.target}'.`
+            )
+          }
+          if (/\/:[^/]/.test(dest.target.replace(/^https:\/\//, ''))) {
+            err(
+              'static-target-has-params',
+              r.id,
+              `Route '${r.id}': external-url targets are static-only (open-redirect rail); ':param' is not substituted here.`
+            )
+          }
+          break
+        }
+      }
+
+      // redirect-cycle — across BOTH internal arms (route-id → route-path →
+      // route-id chains). site-path / external-url terminate the graph.
+      const visited: string[] = [r.id]
+      let cur: Flat | null = r
       for (;;) {
-        const target = byId.get(cur)
-        if (!target) {
-          err('unknown-redirect-target', r.id, `Route '${r.id}' redirects to unknown route '${cur}'.`)
+        const curDef = cur.def
+        if (!('redirect' in curDef)) break
+        const d = curDef.redirect
+        let next: Flat | null = null
+        if (d.type === 'route-id' && !d.target.startsWith('/')) {
+          next = byId.get(d.target) ?? null
+        } else if (d.type === 'route-path' && !SCHEME_RE.test(d.target)) {
+          next = resolvePath(d.target)
+        } else {
+          break // site-path / external-url terminate by definition
+        }
+        if (!next) break // unknown targets already reported above
+        if (visited.includes(next.id)) {
+          err('redirect-cycle', r.id, `Redirect cycle: ${[...visited, next.id].join(' → ')}.`)
           break
         }
-        if (visited.has(cur)) {
-          err('redirect-cycle', r.id, `Redirect cycle: ${[...visited, cur].join(' → ')}.`)
-          break
-        }
-        visited.add(cur)
-        if ('redirect' in target.def) cur = target.def.redirect
-        else break
+        visited.push(next.id)
+        cur = next
       }
       continue
     }

@@ -36,11 +36,30 @@
  */
 
 import { Component } from './component'
-import { Guard, type GuardClass, type GuardContext, type Deny } from './guard'
+import { Guard, type GuardClass, type GuardContext } from './guard'
 import { Pending } from './pending'
 import { Print } from '@diamondjs/primafacie'
 
 export type RouteId = string
+
+export type QueryParams = Record<string, string | number | boolean>
+
+/** [Diamond] A navigation destination (v2.2.1). Used by route `redirect` and
+ *  by Guard.deny() — redirects and denials are the same semantic ("go here
+ *  instead") and speak the same type. Three concentric circles:
+ *    route-*      → inside the router's map (by ID or by path spelling)
+ *    site-path    → this origin, beyond the SPA (hard load)
+ *    external-url → off origin entirely (hard load)
+ *  The arm is DECLARED, never inferred — there is no string classifier
+ *  anywhere (site-path is shape-identical to route-path; only the tag can
+ *  distinguish them). Template-literal target types squiggle arm/target
+ *  disagreement in the editor before route-check runs. `query` exists only
+ *  on the route-* arms (where e.g. a login guard's returnTo rides). */
+export type Destination =
+  | { type: 'route-id'; target: RouteId; query?: QueryParams }
+  | { type: 'route-path'; target: `/${string}`; query?: QueryParams }
+  | { type: 'site-path'; target: `/${string}` }
+  | { type: 'external-url'; target: `https://${string}` }
 
 /** Converter contract for :segment params — same ParseResult shape as from-view. */
 interface ParamConverter {
@@ -50,7 +69,7 @@ interface ParamConverter {
 type RouteComponentClass = new (params?: Record<string, unknown>) => Component
 
 export type RouteDefinition =
-  | { path: string; redirect: RouteId }
+  | { path: string; redirect: Destination }
   | {
       path: string
       component: RouteComponentClass
@@ -75,7 +94,8 @@ interface FlatRoute {
 
 interface Recognition {
   leaf: FlatRoute
-  /** Component routes, parent first (redirects already resolved away). */
+  /** Component routes, parent first (empty when the leaf is a redirect —
+   *  the pipeline hands its Destination to the single executor). */
   chain: FlatRoute[]
   params: Record<string, unknown>
 }
@@ -192,7 +212,8 @@ export class Router {
   private async run(
     path: string,
     vector: NavVector,
-    denyDepth = 0
+    hops = 0,
+    query?: QueryParams
   ): Promise<void> {
     // 1. TRIGGER
     const navId = ++this.navSeq
@@ -201,6 +222,20 @@ export class Router {
     const recognized = this.recognize(path)
     if (!recognized) {
       Print('WARNING', `no route matched '${path}' (and no '*' route declared)`)
+      return
+    }
+
+    // A redirect leaf hands its Destination to the single executor (the same
+    // executor guard denials use — there is no second one).
+    if ('redirect' in recognized.leaf.def) {
+      await this.executeDestination(
+        recognized.leaf.def.redirect,
+        recognized.params,
+        path,
+        vector,
+        hops,
+        `redirect at route '${recognized.leaf.id}'`
+      )
       return
     }
 
@@ -232,7 +267,14 @@ export class Router {
         const verdict = await Router.runGuardEnvelope(guard, ctx)
         if (verdict !== true) {
           if (navId !== this.navSeq) return // superseded while guarding
-          await this.executeDeny(verdict, path, vector, denyDepth)
+          await this.executeDestination(
+            verdict,
+            recognized.params,
+            path,
+            vector,
+            hops,
+            `guard denial at route '${route.id}'`
+          )
           return
         }
       }
@@ -241,19 +283,27 @@ export class Router {
     // 5. RACE CHECK — a newer navigation supersedes this one, silently.
     if (navId !== this.navSeq) return
 
-    // 6. HISTORY WRITE — stamped for canLeave forward-compatibility.
+    // 6. HISTORY WRITE — stamped for canLeave forward-compatibility. A
+    //    route-* Destination's query rides here (e.g. a login returnTo).
+    const search =
+      query && Object.keys(query).length
+        ? '?' +
+          new URLSearchParams(
+            Object.entries(query).map(([k, v]) => [k, String(v)])
+          ).toString()
+        : ''
     if (vector === 'push') {
       this.historyIndex++
       history.pushState(
         { diamondNavId: navId, index: this.historyIndex },
         '',
-        this.href(path)
+        this.href(path) + search
       )
     } else {
       history.replaceState(
         { diamondNavId: navId, index: this.historyIndex },
         '',
-        this.href(path)
+        this.href(path) + search
       )
     }
 
@@ -285,11 +335,7 @@ export class Router {
 
   // ─────────────────────────────── recognize ───────────────────────────────
 
-  private recognize(path: string, depth = 0): Recognition | null {
-    if (depth > 10) {
-      Print('FAILURE', `redirect resolution exceeded 10 hops at '${path}'`)
-      return null
-    }
+  private recognize(path: string): Recognition | null {
     const segments = this.split(path)
     let best: { route: FlatRoute; params: Record<string, unknown> } | null = null
 
@@ -302,31 +348,14 @@ export class Router {
     }
     if (!best) return null
 
-    // Redirects resolve by route id; chains are followed, cycles guarded
-    // (route-check catches them at build time; this is the runtime backstop).
-    const visited = new Set<RouteId>()
-    let target = best.route
-    while ('redirect' in target.def) {
-      if (visited.has(target.id)) {
-        Print('FAILURE', `redirect cycle at route '${target.id}'`)
-        return null
-      }
-      visited.add(target.id)
-      const next = this.byId.get(target.def.redirect)
-      if (!next) {
-        Print('FAILURE', `unknown redirect target '${target.def.redirect}' from '${target.id}'`)
-        return null
-      }
-      target = next
-    }
-    if (target !== best.route) {
-      // Re-recognize the target's own full path (redirect targets are static).
-      return this.recognize(target.fullPath, depth + 1)
-    }
-
+    // A redirect leaf carries an empty chain; the pipeline executes its
+    // Destination (chain following, hop caps, and cycle backstops live in
+    // the executor — route-check catches cycles at build time).
     const chain: FlatRoute[] = []
-    for (let r: FlatRoute | null = target; r; r = r.parent) chain.unshift(r)
-    return { leaf: target, chain, params: best.params }
+    if (!('redirect' in best.route.def)) {
+      for (let r: FlatRoute | null = best.route; r; r = r.parent) chain.unshift(r)
+    }
+    return { leaf: best.route, chain, params: best.params }
   }
 
   /** Match URL segments against one route; parse :params through converters.
@@ -423,9 +452,9 @@ export class Router {
   private static async runGuardEnvelope(
     guard: GuardClass,
     ctx: GuardContext
-  ): Promise<true | Deny> {
+  ): Promise<true | Destination> {
     const t0 = Date.now()
-    let outcome: true | Deny
+    let outcome: true | Destination
     let word: string
     let reason = ''
     try {
@@ -477,30 +506,100 @@ export class Router {
   }
 
   /**
-   * A Deny is DATA the router executes — never a guard side effect.
-   * External = IdP handoff (location.assign, logged). Location resolves by
-   * vector: a denied pushState nav wrote nothing (clean abort), so the deny
-   * target is a fresh push; initial load / popstate resolve via replaceState
-   * so no denied entry lingers.
+   * The single Destination executor (v2.2.1) — used by BOTH route redirects
+   * and guard denials; there is no second executor, and there is NO string
+   * classifier anywhere (arms are declared, never inferred: `site-path` is
+   * shape-identical to `route-path`; only the tag distinguishes them).
+   *
+   * A Destination is DATA the router executes — never a guard side effect.
+   *   route-id     → resolve ID → its path (matched params pass by name);
+   *                  internal navigation through the normal pipeline.
+   *   route-path   → ':param' template substitution from matched params;
+   *                  internal navigation as above.
+   *   site-path    → same-origin hard departure: narrated location.assign,
+   *                  NO pushState (writing SPA history first breaks Back).
+   *   external-url → identical hard-departure path, off origin.
+   *
+   * Vector rules for internal arms are unchanged: a denied/redirected
+   * pushState nav wrote nothing (clean abort), so the target is a fresh
+   * push; initial load / popstate resolve via replaceState.
    */
-  private async executeDeny(
-    deny: Deny,
-    deniedPath: string,
+  private async executeDestination(
+    dest: Destination,
+    params: Record<string, unknown>,
+    fromPath: string,
     vector: NavVector,
-    denyDepth: number
+    hops: number,
+    reason: string
   ): Promise<void> {
-    if ('external' in deny) {
-      Print('STATE', `deny → external handoff: ${deny.external}`)
-      location.assign(deny.external)
+    if (hops >= 10) {
+      Print('CRITICAL', `destination chain exceeded 10 hops (${reason}) — giving up`)
       return
     }
-    if (denyDepth >= 5) {
-      Print('CRITICAL', `deny chain exceeded 5 hops at '${deny.path}' — giving up`)
-      return
+    switch (dest.type) {
+      case 'route-id': {
+        const target = this.byId.get(dest.target)
+        if (!target) {
+          Print('FAILURE', `unknown route id '${dest.target}' (${reason})`)
+          return
+        }
+        const path = this.substitute(target.segments, params, reason)
+        if (path !== null) await this.runTo(path, dest.query, fromPath, vector, hops)
+        return
+      }
+      case 'route-path': {
+        const path = this.substitute(this.split(dest.target), params, reason)
+        if (path !== null) await this.runTo(path, dest.query, fromPath, vector, hops)
+        return
+      }
+      case 'site-path':
+        Print('STATE', `departing SPA → same-origin hard load: ${dest.target} (${reason})`)
+        location.assign(dest.target)
+        return
+      case 'external-url':
+        Print('STATE', `departing SPA → external: ${dest.target} (${reason})`)
+        location.assign(dest.target)
+        return
     }
-    if (this.normalize(deny.path) === this.normalize(deniedPath)) return
-    const redirectVector: NavVector = vector === 'push' ? 'push' : vector
-    await this.run(this.normalize(deny.path), redirectVector, denyDepth + 1)
+  }
+
+  /** ':name' → matched params by name; a missing param fails loudly — the
+   *  router never emits a partially-substituted URL. */
+  private substitute(
+    segments: string[],
+    params: Record<string, unknown>,
+    reason: string
+  ): string | null {
+    const out: string[] = []
+    for (const seg of segments) {
+      if (seg.startsWith(':')) {
+        const name = seg.slice(1)
+        if (!(name in params)) {
+          Print(
+            'FAILURE',
+            `destination needs ':${name}' which the matched route did not provide (${reason})`
+          )
+          return null
+        }
+        out.push(String(params[name]))
+      } else {
+        out.push(seg)
+      }
+    }
+    return '/' + out.join('/')
+  }
+
+  /** Internal-arm re-entry: self-loop guard, vector mapping, hop count. */
+  private async runTo(
+    path: string,
+    query: QueryParams | undefined,
+    fromPath: string,
+    vector: NavVector,
+    hops: number
+  ): Promise<void> {
+    if (this.normalize(path) === this.normalize(fromPath)) return
+    const v: NavVector = vector === 'push' ? 'push' : vector
+    await this.run(this.normalize(path), v, hops + 1, query)
   }
 
   // ────────────────────────────── commit ───────────────────────────────────
@@ -668,7 +767,10 @@ export class Router {
       const pad = '  '.repeat(route.depth)
       const def = route.def
       if ('redirect' in def) {
-        Print('STATE', `${pad}${route.id} | ${route.fullPath} | → redirect '${def.redirect}'`)
+        Print(
+          'STATE',
+          `${pad}${route.id} | ${route.fullPath} | → ${def.redirect.type} '${def.redirect.target}'`
+        )
         continue
       }
       const params = Object.entries(def.params ?? {})

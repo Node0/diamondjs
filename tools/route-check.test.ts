@@ -152,27 +152,190 @@ describe('param-missing-converter', () => {
   })
 })
 
-describe('redirect-cycle / unknown-redirect-target', () => {
-  it('fails a redirect cycle', () => {
+describe('unknown-redirect-target (route-id arm)', () => {
+  it('fails a route-id target that is not in the flattened map', () => {
     const routes: RouteMap = {
-      a: { path: 'a', redirect: 'b' },
-      b: { path: 'b', redirect: 'a' },
+      a: { path: 'a', redirect: { type: 'route-id', target: 'ghost' } },
+    }
+    expect(rules(routes)).toContain('unknown-redirect-target')
+  })
+  it('passes a known route-id target', () => {
+    const routes: RouteMap = {
+      a: { path: 'a', redirect: { type: 'route-id', target: 'c' } },
+      c: { path: 'c', component: Page, outlet: 'main' },
+    }
+    expect(rules(routes)).not.toContain('unknown-redirect-target')
+  })
+  it("did-you-mean: unknown ID whose '/'-form matches a route suggests route-path", () => {
+    const routes: RouteMap = {
+      a: { path: 'a', redirect: { type: 'route-id', target: 'corpora' } },
+      // the route at path '/corpora' exists — under a DIFFERENT id
+      'corpus-list': { path: 'corpora', component: Page, outlet: 'main' },
+    }
+    const e = checkRoutes(routes, inv()).find((x) => x.rule === 'unknown-redirect-target')
+    expect(e?.message).toContain(`unknown route ID 'corpora'`)
+    expect(e?.message).toContain(`Did you mean { type: 'route-path', target: '/corpora' }?`)
+  })
+})
+
+describe('unresolvable-route-path', () => {
+  it('fails a route-path matching no route', () => {
+    const routes: RouteMap = {
+      a: { path: 'a', redirect: { type: 'route-path', target: '/no/such/place' } },
+      b: { path: 'b', component: Page, outlet: 'main' },
+    }
+    expect(rules(routes)).toContain('unresolvable-route-path')
+  })
+  it('passes a route-path with :param placeholders matching a param route', () => {
+    const routes: RouteMap = {
+      legacy: { path: 'c/:id', redirect: { type: 'route-path', target: '/corpora/:id' } },
+      workspace: {
+        path: 'corpora/:id',
+        component: Page,
+        outlet: 'main',
+        params: { id: IntConverter },
+      },
+    }
+    expect(rules(routes)).not.toContain('unresolvable-route-path')
+  })
+})
+
+describe('site-path-shadows-route', () => {
+  it('fails a site-path that matches an SPA route (mislabeling → hard reload)', () => {
+    const routes: RouteMap = {
+      oops: { path: 'go', redirect: { type: 'site-path', target: '/corpora' } },
+      corpora: { path: 'corpora', component: Page, outlet: 'main' },
+    }
+    const errors = checkRoutes(routes, inv())
+    const e = errors.find((x) => x.rule === 'site-path-shadows-route')
+    expect(e?.message).toContain(`Did you mean type: 'route-path'?`)
+  })
+  it('passes a site-path beyond the SPA (only the bare catch-all would match)', () => {
+    const routes: RouteMap = {
+      support: { path: 'support', redirect: { type: 'site-path', target: '/support/wiki' } },
+      home: { path: '', component: Page, outlet: 'main' },
+      'not-found': { path: '*', component: Page, outlet: 'main' },
+    }
+    expect(rules(routes)).not.toContain('site-path-shadows-route')
+  })
+})
+
+describe('external-redirect-invalid', () => {
+  it('fails non-https schemes (http, mailto, javascript, protocol-relative)', () => {
+    for (const target of [
+      'http://x.example.com',
+      'mailto:a@b.c',
+      'javascript:alert(1)',
+      '//cdn.example.com/x',
+    ]) {
+      const routes = {
+        a: { path: 'a', redirect: { type: 'external-url', target } },
+      } as unknown as RouteMap
+      expect(rules(routes), target).toContain('external-redirect-invalid')
+    }
+  })
+  it('passes an https target', () => {
+    const routes: RouteMap = {
+      a: {
+        path: 'a',
+        redirect: { type: 'external-url', target: 'https://archive.example.org/x' },
+      },
+    }
+    expect(rules(routes)).not.toContain('external-redirect-invalid')
+  })
+})
+
+describe('static-target-has-params', () => {
+  it('fails :param in a site-path target (static-only, open-redirect rail)', () => {
+    const routes: RouteMap = {
+      a: { path: 'a/:id', redirect: { type: 'site-path', target: '/wiki/:id' } },
+    }
+    expect(rules(routes)).toContain('static-target-has-params')
+  })
+  it('fails :param in an external-url target', () => {
+    const routes = {
+      a: {
+        path: 'a/:id',
+        redirect: { type: 'external-url', target: 'https://x.example.com/:id' },
+      },
+    } as unknown as RouteMap
+    expect(rules(routes)).toContain('static-target-has-params')
+  })
+  it('passes :param in a route-path target (substitution is legal there)', () => {
+    const routes: RouteMap = {
+      legacy: { path: 'c/:id', redirect: { type: 'route-path', target: '/corpora/:id' } },
+      workspace: {
+        path: 'corpora/:id',
+        component: Page,
+        outlet: 'main',
+        params: { id: IntConverter },
+      },
+    }
+    expect(rules(routes)).not.toContain('static-target-has-params')
+  })
+})
+
+describe('redirect-cycle (across both internal arms)', () => {
+  it('fails a pure route-id cycle', () => {
+    const routes: RouteMap = {
+      a: { path: 'a', redirect: { type: 'route-id', target: 'b' } },
+      b: { path: 'b', redirect: { type: 'route-id', target: 'a' } },
     }
     expect(rules(routes)).toContain('redirect-cycle')
   })
-  it('fails an unknown redirect target', () => {
-    const routes: RouteMap = { a: { path: 'a', redirect: 'ghost' } }
-    expect(rules(routes)).toContain('unknown-redirect-target')
-  })
-  it('passes a redirect chain that terminates', () => {
+  it('fails a mixed route-id → route-path cycle', () => {
     const routes: RouteMap = {
-      a: { path: 'a', redirect: 'b' },
-      b: { path: 'b', redirect: 'c' },
+      a: { path: 'a', redirect: { type: 'route-path', target: '/b' } },
+      b: { path: 'b', redirect: { type: 'route-id', target: 'a' } },
+    }
+    expect(rules(routes)).toContain('redirect-cycle')
+  })
+  it('passes chains terminated by site-path or external-url (exempt by definition)', () => {
+    const routes: RouteMap = {
+      a: { path: 'a', redirect: { type: 'route-id', target: 'b' } },
+      b: { path: 'b', redirect: { type: 'site-path', target: '/wiki/home' } },
+    }
+    expect(rules(routes)).not.toContain('redirect-cycle')
+  })
+  it('passes an internal chain that terminates at a component route', () => {
+    const routes: RouteMap = {
+      a: { path: 'a', redirect: { type: 'route-id', target: 'b' } },
+      b: { path: 'b', redirect: { type: 'route-path', target: '/c' } },
       c: { path: 'c', component: Page, outlet: 'main' },
     }
-    const r = rules(routes)
-    expect(r).not.toContain('redirect-cycle')
-    expect(r).not.toContain('unknown-redirect-target')
+    expect(rules(routes)).not.toContain('redirect-cycle')
+  })
+})
+
+describe('destination-arm-mismatch (cross-arm did-you-means)', () => {
+  it("route-id target starting with '/' → suggests route-path", () => {
+    const routes: RouteMap = {
+      a: { path: 'a', redirect: { type: 'route-id', target: '/corpora' } },
+      corpora: { path: 'corpora', component: Page, outlet: 'main' },
+    }
+    const e = checkRoutes(routes, inv()).find((x) => x.rule === 'destination-arm-mismatch')
+    expect(e?.message).toContain(`route IDs never start with '/'. Did you mean type: 'route-path'?`)
+  })
+  it('route-path target carrying a scheme → suggests external-url', () => {
+    const routes = {
+      a: { path: 'a', redirect: { type: 'route-path', target: 'https://x.example.com/y' } },
+    } as unknown as RouteMap
+    const e = checkRoutes(routes, inv()).find((x) => x.rule === 'destination-arm-mismatch')
+    expect(e?.message).toContain(`paths never carry a scheme. Did you mean type: 'external-url'?`)
+  })
+  it('site-path target carrying a scheme → suggests external-url', () => {
+    const routes = {
+      a: { path: 'a', redirect: { type: 'site-path', target: 'https://x.example.com/y' } },
+    } as unknown as RouteMap
+    const e = checkRoutes(routes, inv()).find((x) => x.rule === 'destination-arm-mismatch')
+    expect(e?.message).toContain(`Did you mean type: 'external-url'?`)
+  })
+  it('well-formed arms produce no mismatch errors', () => {
+    const routes: RouteMap = {
+      a: { path: 'a', redirect: { type: 'route-id', target: 'c' } },
+      c: { path: 'c', component: Page, outlet: 'main' },
+    }
+    expect(rules(routes)).not.toContain('destination-arm-mismatch')
   })
 })
 

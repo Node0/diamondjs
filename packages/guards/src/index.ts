@@ -31,4 +31,4 @@
 
 // Re-exported so a battery author sees the exact contract they extend;
 // apps should keep importing Guard from @diamondjs/runtime.
-export type { GuardContext, Deny } from '@diamondjs/runtime'
+export type { GuardContext, Destination } from '@diamondjs/runtime'

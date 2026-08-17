@@ -112,6 +112,7 @@ const StageListPage = page('stage-list')
 const StageDetailPage = page('stage-detail')
 const RunLatestPage = page('run-latest')
 const RunMonitorPage = page('run-monitor')
+const RunInspectorPage = page('run-inspector')
 const AdminShell = shell('admin', 'admin-body')
 const TenantShell = shell('tenants', 'tenant-body')
 const QuotaPage = page('tenant-quotas')
@@ -123,8 +124,8 @@ const routes = {
   home: { path: '', component: HomePage, outlet: 'main' },
 
   // redirect chain: legacy-dashboard → dashboard → home
-  dashboard: { path: 'dashboard', redirect: 'home' },
-  'legacy-dashboard': { path: 'legacy/dashboard', redirect: 'dashboard' },
+  dashboard: { path: 'dashboard', redirect: { type: 'route-id', target: 'home' } },
+  'legacy-dashboard': { path: 'legacy/dashboard', redirect: { type: 'route-path', target: '/dashboard' } },
 
   // single child
   sources: {
@@ -161,6 +162,17 @@ const routes = {
         component: RunMonitorPage,
         outlet: 'pipeline-body',
         params: { runId: IntConverter },
+        children: {
+          // deep child targeting a ROOT-declared outlet ('panel') — a
+          // URL-addressable inspector: multi-outlet plan from one URL
+          // (main + pipeline-body + panel simultaneously)
+          'run-inspector': {
+            path: 'notes/:noteId',
+            component: RunInspectorPage,
+            outlet: 'panel',
+            params: { noteId: IntConverter },
+          },
+        },
       },
     },
   },
@@ -196,9 +208,11 @@ const routes = {
 let router: Router
 beforeEach(() => {
   document.body.innerHTML = ''
-  const outlet = document.createElement('outlet')
-  outlet.setAttribute('name', 'main')
-  document.body.appendChild(outlet)
+  for (const name of ['main', 'panel']) {
+    const outlet = document.createElement('outlet')
+    outlet.setAttribute('name', name)
+    document.body.appendChild(outlet)
+  }
   history.replaceState(null, '', '/')
   guardCalls.length = 0
   liveEffectFires = 0
@@ -248,6 +262,37 @@ describe('reference map — recognition table', () => {
     await router.start()
     await router.navigate('/pipeline/stages/7')
     expect(document.querySelector('.stage-detail')?.textContent).toContain('"stageIndex":7')
+  })
+
+  it('deep child targeting a ROOT outlet: multi-outlet plan from one URL', async () => {
+    await router.start()
+    await router.navigate('/pipeline/runs/1042/notes/7')
+    // main + pipeline-body from the chain…
+    const pipelineShell = document.querySelector('.pipeline')
+    const monitor = pipelineShell?.querySelector('.run-monitor')
+    expect(monitor).toBeTruthy()
+    // …plus the inspector in the root-declared 'panel' outlet, OUTSIDE the
+    // pipeline subtree (root outlets are always a legal target).
+    const inspector = document.querySelector('.run-inspector')
+    expect(inspector?.textContent).toContain('"noteId":7')
+    expect(pipelineShell?.contains(inspector!)).toBe(false)
+
+    // Navigating away tears the panel occupant down with the plan diff.
+    await router.navigate('/pipeline/runs/1042')
+    expect(document.querySelector('.run-inspector')).toBeNull()
+  })
+
+  it('leading slashes on path strings are cosmetic (position-relative equivalence)', async () => {
+    const slashed: RouteMap = {
+      home: { path: '/', component: HomePage, outlet: 'main' },
+      about: { path: '/about', component: StageListPage, outlet: 'main' },
+      'not-found': { path: '*', component: NotFoundPage, outlet: 'main' },
+    }
+    router.stop()
+    router = new Router(slashed)
+    await router.start()
+    await router.navigate('/about')
+    expect(classes()).toContain('stage-list') // '/about' ≡ 'about'
   })
 })
 

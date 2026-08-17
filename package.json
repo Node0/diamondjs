@@ -1,6 +1,6 @@
 {
   "name": "diamondjs-monorepo",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "private": true,
   "description": "DiamondJS - JavaScript framework for LLM-assisted development",
   "repository": {
@@ -21,6 +21,7 @@
     "stink:update": "tsx tools/stink-check.ts --update",
     "route-check": "tsx tools/route-check.ts",
     "check-meta": "tsx tools/check-meta-versions.ts",
+    "typecheck": "tsc --noEmit -p packages/runtime/tsconfig.typetest.json",
     "clean": "npm run clean --workspaces --if-present",
     "dev": "npm run dev --workspaces --if-present",
     "prepublishOnly": "npm run check-loc && npm run stink:check && npm run build && npm run test"
