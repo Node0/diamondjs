@@ -35,6 +35,15 @@ describe('security data (canonical home)', () => {
     }
   })
 
+  it('fails closed on srcset/action/formAction/cssText (D-20 regression lock)', () => {
+    // URL-capable (srcset), navigation-capable (action/formAction) and
+    // style-capable (cssText) sinks must stay off the allowlist by construction.
+    for (const s of ['srcset', 'action', 'formAction', 'cssText']) {
+      expect(SAFE_SINKS.has(s), `'${s}' must not be allowlisted`).toBe(false)
+      expect(SAFE_SINKS.has(canonicalizeSinkKey(s.toLowerCase()))).toBe(false)
+    }
+  })
+
   it('isDataOrAriaKey allows only the two inert prefixes', () => {
     expect(isDataOrAriaKey('data-user-id')).toBe(true)
     expect(isDataOrAriaKey('aria-label')).toBe(true)
