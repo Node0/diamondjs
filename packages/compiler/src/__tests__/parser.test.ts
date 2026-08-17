@@ -228,6 +228,28 @@ describe('TemplateParser', () => {
       ).toBe(true)
     })
 
+    it('rejects attribute interpolation with attr-interpolation-unsupported (D-3)', () => {
+      const nodes = parser.parse('<div title="Hello ${name}"></div>')
+      if (isElementInfo(nodes[0])) {
+        expect(nodes[0].staticAttrs.has('title')).toBe(false) // literal never ships
+      }
+      const diag = parser.diagnostics.find(
+        (d) => d.code === 'attr-interpolation-unsupported'
+      )
+      expect(diag?.severity).toBe('error')
+      expect(diag?.message).toContain(`title.to-view="'Hello ' + name"`)
+    })
+
+    it('leaves static attrs without interpolation untouched (D-3 negative)', () => {
+      const nodes = parser.parse('<div title="Hello world"></div>')
+      if (isElementInfo(nodes[0])) {
+        expect(nodes[0].staticAttrs.get('title')).toBe('Hello world')
+      }
+      expect(
+        parser.diagnostics.some((d) => d.code === 'attr-interpolation-unsupported')
+      ).toBe(false)
+    })
+
     it('resets diagnostics between parses', () => {
       parser.parse('<button click.trigger="save()"></button>')
       expect(parser.diagnostics.length).toBeGreaterThan(0)
