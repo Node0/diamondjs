@@ -12,12 +12,13 @@
  *     static clientId = 'corpus-web'
  *   }
  *
- * SCAFFOLD STATUS (v2.2.0): which battery families ship is gated on the
- * guard-family inventory of the route sketches tracked in the v2.2
- * Implementation Work Order (DiamondJS itself stays agnostic of consuming
- * projects — the sketches are validation fixtures only). No stubs ship
- * before that confirmation (the D-16 lesson: unshipped machinery described
- * as shipped is a defect). Recorded candidates:
+ * SCAFFOLD STATUS (v2.2.0): ships with ZERO battery mid-classes. The
+ * project route sketches were withdrawn in favor of ideation fixtures
+ * (v2.2 Router Spec §13), so no family has a confirmed real-world guard
+ * inventory yet — and no stubs ship before that confirmation (the D-16
+ * lesson: unshipped machinery described as shipped is a defect). First
+ * batteries land in a 2.2.x once the first consuming application's guard
+ * inventory exists. Recorded candidates:
  *
  *   - OAuthGuard     — static issuer/clientId; external-redirect deny
  *   - WebAuthnGuard  — static maxSessionAge; challenge-as-redirect idiom

@@ -114,9 +114,28 @@ export class Router {
   private currentPath: string | null = null
   private narrate = true
   private started = false
+  /** Browser-visible public prefix ('' at domain root; '/a/b' when nested). */
+  private basePath = ''
 
-  constructor(routes: RouteMap) {
+  /**
+   * `basePath` is the PUBLIC prefix as the BROWSER sees it — an app deployed
+   * from a folder N levels below the domain root (directly, or via a
+   * reverse proxy that rewrites paths) sets it to that public prefix.
+   * App code, RouteMap paths, and navigate() always speak app-relative
+   * paths; the router strips/prepends the prefix at its edges (location
+   * reads, history writes, link interception). A location outside basePath
+   * narrates a WARNING — the misconfiguration signal for proxy rewrites
+   * not reflected here.
+   */
+  constructor(routes: RouteMap, options: { basePath?: string } = {}) {
+    const baseSegments = this.split(options.basePath ?? '')
+    this.basePath = baseSegments.length ? '/' + baseSegments.join('/') : ''
     this.flatten(routes, null)
+  }
+
+  /** Prepend the public prefix to an app-relative path (history writes). */
+  private href(path: string): string {
+    return this.basePath + path
   }
 
   /** Quiet (or re-enable) the per-navigation settle narration. */
@@ -185,11 +204,13 @@ export class Router {
       return
     }
 
-    // 3. PLAN
+    // 3. PLAN — each route carries the params ITS resolved path (and its
+    //    declared query map) consumes, so a parent is not remounted when a
+    //    child-only param changes. Guards still see the full merged params.
     const plan = new Map<string, { route: FlatRoute; params: Record<string, unknown> }>()
     for (const route of recognized.chain) {
       const def = route.def as Extract<RouteDefinition, { component: unknown }>
-      plan.set(def.outlet, { route, params: recognized.params })
+      plan.set(def.outlet, { route, params: this.paramsFor(route, recognized.params) })
     }
 
     // 4. GUARD PHASE — chain order (parent first), awaited to completion
@@ -226,13 +247,13 @@ export class Router {
       history.pushState(
         { diamondNavId: navId, index: this.historyIndex },
         '',
-        path
+        this.href(path)
       )
     } else {
       history.replaceState(
         { diamondNavId: navId, index: this.historyIndex },
         '',
-        path
+        this.href(path)
       )
     }
 
@@ -249,7 +270,7 @@ export class Router {
         history.replaceState(
           { diamondNavId: navId, index: this.historyIndex },
           '',
-          this.currentPath
+          this.href(this.currentPath)
         )
       }
       return
@@ -356,6 +377,20 @@ export class Router {
       params[name] = r.value
     }
     return params
+  }
+
+  /** Restrict the chain's merged params to what this route's own resolved
+   *  path segments (and declared query converters) consume. */
+  private paramsFor(
+    route: FlatRoute,
+    params: Record<string, unknown>
+  ): Record<string, unknown> {
+    const def = route.def as Partial<Extract<RouteDefinition, { component: unknown }>>
+    const names = route.segments.filter((s) => s.startsWith(':')).map((s) => s.slice(1))
+    names.push(...Object.keys(def.query ?? {}))
+    const out: Record<string, unknown> = {}
+    for (const n of names) if (n in params) out[n] = params[n]
+    return out
   }
 
   /** Segment-wise specificity, left-to-right: static > :param > '*'.
@@ -602,8 +637,17 @@ export class Router {
     const href = anchor.getAttribute('href')!
     const url = new URL(href, location.href)
     if (url.origin !== location.origin) return
+    // Under a basePath, only links inside the public prefix belong to this
+    // app; anything else (e.g. a sibling app one folder over) passes through.
+    if (
+      this.basePath &&
+      url.pathname !== this.basePath &&
+      !url.pathname.startsWith(this.basePath + '/')
+    ) {
+      return
+    }
     e.preventDefault()
-    void this.navigate(url.pathname)
+    void this.navigate(this.stripBase(url.pathname))
   }
 
   private onPopstate = (): void => {
@@ -672,7 +716,22 @@ export class Router {
     return path.split('/').filter((s) => s.length > 0)
   }
 
+  /** Strip the public prefix from a browser pathname → app-relative path. */
+  private stripBase(pathname: string): string {
+    if (!this.basePath) return this.normalize(pathname)
+    if (pathname === this.basePath || pathname.startsWith(this.basePath + '/')) {
+      return this.normalize(pathname.slice(this.basePath.length) || '/')
+    }
+    Print(
+      'WARNING',
+      `location '${pathname}' is outside basePath '${this.basePath}' — ` +
+        `basePath must be the browser-visible public prefix (a reverse proxy ` +
+        `that rewrites paths must be reflected here)`
+    )
+    return this.normalize(pathname)
+  }
+
   private readLocation(): string {
-    return this.normalize(location.pathname)
+    return this.stripBase(location.pathname)
   }
 }

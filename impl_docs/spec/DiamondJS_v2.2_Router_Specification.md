@@ -93,7 +93,7 @@ Outlet names are a **statically-declared closed set**. No public dynamic registr
 
 **Reserved v3 vocabulary (specified, not shipped):** a `challenge` decision (v2.2 idiom: redirect to a challenge surface with `returnTo`); structured deny reasons (slot into narration now as strings); envelope boundary events beyond navigation (`kind: 'navigation' | 'message'` — socket-borne authorization through the same machinery); fingerprint-as-evidence-never-identity.
 
-**Batteries (tier 2, `@diamondjs/guards`):** converters are the data batteries; guards are the policy batteries. Abstract mid-classes configured at the app tier via static fields (`class CorpusSSO extends OAuthGuard { static issuer = … }`). Which families ship in 2.2.0 is gated on the route sketches' guard-family inventory; candidates recorded: `OAuthGuard`, `WebAuthnGuard`, `CapabilityGuard`, `TenantGuard`. Per-route parameterization (`{use, state}`) deferred.
+**Batteries (tier 2, `@diamondjs/guards`):** converters are the data batteries; guards are the policy batteries. Abstract mid-classes configured at the app tier via static fields (`class ExampleSSO extends OAuthGuard { static issuer = … }`). **2.2.0 resolution:** the project sketches were withdrawn in favor of ideation fixtures, so no battery family had a confirmed real-world inventory — the package ships as a scaffold with zero mid-classes (no stubs, D-16 lesson); candidates recorded: `OAuthGuard`, `WebAuthnGuard`, `CapabilityGuard`, `TenantGuard`. First batteries land in a 2.2.x once the first consuming app's guard inventory exists. Per-route parameterization (`{use, state}`) deferred.
 
 ## 7. Pending (departure-safety semaphore)
 
@@ -131,11 +131,95 @@ Standalone bin (stink-check posture), ships in the `dev` meta-package. **Errors 
 
 The Parcel transformer reads `<projectRoot>/app/config/config.json` → `app.settings.run_mode` (`"dev" | "prod"`) once per build. Dev/prod is a **build-time property**; flipping requires a rebuild. Fail-closed defaults: absent file or absent key → `prod`. Malformed JSON that exists but cannot parse → **build error**, never a silent prod default. Compiled template modules receive `const __DIAMOND_DEV__ = <bool>` and mirror it onto `globalThis` for the runtime's dev-gated surfaces.
 
-## 13. Normative reference route map
+## 13. Normative reference route map (open input #1 — RESOLVED, ideation mode)
 
-> **PENDING (open input #1, tracked in the Implementation Work Order):** the normative reference route map — a realistic application route tree in keyed-object form, to be supplied verbatim by Joe — is inserted here when it arrives. It gates the work order's Phase 4 item 3 (recognition-table tests must exercise real supplied trees, not only reference cases) and the `@diamondjs/guards` first-battery selection. DiamondJS itself remains agnostic of any consuming project; the supplied map serves purely as a validation fixture and worked example. Until then, the implementation's reference recognition cases (depth-3 nesting, static-vs-param, converter parse-fail fall-through, redirect chains, terminal wildcard) live in `packages/runtime/tests/router.test.ts`.
+Joe's original project route sketches were withdrawn in favor of **ideation-mode fixtures** (ratified): a hypothetical, project-agnostic application — **"Conveyor", a generic ingest-pipeline app** — whose tree exercises every structural shape the grammar offers: single child, multiple sibling children alternating in one outlet, children nested inside children (depth 3), static-beats-param specificity, converter parse-fail fall-through, a two-hop redirect chain, guard chains with subtree coverage, and a terminal wildcard. This map is the normative worked example; `packages/runtime/tests/router-reference-map.test.ts` exercises it verbatim, including the all-vectors leak-free exit criterion.
 
-> **PENDING (open input #2):** base-path/subdirectory deployment — one-line yes/no from Joe. If any fleet app deploys off domain root, `basePath` joins the router config now (cheap) rather than later (annoying).
+```ts
+const routes = {
+  home: { path: '', component: HomePage, outlet: 'main' },
+
+  // redirect chain: legacy-dashboard → dashboard → home
+  dashboard: { path: 'dashboard', redirect: 'home' },
+  'legacy-dashboard': { path: 'legacy/dashboard', redirect: 'dashboard' },
+
+  // single child
+  sources: {
+    path: 'sources',
+    component: SourcesShell,        // template declares <outlet name="source-body">
+    outlet: 'main',
+    children: {
+      'source-detail': {
+        path: ':sourceId',
+        component: SourceDetailPage,
+        outlet: 'source-body',
+        params: { sourceId: SlugConverter },
+      },
+    },
+  },
+
+  // multiple sibling children alternating in one parent outlet
+  pipeline: {
+    path: 'pipeline',
+    component: PipelineShell,       // template declares <outlet name="pipeline-body">
+    outlet: 'main',
+    guard: OperatorGuard,           // parent guard covers the subtree
+    children: {
+      'stage-list': { path: 'stages', component: StageListPage, outlet: 'pipeline-body' },
+      'stage-detail': {
+        path: 'stages/:stageIndex',
+        component: StageDetailPage,
+        outlet: 'pipeline-body',
+        params: { stageIndex: IntConverter },
+      },
+      'run-latest': { path: 'runs/latest', component: RunLatestPage, outlet: 'pipeline-body' },
+      'run-monitor': {
+        path: 'runs/:runId',
+        component: RunMonitorPage,
+        outlet: 'pipeline-body',
+        params: { runId: IntConverter },
+      },
+    },
+  },
+
+  // children nested inside children (depth 3)
+  admin: {
+    path: 'admin',
+    component: AdminShell,          // template declares <outlet name="admin-body">
+    outlet: 'main',
+    guard: [OperatorGuard, AdminGuard],  // chain order, first non-true wins
+    children: {
+      tenants: {
+        path: 'tenants',
+        component: TenantShell,     // template declares <outlet name="tenant-body">
+        outlet: 'admin-body',
+        children: {
+          'tenant-quotas': {
+            path: ':tenantId/quotas',
+            component: QuotaPage,
+            outlet: 'tenant-body',
+            params: { tenantId: SlugConverter },
+          },
+        },
+      },
+    },
+  },
+
+  'not-found': { path: '*', component: NotFoundPage, outlet: 'main' },
+} satisfies RouteMap
+```
+
+Normative behaviors this tree pins down: `/pipeline/runs/latest` beats `/pipeline/runs/:runId` (static beats param, regardless of declaration order); `/pipeline/runs/oops` fails `IntConverter` and falls through to `not-found`; `/legacy/dashboard` resolves through two redirect hops to `home`; navigating between `pipeline` siblings never remounts `PipelineShell` (**occupancy diffs on the params each route's own resolved path consumes** — a child-only param change never remounts the parent); `OperatorGuard` is evaluated once per navigation into the subtree; `[OperatorGuard, AdminGuard]` runs in declared chain order.
+
+## 14. basePath (open input #2 — RESOLVED: yes, both deployments)
+
+`new Router(routes, { basePath })`. Deployments at the domain root omit it (default `''`). An app served from a folder one-or-N levels deep sets `basePath` to the **public prefix as the browser sees it** — e.g. `'/tools/reports'`.
+
+Normative rules:
+- App code, RouteMap `path`s, guards, and `navigate()` always speak **app-relative** paths. The router strips/prepends the prefix only at its edges: location reads, history writes, link interception.
+- The link interceptor claims only same-origin URLs **under** `basePath`; a sibling app one folder over passes through untouched.
+- **Reverse proxies:** `basePath` must equal the prefix in the browser's address bar, not the origin server's filesystem path. If an upstream proxy rewrites paths (public `/app/x` → origin `/x`), configure the PUBLIC prefix. The router narrates a `WARNING` whenever the live location falls outside `basePath` — the misconfiguration tripwire for unreflected proxy rewrites.
+- Asset URLs are the bundler's concern (Parcel `--public-url`), not the router's.
 
 ## Appendix A — route-table line format
 
@@ -153,4 +237,4 @@ Array RouteMap; declaration-order matching; `ComponentOutlet` wrapper class; sco
 
 ## Appendix C — deferred (recorded)
 
-`canLeave` with popstate veto semantics (history stamping ships now as forward-compat); keep-alive/route caching; stacked overlay routing; transitions; data resolvers; scroll restoration; compiler-lowered `<outlet>`; template component composition (**v2.3.0**, D-21 pointer, own DDR conversation); `ctx.state` request-scoped store; parameterized guards; the `challenge` decision type; `Print` caller-name compiler memoization; mount-outside-captureScope dev warning (primafacie backlog); attribute-interpolation support (diagnosed in 2.1.1); base-path (pending Joe's one-liner).
+`canLeave` with popstate veto semantics (history stamping ships now as forward-compat); keep-alive/route caching; stacked overlay routing; transitions; data resolvers; scroll restoration; compiler-lowered `<outlet>`; template component composition (**v2.3.0**, D-21 pointer, own DDR conversation); `ctx.state` request-scoped store; parameterized guards; the `challenge` decision type; `Print` caller-name compiler memoization; mount-outside-captureScope dev warning (primafacie backlog); attribute-interpolation support (diagnosed in 2.1.1); guards battery mid-classes (scaffolded; first families land with the first consuming app's guard inventory). ~~base-path~~ — **shipped in 2.2.0** (§14).

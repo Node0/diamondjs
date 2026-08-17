@@ -626,3 +626,80 @@ describe('dev startup route table', () => {
     delete (globalThis as { __DIAMOND_DEV__?: boolean }).__DIAMOND_DEV__
   })
 })
+
+// ── basePath (nested / reverse-proxied deployment) ─────────────────────────
+
+describe('basePath (deploy N levels below the domain root)', () => {
+  const baseRoutes = (): RouteMap => ({
+    home: { path: '', component: makePage('home'), outlet: 'main' },
+    about: { path: 'about', component: makePage('about'), outlet: 'main' },
+    'not-found': { path: '*', component: makePage('nf'), outlet: 'main' },
+  })
+
+  it('history writes carry the public prefix; app code speaks app-relative paths', async () => {
+    rootShell('main')
+    history.replaceState(null, '', '/tools/reports/')
+    router = new Router(baseRoutes(), { basePath: '/tools/reports' })
+    await router.start()
+    expect(activeClasses()).toContain('home')
+
+    await router.navigate('/about') // app-relative
+    expect(activeClasses()).toContain('about')
+    expect(location.pathname).toBe('/tools/reports/about') // public URL prefixed
+  })
+
+  it('initial load N levels deep recognizes the app-relative remainder', async () => {
+    rootShell('main')
+    history.replaceState(null, '', '/tools/reports/about')
+    router = new Router(baseRoutes(), { basePath: '/tools/reports' })
+    await router.start()
+    expect(activeClasses()).toContain('about')
+  })
+
+  it('links under the prefix are intercepted; sibling-app links pass through', async () => {
+    rootShell('main')
+    history.replaceState(null, '', '/tools/reports/')
+    const inside = document.createElement('a')
+    inside.setAttribute('href', '/tools/reports/about')
+    const sibling = document.createElement('a')
+    sibling.setAttribute('href', '/tools/other-app/page')
+    document.body.append(inside, sibling)
+
+    router = new Router(baseRoutes(), { basePath: '/tools/reports' })
+    await router.start()
+
+    const clickOn = (el: Element): MouseEvent => {
+      const e = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 })
+      el.dispatchEvent(e)
+      return e
+    }
+    expect(clickOn(inside).defaultPrevented).toBe(true)
+    await tick()
+    expect(activeClasses()).toContain('about')
+    expect(clickOn(sibling).defaultPrevented).toBe(false) // not ours
+  })
+
+  it('a location outside basePath narrates the misconfiguration WARNING', async () => {
+    const { addSink } = await import('@diamondjs/primafacie')
+    const warns: string[] = []
+    const detach = addSink((r) => {
+      if (r.logType === 'WARNING') warns.push(r.message)
+    })
+    rootShell('main')
+    history.replaceState(null, '', '/somewhere/else')
+    router = new Router(baseRoutes(), { basePath: '/tools/reports' })
+    await router.start()
+    expect(warns.some((w) => w.includes("outside basePath '/tools/reports'"))).toBe(true)
+    detach()
+  })
+
+  it('trailing-slash and bare-prefix forms of basePath are equivalent', async () => {
+    rootShell('main')
+    history.replaceState(null, '', '/deep/')
+    router = new Router(baseRoutes(), { basePath: 'deep/' }) // sloppy form
+    await router.start()
+    expect(activeClasses()).toContain('home')
+    await router.navigate('/about')
+    expect(location.pathname).toBe('/deep/about')
+  })
+})

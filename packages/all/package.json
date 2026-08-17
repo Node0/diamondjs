@@ -1,6 +1,6 @@
 {
   "name": "@diamondjs/all",
-  "version": "2.1.1",
+  "version": "2.2.0",
   "description": "DiamondJS full meta-package: the union of @diamondjs/app and @diamondjs/dev, exact-pinned as one tested constellation.",
   "license": "MIT",
   "repository": {
@@ -9,8 +9,8 @@
     "directory": "packages/all"
   },
   "dependencies": {
-    "@diamondjs/app": "2.1.1",
-    "@diamondjs/dev": "2.1.1"
+    "@diamondjs/app": "2.2.0",
+    "@diamondjs/dev": "2.2.0"
   },
   "publishConfig": {
     "access": "public"
