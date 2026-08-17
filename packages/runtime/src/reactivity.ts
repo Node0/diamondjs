@@ -227,7 +227,7 @@ export class ReactivityEngine {
    * @returns Cleanup function to stop tracking
    */
   createEffect(fn: EffectFn): CleanupFn {
-    const effectFn = () => {
+    const effectFn: EffectFn & { disposed?: boolean } = () => {
       this.activeEffect = effectFn
       try {
         fn()
@@ -239,8 +239,13 @@ export class ReactivityEngine {
     // Run immediately to collect dependencies
     effectFn()
 
-    // Return cleanup function
-    return () => this.cleanupEffect(effectFn)
+    // Return cleanup function. The disposed flag makes the scheduler drop
+    // this effect if it was queued before disposal (§16 D-7) — flushing it
+    // would re-arm tracking and re-subscribe a dead effect.
+    return () => {
+      effectFn.disposed = true
+      this.cleanupEffect(effectFn)
+    }
   }
 
   /**
