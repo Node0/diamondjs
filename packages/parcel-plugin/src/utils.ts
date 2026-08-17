@@ -73,9 +73,10 @@ export function isDiamondTemplate(code: string): boolean {
   const interpolationPattern = /\$\{[^}]+\}/
   // v2.1 structural-only templates: <switch> and repeat.for= are unambiguous
   // Diamond tokens (a bare if= is NOT used — false-positive risk on non-Diamond
-  // HTML; an if-only template with zero bindings/interpolations stays undetected,
-  // documented in Amendment A2).
-  const structuralPattern = /<switch[\s>]|repeat\.for\s*=/i
+  // HTML; an if-only template with zero bindings/interpolations stays undetected
+  // — D-18, narrowed in v2.2). v2.2 adds <outlet: the canonical app shell —
+  // static chrome + outlets, zero bindings — must be detected and compiled.
+  const structuralPattern = /<switch[\s>]|repeat\.for\s*=|<outlet[\s>]/i
 
   return (
     bindingPattern.test(code) ||
