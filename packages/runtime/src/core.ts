@@ -505,7 +505,7 @@ export class DiamondCore {
    * first node repeat registered, and the handler receives the DATA ITEM —
    * uniformly, whether repeat iterated a reactive array or a Collection (that
    * uniformity IS the homogenization). Per-node listener thrash on huge lists
-   * (the Neuron DOM/SVG case) disappears.
+   * (the huge-DOM/SVG visualization case) disappears.
    *
    * A selector match with no registered item is a no-op (ratified A2 decision).
    *

@@ -1,0 +1,20 @@
+{
+  "name": "@diamondjs/app",
+  "version": "2.1.1",
+  "description": "DiamondJS application meta-package: runtime + converters + primafacie + guards, exact-pinned as one tested constellation.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Node0/diamondjs.git",
+    "directory": "packages/app"
+  },
+  "dependencies": {
+    "@diamondjs/runtime": "2.1.1",
+    "@diamondjs/converters": "2.1.1",
+    "@diamondjs/primafacie": "2.1.1",
+    "@diamondjs/guards": "2.1.1"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

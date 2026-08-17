@@ -1,0 +1,18 @@
+{
+  "name": "@diamondjs/dev",
+  "version": "2.1.1",
+  "description": "DiamondJS development meta-package: compiler + parcel transformer + tool bins (stink-check, route-check), exact-pinned as one tested constellation.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Node0/diamondjs.git",
+    "directory": "packages/dev"
+  },
+  "dependencies": {
+    "@diamondjs/compiler": "2.1.1",
+    "@diamondjs/parcel-transformer-diamond": "2.1.1"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

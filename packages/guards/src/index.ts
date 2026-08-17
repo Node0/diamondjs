@@ -13,9 +13,11 @@
  *   }
  *
  * SCAFFOLD STATUS (v2.2.0): which battery families ship is gated on the
- * Crystallizer + Neuron route sketches' guard-family inventory. No stubs
- * ship before that confirmation (the D-16 lesson: unshipped machinery
- * described as shipped is a defect). Recorded candidates:
+ * guard-family inventory of the route sketches tracked in the v2.2
+ * Implementation Work Order (DiamondJS itself stays agnostic of consuming
+ * projects — the sketches are validation fixtures only). No stubs ship
+ * before that confirmation (the D-16 lesson: unshipped machinery described
+ * as shipped is a defect). Recorded candidates:
  *
  *   - OAuthGuard     — static issuer/clientId; external-redirect deny
  *   - WebAuthnGuard  — static maxSessionAge; challenge-as-redirect idiom
