@@ -628,7 +628,7 @@ export class CodeGenerator {
     // a different contract — so it is excluded here.)
     if (binding.raw && binding.type !== 'from-view') {
       this.emitLine(
-        `// [Diamond] raw sink — explicit opt-in (developer-owned, unescaped); audited in stink-baseline.json, no runtime XSS protection here`
+        `// [Diamond] raw sink — explicit opt-in (developer-owned, unescaped); recorded for stink-baseline review, no runtime XSS protection here`
       )
     }
 
@@ -789,7 +789,7 @@ export class CodeGenerator {
         expression: binding.expression,
       })
       this.emitLine(
-        `// [Diamond] raw sink — explicit opt-in (developer-owned, unescaped); audited in stink-baseline.json, no runtime XSS protection here`
+        `// [Diamond] raw sink — explicit opt-in (developer-owned, unescaped); recorded for stink-baseline review, no runtime XSS protection here`
       )
       this.emitLine(
         `// [Diamond] RAW attribute spread: ...attrs.rawBind="${binding.expression}" — allowlist bypassed; developer owns every key (incl. innerHTML/on*)`
