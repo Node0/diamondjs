@@ -213,4 +213,46 @@ describe('DiamondCore.repeat', () => {
     expect(reordered.map((li) => li.textContent)).toEqual(['b', 'a'])
     expect(reordered[1]).toBe(liA) // same node, moved
   })
+
+  it('renders duplicate primitive items as distinct rows (D-2)', async () => {
+    const state = DiamondCore.reactive({ items: ['x', 'x', 'y'] as string[] })
+    const { host, anchor } = setup()
+    let builds = 0
+    DiamondCore.repeat(anchor, () => state.items, (it) => {
+      builds++
+      const li = document.createElement('li')
+      li.textContent = it
+      return li
+    })
+    expect(texts(host)).toEqual(['x', 'x', 'y']) // no collapse to one slot
+    expect(builds).toBe(3)
+
+    // Stable across updates: adding a third 'x' builds exactly one new row
+    state.items = ['x', 'x', 'y', 'x']
+    await tick()
+    expect(texts(host)).toEqual(['x', 'x', 'y', 'x'])
+    expect(builds).toBe(4)
+
+    // Removing one duplicate removes exactly one row
+    state.items = ['x', 'y', 'x']
+    await tick()
+    expect(texts(host)).toEqual(['x', 'y', 'x'])
+
+    // Clear disposes everything — no phantom rows
+    state.items = []
+    await tick()
+    expect(texts(host)).toEqual([])
+    expect(host.querySelectorAll('li').length).toBe(0)
+  })
+
+  it('does not confuse primitives of different types with equal string forms (D-2)', () => {
+    const state = DiamondCore.reactive({ items: [1, '1'] as Array<number | string> })
+    const { host, anchor } = setup()
+    DiamondCore.repeat(anchor, () => state.items, (it) => {
+      const li = document.createElement('li')
+      li.textContent = typeof it
+      return li
+    })
+    expect(texts(host)).toEqual(['number', 'string'])
+  })
 })

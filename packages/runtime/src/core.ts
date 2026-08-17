@@ -343,9 +343,11 @@ export class DiamondCore {
   }
 
   /**
-   * Reactive keyed list rendering (DDR §6.3, repeat.for). Builds one subtree per
-   * item — keyed by item identity — reusing and reordering nodes across updates
-   * and disposing the effects/listeners of removed items.
+   * Reactive keyed list rendering (DDR §6.3, repeat.for). Builds one subtree
+   * per item — keyed by item identity for objects, by value + occurrence index
+   * for primitives (§16 D-2: duplicate primitives must not collapse to one
+   * slot) — reusing and reordering nodes across updates and disposing the
+   * effects/listeners of removed items.
    *
    * @example
    * const a = document.createComment('repeat')
@@ -357,6 +359,8 @@ export class DiamondCore {
     makeItem: (item: T, index: number) => Node
   ): void {
     let current = new Map<unknown, { node: ChildNode; cleanup: CleanupFn }>()
+    const isIdentityKeyed = (item: unknown): boolean =>
+      (typeof item === 'object' && item !== null) || typeof item === 'function'
 
     // itemsGetter() is read first so the master effect tracks the collection.
     const cleanup = this.effect(() => {
@@ -364,9 +368,17 @@ export class DiamondCore {
       const next = new Map<unknown, { node: ChildNode; cleanup: CleanupFn }>()
       const parent = anchor.parentNode
       const ordered: ChildNode[] = []
+      // Per-pass occurrence counts so the Nth duplicate of a primitive maps
+      // stably to the previous pass's Nth duplicate (D-2).
+      const occurrences = new Map<unknown, number>()
 
       items.forEach((item, i) => {
-        const key: unknown = item
+        let key: unknown = item
+        if (!isIdentityKeyed(item)) {
+          const n = occurrences.get(item) ?? 0
+          occurrences.set(item, n + 1)
+          key = `${typeof item}:${String(item)}#${n}`
+        }
         let entry = current.get(key)
         if (entry) {
           current.delete(key)
