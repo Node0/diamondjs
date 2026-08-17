@@ -19,6 +19,7 @@
     "check-loc": "tsx tools/check-loc-budget.ts",
     "stink:check": "tsx tools/stink-check.ts",
     "stink:update": "tsx tools/stink-check.ts --update",
+    "route-check": "tsx tools/route-check.ts",
     "clean": "npm run clean --workspaces --if-present",
     "dev": "npm run dev --workspaces --if-present",
     "prepublishOnly": "npm run check-loc && npm run stink:check && npm run build && npm run test"
