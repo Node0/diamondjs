@@ -1,19 +1,46 @@
+# 🗺️ DiamondJS Roadmap
+ 
 ## 🛠️ Current Status
-
-**🚧 In Active Development 🚧**
-
-DiamondJS is currently in the design and early implementation phase. The architecture specification v1.2 is complete, incorporating:
-
-- ✅ Hybrid reactivity system design
-- ✅ Collection class for high-performance large datasets
-- ✅ Pure class-based architecture to prevent LLM steering issues
-- ✅ Comprehensive performance analysis
-- ✅ Complete LOC budgets validated against Aurelia 2.0 archaeology
-
-
-**Key Milestones**:
-- **Phase 0-1** (Weeks 1-4): Core binding system and POC
-- **Phase 2-3** (Weeks 5-8): Component system and template controllers
-- **Phase 4** (Weeks 9-10): Hybrid reactivity system implementation
-- **Phase 5-6** (Weeks 11-14): Advanced features and DX polish
-- **Target**: v0.1.0 proof-of-concept with LLM debugging validation
+ 
+**✅ v2.2.1 shipped — the routing release.**
+ 
+DiamondJS has moved from design into a shipped, spec-governed 2.x series. Every release lands with its design record: the v2.0 DDR, Amendment A2 (v2.1), Amendment A3 + the Router section (v2.2), and the Destinations record (v2.2.1).
+ 
+- ✅ **v2.0** — Security-by-default binding language: single auditable sink allowlist (fail-closed), `raw` escape hatch + stink gate, `.calls`/`.capture`, converter pipes with `ParseResult`, `[Diamond]` hint comments
+- ✅ **v2.1** — Scale and completeness: `switch`/`case`/`default`, gated attribute spread, `Collection<T>` at 100K+ items, `DiamondCore.delegate()`, two-way converter chains, `error-into`, VLQ source maps, `@diamondjs/primafacie` logging
+- ✅ **v2.1.1** — Conformance patch: every §16 fix-the-code defect closed, including eager disposal of detached `if`/`switch` branches (D-1) and the scheduler stale-flush retention fix (D-7)
+- ✅ **v2.2.0** — The router: nested routes, named multi-outlet targeting, specificity matching, atomic two-phase navigation, class-based guards with a fail-closed execution envelope, `Pending` departure safety, `basePath`, `route-check` build gate, `run_mode` dev/prod builds, logging consolidation (one vocabulary, browser→server relay, datestamped files)
+- ✅ **v2.2.1** — `Destination`: one explicit tagged-union vocabulary (`route-id` / `route-path` / `site-path` / `external-url`) shared by redirects and guard denials; `IntConverter`/`SlugConverter` batteries; `app`/`dev`/`all` meta-packages
+**4,405 / 8,700 production LOC (50.6%) · 518 tests passing · the whole framework still fits in an LLM context window.**
+ 
+---
+ 
+## 🔜 v2.2.2 — Release hygiene (patch)
+ 
+- [ ] Fix phantom `@parcel/source-map ^2.2.1` devDependency — v2.2.0/v2.2.1 tags currently fail `npm ci` (ETARGET)
+- [ ] Add `@diamondjs/guards` to the `check-loc` budget report (header claims 400 LOC budget; report omits the package)
+- [ ] Fix first-build DTS ordering flake (runtime `--clean` double-build leaves stale `index.d.ts` → cascading compiler/plugin test failures on fresh installs)
+---
+ 
+## 🎯 v2.3.0 — Composition & reach
+ 
+- [ ] **Template-driven component composition** — the signed v2.3 milestone (D-21 closes for real): `<child-component>` instantiation from templates, explicit props-down/events-up, compiler-owned cleanup, its own DDR section before any code
+- [ ] **NPM availability** — publish all `@diamondjs/*` packages, with an interactive CLI scaffolding script (`npm create diamond`) covering flat/nested component modes, `app/config/config.json`, and a routed app-shell starter
+- [ ] **`--standalone` build flag** — compile an entire app into a single `.html` file that opens from anywhere (file://, USB stick, air-gapped review). Includes intelligent pre-compilation asset analysis to prevent WASM inclusion issues — WASM modules can't inline as data URIs in all contexts, so the analyzer detects them and fails loud with guidance rather than emitting a silently broken file
+- [ ] **Bun-based server-side preparation** — groundwork for the Diamond 3.0 server story: runtime/primafacie modules audited for Bun compatibility, `wsReceiver` + datestamped `fileSink` validated under Bun, no Node-only API assumptions in the shared-vocabulary path (guards' `check` must eventually run server-side)
+- [ ] **First `@diamondjs/guards` batteries** — promote from recorded candidates (`OAuthGuard`, `WebAuthnGuard`, `CapabilityGuard`, `TenantGuard`) as the first real applications produce a guard inventory
+---
+ 
+## 📋 Recorded backlog (designed or scoped, not yet scheduled)
+ 
+- `canLeave` route-scoped departure veto — popstate compensation semantics; history entries are already stamped (`{ diamondNavId, index }`) for forward-compatibility
+- Keep-alive / route caching · stacked overlay routing · transitions · data resolvers · scroll restoration
+- Per-route parameterized guards (`{ use, state }`) · `ctx.state` request-scoped store · `challenge` decision type
+- Attribute interpolation support (currently a fail-loud diagnostic)
+- Compiler-injected `Print` caller-name memoization (kills the per-call stack walk if a hot path ever needs it)
+- Mount-outside-`captureScope` leak heuristic (dev warning, primafacie-adjacent)
+---
+ 
+## 🔭 Diamond 3.0 horizon — the server side
+ 
+The first release where DiamondJS spans the wire: tight server-side integration (Bun-first, per the v2.3 groundwork), server-enforced guards completing the **"client predicts, server enforces"** principle already written into the v2.2 spec, and a deliberately opaque WASM verification module with compiler-generated hash expectations held server-side — the one intentional exception to runtime transparency, with its rationale recorded in the DDR before a line ships (transparency is a promise to the developer about *their* application, not to every process about every module).
