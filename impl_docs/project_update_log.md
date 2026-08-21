@@ -668,3 +668,113 @@ Total:      5,653 / 8,700 LOC   405 tests
 ```
 All LOC budgets within limits · stink gate green (1 declared raw: the example's audited `rawSet`) · example builds via Parcel. Still open (recorded in A2 §17): structured ParseResult errors, plugin `asset.setMap` wiring, double-`mount()` guard, the §11.2 empirical allowlist probe (netpad).
 
+---
+
+## 2026-08-16 — v2.1.1 Conformance Patch (the §16 D-items)
+
+Closed all 12 ratified §16 conformance decisions in individually-reviewable commits, then lockstep-bumped the monorepo to **2.1.1**. The unifying theme: every gate fails CLOSED, and behavior matches what the spec *says*, not what the implementation happened to do.
+
+| D-item | Fix |
+|--------|-----|
+| D-1 | `if`/`switch` dispose-on-detach — a detached branch is a disposed branch (eager cleanup, no zombie effects) |
+| D-2 | `repeat` keys duplicate primitives by value + occurrence index (duplicate-primitive reconciliation) |
+| D-3 | Attribute interpolation is diagnosed instead of shipping the literal `${...}` to the DOM |
+| D-5 | `TemplateImport` exported from the compiler index |
+| D-6 | Double-`mount()` guard on `Component` (A2 §17 backlog item closed) |
+| D-7 | Scheduler drops disposed effects at flush (stale-flush retention fix) |
+| D-8 | stink-check routes on the severity FIELD, never the code prefix — a non-`stink:` warn like `switch-static-dead` can't slip the gate |
+| D-9 | LOC budget tool fails closed (cloc resolution failure exits red, never a green 0-LOC report) and counts production LOC only |
+| D-10 | Static attributes pass the compile-time sink gate |
+| D-12 | RAW banner describes the mechanism, not a completed audit |
+| D-15/D-20 | Allowlist invariant strengthened + fail-closed sink tests |
+| D-16/D-21 | Composition boundary recorded honestly: unshipped component composition gets fail-loud diagnostics, not silent wrong output (the "unshipped machinery described as shipped is a defect" lesson) |
+
+---
+
+## 2026-08-16 — v2.2.0: The Routing Release
+
+Implemented the full v2.2 scope from `impl_docs/spec/DiamondJS_v2.2_Implementation_Work_Order.md` across seven checkpointed phases on `v2.1-implementation`, producing the **v2.2 Router Specification** (`impl_docs/spec/`) and **Amendment A3** (`impl_docs/plans/`). v2.2 marks the point where DiamondJS can single-handedly deliver multi-view SPAs. All packages lockstep-bumped to **2.2.0** and tagged.
+
+### Phase 1 — Logging consolidation (overturns A2 §94)
+One vocabulary: dev-log deleted; the runtime emits through primafacie's `Print`. Browser→server WebSocket log relay (`wsSink` → `wsReceiver` → datestamped `fileSink`).
+
+### Phase 2 — run_mode / `__DIAMOND_DEV__`
+`app/config/config.json` → `run_mode: "dev" | "prod"`; the Parcel transformer injects `__DIAMOND_DEV__`, and every dev-only path (route-table narration, richer diagnostics) is dead-code-eliminated from prod builds.
+
+### Phases 3+4 — Router core + test suite
+`packages/runtime/src/router.ts` + `guard.ts` + `pending.ts`: nested routes, multiple named outlets, specificity matching (never declaration order), typed URL params through the converter/`ParseResult` contract (parse failure ⇒ route doesn't match), two-phase atomic commit (ALL guards before ANY mount; deepest-first unmount, parent-first mount), plain-`<a href>` link interception, popstate + initial-load guard coverage. Guards: class-based, fail-closed execution envelope (throw ⇒ deny, hang ⇒ deny after `Guard.timeoutMs`, every decision narrated through `Print`). `Pending` departure safety: passthrough `Pending.until`, reactive `Pending.active`, `beforeunload` handler removed at zero refcount (bfcache preserved).
+
+### Phase 5 — route-check
+`tools/route-check.ts`: standalone build-time RouteMap gate in the stink-check posture (red output, nonzero exit). Errors speak ROUTE IDS, not file offsets, with did-you-means. Outlet inventory assembled by scanning templates for `<outlet name="...">`.
+
+### Phase 6 — @diamondjs/guards scaffold
+Ships with ZERO battery mid-classes (the D-16 lesson applied prospectively): type re-exports only, candidates recorded (OAuthGuard/WebAuthnGuard/CapabilityGuard/TenantGuard) awaiting a real consuming app's guard inventory.
+
+### Phase 7 — Meta-packages + lockstep CI
+`@diamondjs/app` (runtime + converters + primafacie + guards), `@diamondjs/dev` (compiler + transformer), `@diamondjs/all` (both) — exact pins, never ranges; `tools/check-meta-versions.ts` enforces lockstep, fail closed.
+
+### Release decisions (Joe-ratified)
+- **Ideation fixtures** replace the withdrawn project route sketches: the normative reference map is "Conveyor", a generic ingest-pipeline app (Router Spec §13), exercised in `router-reference-map.test.ts` including the all-vectors leak-free exit criterion. DiamondJS stays agnostic of downstream projects — consuming-project names appear only in the Work Order as process gates, never in package source or normative spec text.
+- **basePath**: `new Router(routes, { basePath })`; basePath = the browser-visible public prefix (reverse-proxy rule + mismatch WARNING, Router Spec §14).
+
+521/521 tests green at tag time.
+
+---
+
+## 2026-08-16 — v2.2.1: The Destination Type & Redirect Taxonomy
+
+Implemented Joe's signed micro work order replacing string redirect targets with the **`Destination` tagged union** — four explicit arms, three concentric circles: `route-id` / `route-path` (inside the router's map), `site-path` (same origin beyond the SPA — hard load), `external-url` (off origin, https-only, static-only: the open-redirect rail).
+
+- **NO string classifier, ever** — `site-path` is shape-indistinguishable from `route-path`; arms are declared, not inferred. Recorded as the explicit-discriminants meta-rule (spec §5 "Destinations").
+- `Deny` retired; `Guard.deny()` returns a `Destination` — redirects and guard denials speak one vocabulary.
+- Arm-aware route-check rules with did-you-means: `destination-arm-mismatch`, `unknown-redirect-target`, `unresolvable-route-path`, `site-path-shadows-route`, `static-target-has-params`, `external-redirect-invalid`, `redirect-cycle` (across both internal arms; `site-path`/`external-url` terminate the graph).
+- tsc-verified type-test (`npm run typecheck` → `tsconfig.typetest.json`).
+- `IntConverter`/`SlugConverter` land in `@diamondjs/converters` (the route-param workhorses).
+
+Lockstep **2.2.1**, tagged. **518 tests across 45 files**; production LOC 4,405 / 8,700 (50.6%).
+
+---
+
+## 2026-08-20 — v2.2.2: npm Bootstrap Publication + the Dev Toolchain
+
+The first-ever publication of DiamondJS to the npm registry. Preflight surfaced real defects (the point of preflight); Option A made `@diamondjs/dev` honor its own description; and since npm `name@version` is immutable, everything landed before the first publish as **2.2.2**.
+
+### Preflight repairs (PR #4, commit 1)
+- `@parcel/source-map: ^2.2.1` — a nonexistent version: the DiamondJS 2.2.1 lockstep bump accidentally caught an external dependency. Reverted to `^2.1.1`; full-manifest audit found no siblings.
+- `package-lock.json` was stale at 2.1.1 with **no entries at all** for the app/dev/all meta-packages. Regenerated; `npm ci` passes clean.
+- `eslint.config.js` → `.mjs` (ESM config in a CJS root package — ESLint could not load it, so **the lint gate had never actually run**), plus the two real errors the newly-working gate surfaced (`prefer-const` in runtime decorators; useless regex escape in converters currency).
+
+### Option A: @diamondjs/dev ships the full dev toolchain (PR #4, commit 2)
+`npm i -D @diamondjs/dev` now delivers what its description promised:
+- `stink-check` + `route-check` moved `tools/` → `packages/dev/src` and published as compiled `#!/usr/bin/env node` bins. route-check loads consumer `.ts` route modules via tsx's `tsImport` (bare package imports resolve through the normal loader — Guard identity preserved for `guard-check-not-overridden`).
+- stink-check's compiler is **injected, never imported**: the published bin supplies `@diamondjs/compiler`'s dist; the repo-gate wrapper (`tools/stink-check.ts`) supplies the compiler SOURCE — the gate still never depends on a stale dist build. Root scripts unchanged.
+- Toolchain deps: `parcel ^2.12.0`, `typescript ^5.5.0`, `tsx ^4.7.0`, plus exact-pinned runtime + primafacie (check-meta lockstep holds).
+- Found bug → coverage: `tools/route-check.test.ts` was never executed by any gate (root `npm test` sweeps workspaces only). Moved to `packages/dev/tests` — 39 tests now run in the sweep. `packages/dev/src` gets a LOC budget (800 / warn 700).
+
+### READMEs + license resolution (PR #5)
+- Per-package READMEs for all nine packages (root-README style, each with its own surface); every `files` field had declared a README that didn't exist.
+- License conflict found and resolved: LICENSE file said AGPL-3.0 while all nine `package.json` fields said MIT. **Joe's call: MIT everywhere** — LICENSE replaced, root README updated, LICENSE copied per-package so every tarball carries it.
+- Root README correctness fix: the Quick Start `.parcelrc` named the transformer unscoped (`parcel-transformer-diamond`), which Parcel cannot resolve → `@diamondjs/parcel-transformer-diamond`.
+
+### The publication
+All nine packages published serially in dependency order — `primafacie → runtime → compiler → converters → guards → parcel-transformer-diamond → app → dev → all` — each verified from the registry (`npm view`, dist-tag `latest`) before the next. Exact-pin constellation graphs confirmed live.
+
+Operational lesson worth recording: publishing with 2FA requires a granular access token **with "Bypass two-factor authentication" enabled** (off by default) — without it, every publish demands an OTP even with a valid token.
+
+### Clean-room verification (the test that actually matters)
+From directories that had never seen the monorepo:
+- **npm**: `npm install @diamondjs/app` + `npm i -D @diamondjs/dev` → tree resolves with a single deduped runtime; `Router`/`Guard`/`Component` import as functions; `IntConverter.parse("42")` returns a valid `ParseResult`; `npx parcel` (2.16.4), `npx tsc` (5.9.3), `npx stink-check` (gate passes), `npx route-check` (correct usage) all work from the registry install.
+- **Bun**: `bun add @diamondjs/app` + `bun add -d @diamondjs/dev` → same imports, same results.
+
+### Final state
+```
+Runtime:      1,551 / 2,500 LOC
+Compiler:     2,267 / 5,000 LOC
+Parcel:         164 /   300 LOC
+Converters:     123 /   500 LOC
+Primafacie:     300 /   400 LOC
+Dev toolchain:  492 /   800 LOC   (new budget)
+Total:        4,897 / 9,500 LOC   557 tests
+```
+All gates green · all nine `@diamondjs/*@2.2.2` live on npm with dist-tag `latest` · `npm install @diamondjs/app` and `bun add @diamondjs/app` are real for the first time. Still open for a 2.2.x: guards battery mid-classes (first families land once a real consuming app's guard inventory exists).
+
