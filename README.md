@@ -493,7 +493,69 @@ The entire framework fits in an LLM context window. That's not an accident — i
  
 **518 tests across 45 files**, all passing.
  
-**What works today (v2.2.1)**: everything from v2.0 and v2.1 (security allowlist + `raw` escape hatch + stink gate; `set`/`rawSet`, `.calls`, `.capture`; `if`/`else-if`/`repeat.for`; `switch`/`case`/`default`; `...attrs.bind`; converter pipes + `ParseResult` + batteries; `Collection<T>`; `DiamondCore.delegate()`; `error-into`; VLQ source maps; `[Diamond]` hints; primafacie logging) **plus**: the `Router` (nested routes, named outlets, redirects, guards, `Pending`, `basePath`, link interception, popstate/initial-load guard coverage), `Destination`, `IntConverter`/`SlugConverter`, `route-check`, `run_mode` dev/prod builds, `wsReceiver` + datestamped `fileSink`, and the `app`/`dev`/`all` meta-packages.
+### What works today (v2.2.2)
+
+**Template & binding language (v2.0 + v2.1)**
+
+- Security allowlist (fail-closed) + `raw` escape hatch + `stink-check` gate
+- `set` / `rawSet`, `.calls`, `.capture`
+- `if` / `else-if` / `repeat.for`
+- `switch` / `case` / `default`
+- `...attrs.bind` (gated attribute spread)
+- `error-into` converter error surfaces
+- `[Diamond]` hint comments on every generated call
+
+**Data & converters (v2.0 → v2.2)**
+
+- Converter pipes + `ParseResult` contract
+- Batteries: `CurrencyConverter`, `DateConverter`, `PhoneConverter`
+- `IntConverter`, `SlugConverter` (v2.2 route-param workhorses)
+- `Collection<T>` — O(1) append, 77% less memory than reactive proxies at 100K+
+
+**Runtime mechanics (v2.0 + v2.1)**
+
+- `DiamondCore.delegate()` event delegation
+- VLQ source maps (errors point at your `.html`, not compiled JS)
+- `@diamondjs/primafacie` — `Print(logType, message)` logging paradigm
+
+**Router & navigation (v2.2)**
+
+- Nested routes, named multi-outlet targeting
+- Specificity matching (never declaration order)
+- Atomic two-phase commit (all guards run → single mount/unmount pass)
+- `Pending` departure safety (refcount, passthrough, bfcache-safe)
+- `basePath` for sub-path deployments
+- Link interception (same-origin primary clicks only)
+- `popstate` / initial-load guard coverage
+
+**Guards (v2.2)**
+
+- Class-based: static `check()` (pure predicate) + `deny()` (returns a `Destination`)
+- Fail-closed execution envelope: throw → deny, hang → deny after `Guard.timeoutMs`, base `check()` returns `false`
+- Every decision narrated through `Print` (guard name, route ID, outcome, duration)
+- `@diamondjs/guards` policy-battery scaffold (type re-exports; concrete batteries land in v2.3)
+
+**Destinations (v2.2)**
+
+- Four-arm tagged union: `route-id` / `route-path` / `site-path` / `external-url`
+- Shared vocabulary for both redirects *and* guard denials — never inferred from string shape
+
+**Build gates (v2.2)**
+
+- `stink-check` — two-tier security audit (severity-routed: `error`/`warn` fail, `declared` baselined)
+- `route-check` — build-time route-map validation (route-ID errors with did-you-mean fixes)
+
+**Dev/prod builds & logging relay (v2.2)**
+
+- `run_mode` → `__DIAMOND_DEV__` injection; dev-only paths dead-code-eliminated in prod
+- Dev-mode route-table narration (one `Print` line per resolved route)
+- `wsReceiver` + datestamped `fileSink` — browser→server log relay
+
+**Toolchain & meta-packages (v2.2)**
+
+- `@diamondjs/dev` — compiler + Parcel transformer + Parcel + TypeScript + both gates, exact-pinned
+- `@diamondjs/app` — runtime + converters + guards + primafacie (browser constellation)
+- `@diamondjs/all` — `app` ∪ `dev` (one tested constellation, exact pins, never ranges)
  
 > DiamondJS is in active development. The v2.x API surface is stabilizing; v2.2 marks the point where DiamondJS can single-handedly deliver multi-view SPAs — from presence sites to multi-user application frontends.
  
