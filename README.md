@@ -109,7 +109,7 @@ npm install @diamondjs/app
 npm install --save-dev @diamondjs/dev
  
 # Configure Parcel (2 lines)
-echo '{ "extends": "@parcel/config-default", "transformers": { "*.html": ["parcel-transformer-diamond", "..."] } }' > .parcelrc
+echo '{ "extends": "@parcel/config-default", "transformers": { "*.html": ["@diamondjs/parcel-transformer-diamond", "..."] } }' > .parcelrc
  
 # Start building
 npx parcel src/index.html
@@ -466,7 +466,7 @@ In nested mode, every file carries the component name — no `index.ts` ambiguit
 | `@diamondjs/converters` | `format`/`parse` batteries: Currency, Date, Phone, **Int, Slug** | < 500 |
 | `@diamondjs/guards` | Policy batteries (scaffold — type re-exports today; `OAuthGuard`, `WebAuthnGuard`, `CapabilityGuard`, `TenantGuard` are recorded candidates awaiting a real-app guard inventory) | < 400 |
 | `@diamondjs/primafacie` | The `Print(logType, message)` logging paradigm + pluggable sinks (console, WebSocket, datestamped files) | < 400 |
-| `parcel-transformer-diamond` | Zero-config Parcel 2 integration + `run_mode` → `__DIAMOND_DEV__` injection | < 300 |
+| `@diamondjs/parcel-transformer-diamond` | Zero-config Parcel 2 integration + `run_mode` → `__DIAMOND_DEV__` injection | < 300 |
  
 Converters are the data batteries; guards are the policy batteries.
  
@@ -560,7 +560,7 @@ The answer is DiamondJS: a framework where the compiler does the hard work so th
  
 ## License
  
-AGPL v3
+MIT
  
 ---
  
