@@ -96,7 +96,7 @@ DiamondJS takes a different position: **complexity belongs in the compiler, not 
  
 ## Quick Start
  
-> **Note:** `@diamondjs/*` packages are not yet published to npm. The install lines below are the intended surface; today, the working path is cloning the monorepo (see [Development](#development)).
+> All `@diamondjs/*` packages are live on npm as of v2.2.2 (August 2026). `bun add @diamondjs/app` works too — Bun installs from the npm registry.
  
 ```bash
 # Create a new project
@@ -480,20 +480,83 @@ The entire framework fits in an LLM context window. That's not an accident — i
  
 **Specification**: v2.2.1 ([v2.0 DDR](impl_docs/plans/DiamondJS_v2.0_Design_Decision_Record.md) + Amendment A2 (v2.1) + Amendment A3 and the v2.2 Router section + the v2.2.1 Destinations record)
  
-**Implementation**: v2.2.1 — the routing release on top of v2.1's scale-and-completeness work. The full navigation stack: multi-outlet router with specificity matching and atomic two-phase commit, typed URL params through the converter/`ParseResult` contract, class-based guards with a fail-closed execution envelope, the four-arm `Destination` vocabulary shared by redirects and guard denials, `Pending` departure safety, `basePath` for sub-path deployments, the `route-check` build gate, dev-mode route-table narration via `run_mode`/`__DIAMOND_DEV__`, and the logging consolidation (one vocabulary: everything emits through `Print`; browser→server WebSocket log relay with datestamped server files). Plus the v2.1.1 conformance patch: eager disposal of detached `if`/`switch` branches, the scheduler stale-flush retention fix, `repeat` duplicate-primitive reconciliation, static-attribute sink gating, and fail-loud diagnostics for unshipped component composition.
+**Implementation**: v2.2.2 — the routing release on top of v2.1's scale-and-completeness work, **published to npm** (all nine `@diamondjs/*` packages, August 2026), with `@diamondjs/dev` shipping the complete toolchain: compiler, Parcel transformer, Parcel, TypeScript, and the `stink-check`/`route-check` gates as real bins. The full navigation stack: multi-outlet router with specificity matching and atomic two-phase commit, typed URL params through the converter/`ParseResult` contract, class-based guards with a fail-closed execution envelope, the four-arm `Destination` vocabulary shared by redirects and guard denials, `Pending` departure safety, `basePath` for sub-path deployments, the `route-check` build gate, dev-mode route-table narration via `run_mode`/`__DIAMOND_DEV__`, and the logging consolidation (one vocabulary: everything emits through `Print`; browser→server WebSocket log relay with datestamped server files). Plus the v2.1.1 conformance patch: eager disposal of detached `if`/`switch` branches, the scheduler stale-flush retention fix, `repeat` duplicate-primitive reconciliation, static-attribute sink gating, and fail-loud diagnostics for unshipped component composition.
  
 | Package | Production LOC | Budget | Usage |
 |---------|---------------:|-------:|------:|
 | @diamondjs/runtime | 1,551 | 2,500 | 62.0% |
 | @diamondjs/compiler | 2,267 | 5,000 | 45.3% |
-| parcel-transformer-diamond | 164 | 300 | 54.7% |
+| @diamondjs/parcel-transformer-diamond | 164 | 300 | 54.7% |
 | @diamondjs/converters | 123 | 500 | 24.6% |
 | @diamondjs/primafacie | 300 | 400 | 75.0% |
-| **Total** | **4,405** | **8,700** | **50.6%** |
+| @diamondjs/dev (toolchain) | 492 | 800 | 61.5% |
+| **Total** | **4,897** | **9,500** | **51.5%** |
  
-**518 tests across 45 files**, all passing.
+**557 tests across 46 files**, all passing.
  
-**What works today (v2.2.1)**: everything from v2.0 and v2.1 (security allowlist + `raw` escape hatch + stink gate; `set`/`rawSet`, `.calls`, `.capture`; `if`/`else-if`/`repeat.for`; `switch`/`case`/`default`; `...attrs.bind`; converter pipes + `ParseResult` + batteries; `Collection<T>`; `DiamondCore.delegate()`; `error-into`; VLQ source maps; `[Diamond]` hints; primafacie logging) **plus**: the `Router` (nested routes, named outlets, redirects, guards, `Pending`, `basePath`, link interception, popstate/initial-load guard coverage), `Destination`, `IntConverter`/`SlugConverter`, `route-check`, `run_mode` dev/prod builds, `wsReceiver` + datestamped `fileSink`, and the `app`/`dev`/`all` meta-packages.
+### What works today (v2.2.2)
+
+**Template & binding language (v2.0 + v2.1)**
+
+- Security allowlist (fail-closed) + `raw` escape hatch + `stink-check` gate
+- `set` / `rawSet`, `.calls`, `.capture`
+- `if` / `else-if` / `repeat.for`
+- `switch` / `case` / `default`
+- `...attrs.bind` (gated attribute spread)
+- `error-into` converter error surfaces
+- `[Diamond]` hint comments on every generated call
+
+**Data & converters (v2.0 → v2.2)**
+
+- Converter pipes + `ParseResult` contract
+- Batteries: `CurrencyConverter`, `DateConverter`, `PhoneConverter`
+- `IntConverter`, `SlugConverter` (v2.2 route-param workhorses)
+- `Collection<T>` — O(1) append, 77% less memory than reactive proxies at 100K+
+
+**Runtime mechanics (v2.0 + v2.1)**
+
+- `DiamondCore.delegate()` event delegation
+- VLQ source maps (errors point at your `.html`, not compiled JS)
+- `@diamondjs/primafacie` — `Print(logType, message)` logging paradigm
+
+**Router & navigation (v2.2)**
+
+- Nested routes, named multi-outlet targeting
+- Specificity matching (never declaration order)
+- Atomic two-phase commit (all guards run → single mount/unmount pass)
+- `Pending` departure safety (refcount, passthrough, bfcache-safe)
+- `basePath` for sub-path deployments
+- Link interception (same-origin primary clicks only)
+- `popstate` / initial-load guard coverage
+
+**Guards (v2.2)**
+
+- Class-based: static `check()` (pure predicate) + `deny()` (returns a `Destination`)
+- Fail-closed execution envelope: throw → deny, hang → deny after `Guard.timeoutMs`, base `check()` returns `false`
+- Every decision narrated through `Print` (guard name, route ID, outcome, duration)
+- `@diamondjs/guards` policy-battery scaffold (type re-exports; concrete batteries land in v2.3)
+
+**Destinations (v2.2)**
+
+- Four-arm tagged union: `route-id` / `route-path` / `site-path` / `external-url`
+- Shared vocabulary for both redirects *and* guard denials — never inferred from string shape
+
+**Build gates (v2.2)**
+
+- `stink-check` — two-tier security audit (severity-routed: `error`/`warn` fail, `declared` baselined)
+- `route-check` — build-time route-map validation (route-ID errors with did-you-mean fixes)
+
+**Dev/prod builds & logging relay (v2.2)**
+
+- `run_mode` → `__DIAMOND_DEV__` injection; dev-only paths dead-code-eliminated in prod
+- Dev-mode route-table narration (one `Print` line per resolved route)
+- `wsReceiver` + datestamped `fileSink` — browser→server log relay
+
+**Toolchain & meta-packages (v2.2)**
+
+- `@diamondjs/dev` — compiler + Parcel transformer + Parcel + TypeScript + both gates, exact-pinned
+- `@diamondjs/app` — runtime + converters + guards + primafacie (browser constellation)
+- `@diamondjs/all` — `app` ∪ `dev` (one tested constellation, exact pins, never ranges)
  
 > DiamondJS is in active development. The v2.x API surface is stabilizing; v2.2 marks the point where DiamondJS can single-handedly deliver multi-view SPAs — from presence sites to multi-user application frontends.
  

@@ -1,13 +1,26 @@
 # 💎 FAQ
 
 ## **Q: Is this production-ready?**
-Not yet. DiamondJS is in active development. We're working toward a v0.1 proof-of-concept. Current status: Architecture complete, implementation beginning.
+It's shipped and real: the spec-governed 2.x series is published on npm (all nine `@diamondjs/*` packages at v2.2.2, August 2026), with 557 passing tests and the full navigation stack — router, guards, typed URL params, departure safety. v2.2 marks the point where DiamondJS can single-handedly deliver multi-view SPAs. That said, the v2.x API surface is still stabilizing and the ecosystem is young — treat it as early-adopter territory, and read each release's design record before betting the farm.
+
+## **Q: How do I install it?**
+Two packages — one for what ships to the browser, one for what runs at build time:
+
+```bash
+npm install @diamondjs/app
+npm install --save-dev @diamondjs/dev
+```
+
+`bun add @diamondjs/app` / `bun add -d @diamondjs/dev` work too (Bun installs from the npm registry), and `npm install @diamondjs/all` gives you the union in one line. Both meta-packages exact-pin one tested constellation — upgrading DiamondJS is bumping one number.
 
 ## **Q: Why not just use [React/Vue/Svelte]?**
 Those frameworks are excellent, but they weren't designed with LLM comprehension as a first-class constraint. DiamondJS explores what becomes possible when you optimize for human-AI collaboration from day one, with additional focus on optimal performance across different workload types.
 
 ## **Q: Does this really work with 32B models?**
-That's what we're testing! The architecture is designed to maximize comprehension for smaller models through pure class-based patterns and explicit code paths. We'll publish benchmarks once we have working code.
+That's the design constraint the whole framework is built around: pure class-based patterns, explicit code paths, `[Diamond]` hint comments on every generated call, and a runtime small enough to fit in a context window alongside your app. The working code is now published; formal benchmarks against the >80% bug-fix target are still to come.
+
+## **Q: I installed `@diamondjs/app` — why is `@diamondjs/guards` empty?**
+Deliberately. It's an honest empty box: as of v2.2.x it ships only type re-exports (`GuardContext`, `Destination`) and says so loudly in its README. No real application has produced a guard inventory yet, and DiamondJS doesn't ship machinery described as shipped before it exists. Write guards today by extending `Guard` from `@diamondjs/runtime` directly — the fail-closed execution envelope applies regardless. The first battery mid-classes (`OAuthGuard`, `WebAuthnGuard`, `CapabilityGuard`, `TenantGuard` are the recorded candidates) land in v2.3 once real consuming apps exist.
 
 ## **Q: What about TypeScript?**
 TypeScript is optional but encouraged! Since we use modern JavaScript features natively, TypeScript adds type safety without any runtime overhead. The compiler handles TS → JS transpilation as part of the build process.
