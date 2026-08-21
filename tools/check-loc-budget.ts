@@ -50,6 +50,12 @@ const budgets: LOCBudget[] = [
     path: 'packages/primafacie/src',
     budget: 400,
     warningThreshold: 350
+  },
+  {
+    name: 'Dev toolchain (@diamondjs/dev)',
+    path: 'packages/dev/src',
+    budget: 800,
+    warningThreshold: 700
   }
 ]
 

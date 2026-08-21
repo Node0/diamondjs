@@ -28,7 +28,7 @@ export class CurrencyConverter {
     if (trimmed === '') return ParseResult.fail(raw, 'Required')
 
     // Strip everything but digits, sign, separators; drop grouping commas.
-    const normalized = trimmed.replace(/[^\d.,\-]/g, '').replace(/,/g, '')
+    const normalized = trimmed.replace(/[^\d.,-]/g, '').replace(/,/g, '')
     if (normalized === '' || normalized === '-' || normalized === '.') {
       return ParseResult.fail(raw, `"${raw}" is not a valid amount`)
     }

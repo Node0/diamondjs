@@ -6,10 +6,8 @@
  * the outlet inventory and prints).
  */
 import { describe, it, expect } from 'vitest'
-import { checkRoutes, type OutletInventory } from './route-check'
-import type { RouteMap } from '../packages/runtime/src/router'
-import { Component } from '../packages/runtime/src/component'
-import { Guard } from '../packages/runtime/src/guard'
+import { checkRoutes, type OutletInventory } from '../src/route-check'
+import { Component, Guard, type RouteMap } from '@diamondjs/runtime'
 
 class Page extends Component {
   constructor(_p?: Record<string, unknown>) {
