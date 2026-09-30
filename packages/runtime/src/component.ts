@@ -7,6 +7,7 @@
  */
 
 import { DiamondCore } from './core'
+import { adoptDefinedReactiveFields } from './decorators'
 
 /**
  * Component base class
@@ -70,6 +71,12 @@ export abstract class Component {
       )
     }
     this.mounted = true
+    // #11: a [[Define]]-emitting toolchain (useDefineForClassFields: true)
+    // lands @reactive fields as own data properties that shadow their
+    // accessors — silently inert. Fields exist only after super() returned,
+    // so this is the first place the base class can re-route them; it must
+    // run before createTemplate() takes its first reads.
+    adoptDefinedReactiveFields(this)
     // Capture root-level binding/listener/structural cleanups (they would
     // otherwise be discarded — DiamondCore's scope is null at the root) and
     // register them against this component's teardown, so unmount() disposes
