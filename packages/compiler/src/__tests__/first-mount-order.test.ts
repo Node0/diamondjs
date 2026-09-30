@@ -89,7 +89,7 @@ describe('generator: anchors are appended before the structural call', () => {
 })
 
 describe('end-to-end: compiled structurals render synchronously on mount', () => {
-  it('if="ready" inside a section renders on mount (the Turbine blank-page case)', () => {
+  it('if="ready" inside a section renders on mount (the blank-page case)', () => {
     const c = componentFrom('<section><div if="ready">READY</div></section>', {
       ready: true,
     })
