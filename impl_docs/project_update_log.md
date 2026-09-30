@@ -815,3 +815,11 @@ Primafacie:     300 /   400 LOC
 Dev toolchain:  527 /   800 LOC
 Total:        5,035 / 9,500 LOC   605 tests
 ```
+
+### The publication (2026-09-29, 20:04–20:13 PDT)
+All nine packages published serially in dependency order from the tagged `main` (`v2.2.3` = merge of PR #13), each accepted by the registry (`+ @diamondjs/<pkg>@2.2.3`) before the next; visibility verified once at the end — every `dist-tags.latest` reads 2.2.3. Clean-room check from a directory that had never seen the monorepo: `npm i @diamondjs/app@2.2.3` + `npm i -D @diamondjs/dev@2.2.3` resolve to a single 2.2.3 constellation; the registry `route-check` bin validates a route map whose page component imports `*.diamond.html` + `.css` (the #10 shape); the registry `stink-check` passes the README nav pattern (`<a href="/ingest">`, the #8 shape). GitHub release `v2.2.3` carries the changelog section.
+
+Operational lessons, updating the v2.2.2 note:
+- The granular-token **"Bypass two-factor authentication"** checkbox silently reverts when the token page is refreshed — verify the ✔ in the *Access Tokens* list before publishing; a token without it fails every publish with `EOTP` even though `npm whoami` succeeds.
+- npm now processes a publish **asynchronously**: `npm publish` answers "being processed and may take a few minutes to become available", and `npm view` surfaced each version 2–4 minutes later. Verify visibility once at the end of the batch, not per package, or the batch stalls on a version the registry has already accepted.
+- The dependency order is a courtesy to mid-batch installers, not a registry requirement — publish does not check that a package's dependencies are already visible.
