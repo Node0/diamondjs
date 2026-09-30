@@ -778,3 +778,40 @@ Total:        4,897 / 9,500 LOC   557 tests
 ```
 All gates green · all nine `@diamondjs/*@2.2.2` live on npm with dist-tag `latest` · `npm install @diamondjs/app` and `bun add @diamondjs/app` are real for the first time. Still open for a 2.2.x: guards battery mid-classes (first families land once a real consuming app's guard inventory exists).
 
+
+---
+
+## 2026-09-29 — v2.2.3: First-Real-App Findings
+
+The first application built on the published 2.2.2 constellation — a hosted single-page map/reduce text processor (Elysia/Bun back end, Parcel 2.16 front end) — surfaced five defects within its first day, filed as issues #7–#11. Two blocked the app outright and were worked around locally (a `bun patch` on the runtime; `useDefineForClassFields: false` in its tsconfig). PR #12 fixed all five upstream, one commit per issue, with a fix note posted on each issue via `gh`.
+
+### The five fixes
+- **#7 — `if`/`switch`/`repeat` rendered nothing on first mount.** Two facts collided: the generator emitted the `DiamondCore.if/switch/repeat` call BEFORE the parent appended the anchor, and the runtime's first pass runs synchronously inside that call, inserting with `anchor.parentNode?.insertBefore(...)` — a silent no-op on a detached anchor, with the branch index already recorded as active. Compiler: structural calls are deferred through per-container *attach frames* until the container's `appendChild` block has run (emitted order: create anchor → append anchor → wire the directive); every nested structural now renders synchronously on mount. Runtime: `DiamondCore.placeBefore` inserts now when the anchor is attached, otherwise on the next microtask, re-reading the directive's live nodes so a branch replaced or disposed meanwhile is never resurrected — covers a structural at the template root (which nothing can pre-attach) and hand-written templates. Every pre-existing structural test appended the anchor *before* calling the directive — the opposite of compiler order — which is why none caught it.
+- **#9 — `<select value.two-way>` bound before its options.** `bind()`'s synchronous first pass assigned `.value` to an option-less select — a no-op — so the initial model value was lost. `<select>` is now the one element whose bindings and handlers are emitted after its children, behind a `[Diamond]` hint; composes with #7 so `repeat.for`-generated option lists select correctly on mount.
+- **#8 — static `<a href="/path">` failed stink-check.** Spec §6.3 already said "`href` is deliberately off-list — SPA links use a static `href` attribute plus a click-interceptor, never a dynamic `href` bind"; the D-10 static-attribute gate contradicted that sentence for the very pattern it names. `isInertStaticHref`: a static `href` on `<a>`/`<area>` whose literal target is scheme-less or `http`/`https`/`mailto`/`tel` gates clean; `javascript:`/`data:`/unenumerated schemes still warn (whitespace/control characters stripped first, as the HTML URL parser does — `java\nscript:` must still warn); bound `href` still warns; `href` stays off `SAFE_SINKS`. `role` joins `data-*`/`aria-*` as inert metadata (`isInertMetadataKey`, both gates + spread). Allowlist candidates `rows`/`cols`/`list`/`for` left for ratification.
+- **#11 — `@reactive` silent no-op under `useDefineForClassFields: true`.** TypeScript's default for ES2022+ targets, and what Parcel 2.16/SWC emit: fields DEFINED as own data properties shadowed the accessor the legacy decorator installs on the prototype; the hello-world only worked because its older Parcel lowered fields to `[[Set]]` assignments. `reactive()` now records decorated keys (per prototype; per instance on the TC39 field path via `addInitializer`), and `Component.mount()` — the first framework entry after construction — calls `adoptDefinedReactiveFields` to re-route shadowed values through their accessors. Dev builds report the repair once per class. Quick Start / runtime README now require BOTH flags; hello-world sets `useDefineForClassFields: false` explicitly.
+- **#10 — `route-check` failed with `ERR_UNKNOWN_FILE_EXTENSION`.** Page components import `*.diamond.html` templates (and `.css`), which tsx cannot load, so the gate only worked for route maps that import no templates — not the recommended layout. The bin now installs inert stubs on BOTH loader paths before importing: an ESM `resolve` hook registered from a `data:` URL, and a wrapped CommonJS `.js` handler — discovery: tsx's `tsImport` tags CJS filenames with `?namespace=…`, so a `.html` key in `Module._extensions` never matches, but tsx delegates every non-TS file to the `.js` handler it captured at registration. Verified with the built bin under plain node for `"type": "module"` and CommonJS consumers; the previous bin fails the same fixture exactly as reported.
+
+### Verification
+- 605 tests (557 → +48) across 51 files; new suites: `first-mount-order` (runtime + compiler compile→mount end-to-end), `select-binding-order`, `define-semantics`, `route-check-template-imports` (spawns the real bin per package type), security-gate cases for the href rule and `role`.
+- All gates green: `check-loc`, `stink:check`, `check-meta`, `lint`, `typecheck`, `build`.
+- The consuming app's five real templates compile with the fixed compiler: 0 errors, 0 `stink:warn` with its nav restored to plain `href`, all 64 structural anchors attached before their calls, all 8 selects bound after their options.
+
+### What the consuming app can now drop
+The `patchedDependencies` runtime patch (#7), the `data-route` + `setAttribute('href')` in `mount()` (#8), the `@reactive synced` flags on select-bound getters (#9), and the `route-check` wrapper scripts (#10). Its `useDefineForClassFields: false` stays — it is now the documented configuration.
+
+### Release mechanics
+- Lockstep bump 2.2.2 → 2.2.3 across root, hello-world and all nine manifests (exact pins in app/dev/all; `^` ranges in compiler/converters/guards/parcel-plugin/runtime), lockfile regenerated with `--package-lock-only`, `check-meta` green.
+- `npm pkg fix` (a ROADMAP v2.2.3 hygiene item): `repository.url` → `git+https://…` in every manifest; `@diamondjs/dev` bin paths normalized.
+- `CHANGELOG.md` introduced (Keep a Changelog; backfilled to 2.0.0). README / ROADMAP / FAQ reconciled to v2.2.3. Package source stays agnostic of downstream project names.
+
+### Final state
+```
+Runtime:      1,625 / 2,500 LOC
+Compiler:     2,296 / 5,000 LOC
+Parcel:         164 /   300 LOC
+Converters:     123 /   500 LOC
+Primafacie:     300 /   400 LOC
+Dev toolchain:  527 /   800 LOC
+Total:        5,035 / 9,500 LOC   605 tests
+```
