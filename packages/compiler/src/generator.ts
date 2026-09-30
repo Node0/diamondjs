@@ -81,6 +81,12 @@ export class CodeGenerator {
     tagName: string
     location: SourceLocation | null
   }> = []
+  /**
+   * One frame per open container (element children / fragment roots): the
+   * structural calls deferred until that container has appended its children.
+   * See deferUntilAttached.
+   */
+  private attachFrames: Array<Array<() => void>> = []
   private options: CompilerOptions
 
   constructor(options: CompilerOptions = {}) {
@@ -101,23 +107,8 @@ export class CodeGenerator {
     this.emitLine('createTemplate() {')
     this.indent++
 
-    // Generate code for root nodes
-    const rootVars = this.generateNodes(nodes)
-
-    // Create container if multiple root nodes
-    let rootVar: string
-    if (rootVars.length === 0) {
-      this.emitLine("const root = document.createComment('empty');")
-      rootVar = 'root'
-    } else if (rootVars.length === 1) {
-      rootVar = rootVars[0]
-    } else {
-      this.emitLine('const root = document.createDocumentFragment();')
-      for (const v of rootVars) {
-        this.emitLine(`root.appendChild(${v});`)
-      }
-      rootVar = 'root'
-    }
+    // Generate the root nodes (a container is created only for 0 or 2+ roots)
+    const rootVar = this.combineRoots(nodes, 'root', 'root')
 
     // Return the root element
     this.emitLine(`return ${rootVar};`)
@@ -179,6 +170,29 @@ export class CodeGenerator {
     }
 
     return vars
+  }
+
+  /**
+   * Defer a structural call (DiamondCore.if / switch / repeat) until the
+   * enclosing container has appended the anchor. The runtime runs a
+   * structural's first pass synchronously inside the call, inserting before
+   * `anchor` — so the anchor must already have a parent, or the first render
+   * has nowhere to go and the branch appears only on the next change. The
+   * emitted order is therefore: create anchor → append anchor → wire the
+   * directive. Without an open frame (a structural that IS the template
+   * root — Component.mount() attaches it after createTemplate() returns) the
+   * call is emitted in place and the runtime's detached-anchor guard covers
+   * the first render.
+   */
+  private deferUntilAttached(emit: () => void): void {
+    const frame = this.attachFrames[this.attachFrames.length - 1]
+    if (frame) frame.push(emit)
+    else emit()
+  }
+
+  /** Emit the structural calls deferred while the innermost frame was open. */
+  private closeFrame(): void {
+    for (const emit of this.attachFrames.pop() ?? []) emit()
   }
 
   /**
@@ -253,23 +267,25 @@ export class CodeGenerator {
       `const ${anchor} = document.createComment('if');`,
       first.location
     )
-    this.emitLine(
-      `// [Diamond] Conditional: if="${first.expression}"` +
-        (branches.length > 1 ? ` (+${branches.length - 1} else-if)` : '')
-    )
-    this.emitLine(`DiamondCore.if(${anchor}, [`)
-    this.indent++
-    for (const br of branches) {
-      const cond = this.prefixExpression(br.structural!.expression)
-      this.emitLine(`{ when: () => ${cond}, make: () => {`)
+    this.deferUntilAttached(() => {
+      this.emitLine(
+        `// [Diamond] Conditional: if="${first.expression}"` +
+          (branches.length > 1 ? ` (+${branches.length - 1} else-if)` : '')
+      )
+      this.emitLine(`DiamondCore.if(${anchor}, [`)
       this.indent++
-      const elVar = this.generateElement(br)
-      this.emitLine(`return ${elVar};`)
+      for (const br of branches) {
+        const cond = this.prefixExpression(br.structural!.expression)
+        this.emitLine(`{ when: () => ${cond}, make: () => {`)
+        this.indent++
+        const elVar = this.generateElement(br)
+        this.emitLine(`return ${elVar};`)
+        this.indent--
+        this.emitLine(`} },`)
+      }
       this.indent--
-      this.emitLine(`} },`)
-    }
-    this.indent--
-    this.emitLine(`]);`)
+      this.emitLine(`]);`)
+    })
     return anchor
   }
 
@@ -296,45 +312,45 @@ export class CodeGenerator {
       `const ${anchor} = document.createComment('switch');`,
       info.location
     )
-    this.emitLine(
-      `// [Diamond] Switch: on="${info.onExpression}" (${info.cases.length} case${
-        info.cases.length === 1 ? '' : 's'
-      }${info.defaultChildren ? ' + default' : ''})`
-    )
-    const onGetter = `() => ${this.prefixExpression(info.onExpression)}`
-    this.emitLine(`DiamondCore.switch(${anchor}, ${onGetter}, [`)
-    this.indent++
-    for (const c of info.cases) {
-      const cond =
-        c.kind === 'equality'
-          ? `v === ${this.literalJs(c.literal)}`
-          : this.prefixExpression(c.match)
+    this.deferUntilAttached(() => {
       this.emitLine(
-        `// [Diamond] case if="${c.match}" → ${
-          c.kind === 'equality' ? cond : `${cond} (boolean expression)`
-        }`
+        `// [Diamond] Switch: on="${info.onExpression}" (${info.cases.length} case${
+          info.cases.length === 1 ? '' : 's'
+        }${info.defaultChildren ? ' + default' : ''})`
       )
-      this.emitLine(`{ match: (v) => ${cond}, make: () => {`)
+      const onGetter = `() => ${this.prefixExpression(info.onExpression)}`
+      this.emitLine(`DiamondCore.switch(${anchor}, ${onGetter}, [`)
       this.indent++
-      const bodyVars = this.generateNodes(c.children)
-      const root = this.combineRoots(bodyVars, 'caseRoot')
-      this.emitLine(`return ${root};`)
+      for (const c of info.cases) {
+        const cond =
+          c.kind === 'equality'
+            ? `v === ${this.literalJs(c.literal)}`
+            : this.prefixExpression(c.match)
+        this.emitLine(
+          `// [Diamond] case if="${c.match}" → ${
+            c.kind === 'equality' ? cond : `${cond} (boolean expression)`
+          }`
+        )
+        this.emitLine(`{ match: (v) => ${cond}, make: () => {`)
+        this.indent++
+        const root = this.combineRoots(c.children, 'caseRoot')
+        this.emitLine(`return ${root};`)
+        this.indent--
+        this.emitLine(`} },`)
+      }
       this.indent--
-      this.emitLine(`} },`)
-    }
-    this.indent--
-    if (info.defaultChildren) {
-      this.emitLine(`], () => {`)
-      this.indent++
-      this.emitLine(`// [Diamond] default — renders when no case matches`)
-      const defVars = this.generateNodes(info.defaultChildren)
-      const defRoot = this.combineRoots(defVars, 'defaultRoot')
-      this.emitLine(`return ${defRoot};`)
-      this.indent--
-      this.emitLine(`});`)
-    } else {
-      this.emitLine(`]);`)
-    }
+      if (info.defaultChildren) {
+        this.emitLine(`], () => {`)
+        this.indent++
+        this.emitLine(`// [Diamond] default — renders when no case matches`)
+        const defRoot = this.combineRoots(info.defaultChildren, 'defaultRoot')
+        this.emitLine(`return ${defRoot};`)
+        this.indent--
+        this.emitLine(`});`)
+      } else {
+        this.emitLine(`]);`)
+      }
+    })
     return anchor
   }
 
@@ -354,13 +370,13 @@ export class CodeGenerator {
       this.emitLine(
         `// [Diamond] Switch on=${JSON.stringify(info.onExpression)} resolved at compile time → case if="${winner.match}" (zero runtime cost)`
       )
-      return this.combineRoots(this.generateNodes(winner.children), 'caseRoot')
+      return this.combineRoots(winner.children, 'caseRoot')
     }
     if (info.defaultChildren) {
       this.emitLine(
         `// [Diamond] Switch on=${JSON.stringify(info.onExpression)} resolved at compile time → default (no case matched)`
       )
-      return this.combineRoots(this.generateNodes(info.defaultChildren), 'defaultRoot')
+      return this.combineRoots(info.defaultChildren, 'defaultRoot')
     }
 
     // Statically dead: no case matches and there is no default. Ratified
@@ -415,21 +431,31 @@ export class CodeGenerator {
   }
 
   /**
-   * Combine N generated root vars into one node var: zero → empty comment,
-   * one → itself, many → DocumentFragment. This is where the erased-wrapper
-   * semantics of <switch>/<case>/<default> live: a case body with multiple
-   * roots mounts as a fragment, no container element ships.
+   * Generate `nodes` as sibling roots and combine them into one node var:
+   * zero → empty comment, one → itself, many → DocumentFragment. This is where
+   * the erased-wrapper semantics of <switch>/<case>/<default> live: a case
+   * body with multiple roots mounts as a fragment, no container element ships.
+   * The template root uses the fixed `name` "root"; switch bodies take a
+   * hint-named var. Structural calls among the roots are emitted after the
+   * fragment has appended their anchors (deferUntilAttached).
    */
-  private combineRoots(vars: string[], hint: string): string {
-    if (vars.length === 1) return vars[0]
-    const v = this.nextVar(hint)
-    if (vars.length === 0) {
-      this.emitLine(`const ${v} = document.createComment('empty');`)
-      return v
+  private combineRoots(nodes: NodeInfo[], hint: string, name?: string): string {
+    this.attachFrames.push([])
+    const vars = this.generateNodes(nodes)
+    let result: string
+    if (vars.length === 1) {
+      result = vars[0]
+    } else {
+      result = name ?? this.nextVar(hint)
+      if (vars.length === 0) {
+        this.emitLine(`const ${result} = document.createComment('empty');`)
+      } else {
+        this.emitLine(`const ${result} = document.createDocumentFragment();`)
+        for (const child of vars) this.emitLine(`${result}.appendChild(${child});`)
+      }
     }
-    this.emitLine(`const ${v} = document.createDocumentFragment();`)
-    for (const child of vars) this.emitLine(`${v}.appendChild(${child});`)
-    return v
+    this.closeFrame()
+    return result
   }
 
   /**
@@ -444,20 +470,22 @@ export class CodeGenerator {
       `const ${anchor} = document.createComment('repeat');`,
       s.location
     )
-    this.emitLine(
-      `// [Diamond] Repeat: repeat.for="${s.itemName} of ${s.itemsExpression}"`
-    )
-    const itemsExpr = this.prefixExpression(s.itemsExpression!)
-    this.emitLine(`DiamondCore.repeat(${anchor}, () => ${itemsExpr}, (${s.itemName}) => {`)
-    this.indent++
-    const itemName = s.itemName!
-    const hadVar = this.scopeVars.has(itemName)
-    this.scopeVars.add(itemName)
-    const elVar = this.generateElement(element)
-    this.emitLine(`return ${elVar};`)
-    if (!hadVar) this.scopeVars.delete(itemName)
-    this.indent--
-    this.emitLine(`});`)
+    this.deferUntilAttached(() => {
+      this.emitLine(
+        `// [Diamond] Repeat: repeat.for="${s.itemName} of ${s.itemsExpression}"`
+      )
+      const itemsExpr = this.prefixExpression(s.itemsExpression!)
+      this.emitLine(`DiamondCore.repeat(${anchor}, () => ${itemsExpr}, (${s.itemName}) => {`)
+      this.indent++
+      const itemName = s.itemName!
+      const hadVar = this.scopeVars.has(itemName)
+      this.scopeVars.add(itemName)
+      const elVar = this.generateElement(element)
+      this.emitLine(`return ${elVar};`)
+      if (!hadVar) this.scopeVars.delete(itemName)
+      this.indent--
+      this.emitLine(`});`)
+    })
     return anchor
   }
 
@@ -515,11 +543,14 @@ export class CodeGenerator {
       this.generateEvent(varName, event)
     }
 
-    // Generate children
+    // Generate children, append them, THEN wire any structural directives
+    // among them (their anchors must be attached before the runtime call).
+    this.attachFrames.push([])
     const childVars = this.generateNodes(element.children)
     for (const childVar of childVars) {
       this.emitLine(`${varName}.appendChild(${childVar});`)
     }
+    this.closeFrame()
 
     return varName
   }
@@ -1146,6 +1177,7 @@ export class CodeGenerator {
     this.pipeHeads.clear()
     this.scopeVars.clear()
     this.customElementTags = []
+    this.attachFrames = []
   }
 
   /**

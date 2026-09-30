@@ -262,12 +262,42 @@ export class DiamondCore {
 
       const captured = this.captureScope(() => branches[matched].make())
       active = { node: captured.value, cleanup: captured.cleanup }
-      anchor.parentNode?.insertBefore(active.node, anchor)
+      this.placeBefore(anchor, [active.node], () => (active ? [active.node] : []))
     })
 
     this.track(cleanup)
     this.track(() => {
       active?.cleanup()
+    })
+  }
+
+  /**
+   * Insert `nodes` before `anchor` — now when the anchor is in a tree, else on
+   * the next microtask. A structural's master effect runs synchronously inside
+   * the if()/switch()/repeat() call that creates it; when that call precedes
+   * the anchor's own appendChild (a structural at a template root, which
+   * Component.mount() attaches only after createTemplate() returns; or a
+   * hand-written template), `anchor.parentNode` is still null and a bare
+   * insertBefore would silently drop the first render — the branch appeared
+   * only on the next condition change. The deferred pass re-reads `live()` so
+   * a branch replaced or disposed in between is never resurrected, and inserts
+   * in current order (re-inserting a placed node before its anchor is a no-op
+   * move, so repeat's reorder-while-detached is handled too).
+   */
+  private static placeBefore(
+    anchor: Comment,
+    nodes: Iterable<Node>,
+    live: () => Iterable<Node>
+  ): void {
+    const parent = anchor.parentNode
+    if (parent) {
+      for (const node of nodes) parent.insertBefore(node, anchor)
+      return
+    }
+    queueMicrotask(() => {
+      const p = anchor.parentNode
+      if (!p) return
+      for (const node of live()) p.insertBefore(node, anchor)
     })
   }
 
@@ -325,7 +355,7 @@ export class DiamondCore {
       const make = matched === cases.length ? defaultMake! : cases[matched].make
       const captured = this.captureScope(() => make())
       active = { node: captured.value, cleanup: captured.cleanup }
-      anchor.parentNode?.insertBefore(active.node, anchor)
+      this.placeBefore(anchor, [active.node], () => (active ? [active.node] : []))
     })
 
     this.track(cleanup)
@@ -358,7 +388,6 @@ export class DiamondCore {
     const cleanup = this.effect(() => {
       const items = Array.from(itemsGetter() ?? [])
       const next = new Map<unknown, { node: ChildNode; cleanup: CleanupFn }>()
-      const parent = anchor.parentNode
       const ordered: ChildNode[] = []
       // Per-pass occurrence counts so the Nth duplicate of a primitive maps
       // stably to the previous pass's Nth duplicate (D-2).
@@ -394,12 +423,10 @@ export class DiamondCore {
         this.itemRegistry.delete(gone.node)
       }
 
-      // Insert / reorder nodes into document order before the anchor
-      if (parent) {
-        for (const node of ordered) parent.insertBefore(node, anchor)
-      }
-
+      // Insert / reorder nodes into document order before the anchor (the
+      // deferred pass reads `current`, i.e. the latest pass's rows in order)
       current = next
+      this.placeBefore(anchor, ordered, () => Array.from(current.values(), (e) => e.node))
     })
 
     this.track(cleanup)
