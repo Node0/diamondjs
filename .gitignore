@@ -161,4 +161,4 @@ reference_files/Pre_v2.0__security_side_quest_research
 impl_docs/recon/v2.1_spec_ground_truth.md
 
 # temporary publish credentials — never commit
-temporary_npm_publishing_key.txt
+.temp_pub_key
