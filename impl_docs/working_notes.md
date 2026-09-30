@@ -185,3 +185,27 @@ Ratified design decisions live in `impl_docs/plans/DiamondJS_v2.1_Amendment_A2_D
 - stink-check now ignores `reference_files/` (prior-project material was tripping 183 errors / 57 warns).
 - npm does NOT topologically order `--workspaces` scripts; the root build explicitly builds runtime + primafacie first.
 - parcel-plugin src is at exactly 300/300 LOC (tests count toward the budget) — the §2.2 deliberate-increase decision is now due before ANY further growth.
+
+---
+
+# v2.2.3 — First-real-app findings (2026-09-29)
+
+The first application built on the published 2.2.2 constellation (a hosted single-page map/reduce text processor) surfaced five defects, filed as issues #7–#11. Implementation realities discovered while fixing them:
+
+## Compiler / generator
+- **Structural call deferral (#7).** `generateNodes` is unchanged; each *container* (element children in `generateElement`, the root / switch-case fragments in `combineRoots`) pushes an attach frame, and `generateConditional`/`generateSwitch`/`generateRepeat` emit only the anchor declaration inline — the `DiamondCore.if/switch/repeat` call is queued on the innermost frame and emitted by `closeFrame()` right after the container's `appendChild` block. Consequence for readers of compiled output: the global var counter now numbers a structural's branch bodies AFTER the siblings that follow it in source (`ifAnchor_3`, `el_select_4`, …, then `el_div_9` inside the branch). Tests that need exact var names must locate them by regex, not assume source order.
+- `combineRoots` now takes NODES (it opens the frame itself); `generate()` passes the fixed name `root` through its third argument (test-compat preserved).
+- A structural that IS the template root has no frame — its call is emitted in place, before `return`, and first render relies on the runtime guard (one microtask). Every nested structural renders synchronously on mount.
+- Scope vars survive deferral because deferred emitters run inside the enclosing `generateElement` call — the loop variable is still in `scopeVars` when a nested repeat/if body is generated.
+- **`<select>` wiring (#9)** is the ONE element whose bindings + handlers are emitted after its children (`generateWiring`), behind a `[Diamond]` hint. Every other element keeps bindings → handlers → children. Composes with #7: a `repeat.for`-generated option list is wired by the attach frame before the select's `value` binding runs.
+- **Static `<a href>` (#8)** is a literal-only exception in the static-attr loop (`isInertStaticHref`), not an allowlist change: `href` remains off `SAFE_SINKS`; bound `href.*` still warns. Scope is `a`/`area` only (`<link href>` / `<base href>` still warn). Whitespace/control characters are stripped before the scheme test to mirror the HTML URL parser (`java\nscript:` must still warn; stripping can only make a literal look MORE like a scheme). `INERT_URL_SCHEMES = http, https, mailto, tel` — a fail-closed set; extend deliberately.
+
+## Runtime
+- **`DiamondCore.placeBefore` (#7)**: synchronous insert when `anchor.parentNode` exists, else ONE microtask retry that re-reads the directive's live nodes (`active` for if/switch, the `current` map for repeat) and inserts them in current order (re-inserting a placed node before its anchor is a no-op move). No retry loop: an anchor still detached after the microtask stays unrendered until the next change — `Component.mount()` attaches synchronously, so components are always covered.
+- **`isInertMetadataKey` (#8)** = `isDataOrAriaKey ∪ role`; both gates and spread's branch decision use it. `isDataOrAriaKey` is unchanged and still exported. Spec §6.3's "37 entries" stays accurate — `role` rides the attribute branch, not the allowlist. The A2 inert-metadata sentence (`data-*`/`aria-*`) is now one token short; amend when the spec is next touched.
+- **`adoptDefinedReactiveFields` (#11)** runs at the top of `Component.mount()` — the base constructor is too early (subclass fields are defined after `super()` returns). Legacy path: keys recorded per prototype; TC39 field path: per instance via `context.addInitializer`. Repair = capture own value → `delete` → define an instance accessor only when no prototype setter exists → reassign. The dev report (`__DIAMOND_DEV__`) fires once per constructor (WeakSet) and lists every repaired field.
+- vitest/esbuild lower class fields to [[Set]] in this repo, so the tests simulate [[Define]] explicitly with `Object.defineProperty` in the constructor; they are independent of the test toolchain's own field lowering.
+
+## Tooling
+- **route-check template stubs (#10)**: `installTemplateStubs()` registers ESM hooks from a `data:` URL (no extra file to ship in `dist/bin`) AND wraps `Module._extensions['.js']`. Why the wrapper: tsx's `tsImport` tags CommonJS filenames with `?namespace=…`, so Node's `findLongestRegisteredExtension` never matches a `.html` key — but tsx's transformer delegates every non-TS file to the `.js` handler it captured at registration, which is ours when installed first. Consumers without `"type": "module"` (the Quick Start's `npm init -y` default) hit the CJS path; a `"type": "module"` consumer hits the ESM path. Both are tested.
+- The loader test spawns the real bin from source via `tsx/cli` (resolved through tsx's exports map — `tsx/dist/cli.mjs` is not an exported subpath) against two on-disk fixtures. Fixtures must live inside the repo tree so `@diamondjs/runtime` resolves; copying them to a temp dir would break resolution.
