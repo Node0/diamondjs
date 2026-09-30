@@ -533,15 +533,14 @@ export class CodeGenerator {
       }
     }
 
-    // Generate bindings
-    for (const binding of element.bindings) {
-      this.generateBinding(varName, binding)
-    }
-
-    // Generate event handlers
-    for (const event of element.events) {
-      this.generateEvent(varName, event)
-    }
+    // A <select>'s value IS its options: bind()'s first pass runs synchronously,
+    // and `select.value = 'b'` on an option-less select is a no-op — the model
+    // value would be lost until the next change. Its bindings (and, to keep the
+    // wiring block contiguous, its handlers) are therefore emitted after the
+    // children — including any repeat.for-generated options, which the attach
+    // frame below wires before the block runs.
+    const wireAfterChildren = element.tagName === 'select'
+    if (!wireAfterChildren) this.generateWiring(varName, element)
 
     // Generate children, append them, THEN wire any structural directives
     // among them (their anchors must be attached before the runtime call).
@@ -552,7 +551,24 @@ export class CodeGenerator {
     }
     this.closeFrame()
 
+    if (wireAfterChildren && (element.bindings.length || element.events.length)) {
+      this.emitLine(
+        `// [Diamond] <select> wiring follows its <option> children: value needs the options to exist`
+      )
+      this.generateWiring(varName, element)
+    }
+
     return varName
+  }
+
+  /** Emit an element's property bindings, then its event handlers. */
+  private generateWiring(varName: string, element: ElementInfo): void {
+    for (const binding of element.bindings) {
+      this.generateBinding(varName, binding)
+    }
+    for (const event of element.events) {
+      this.generateEvent(varName, event)
+    }
   }
 
   /**
