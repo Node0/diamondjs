@@ -48,6 +48,8 @@ Validates your route map against your actual templates, with errors that speak *
 npx route-check src/app.routes.ts   # module exporting `routes` (or default)
 ```
 
+Your route map imports real page components, and those import their compiled templates (`import * as T from './page.diamond.html'`) and styles — `route-check` loads both as inert stubs, so the recommended project layout validates as-is; nothing renders.
+
 ```
 ✖ unknown-redirect-target  Route 'home': unknown route ID 'corpora'.
                            Did you mean { type: 'route-path', target: '/corpora' }?

@@ -23,6 +23,18 @@ describe('DiamondCore.spread', () => {
     expect(div.getAttribute('aria-label')).toBe('row')
   })
 
+  it('applies role via the attribute branch, no warning (#8)', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const div = document.createElement('div')
+      DiamondCore.spread(div, () => ({ role: 'tab' }))
+      expect(div.getAttribute('role')).toBe('tab')
+      expect(warn).not.toHaveBeenCalled()
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
   it('canonicalizes lowercase-authored safe keys (tabindex → tabIndex)', () => {
     const div = document.createElement('div')
     DiamondCore.spread(div, () => ({ tabindex: 3 }))

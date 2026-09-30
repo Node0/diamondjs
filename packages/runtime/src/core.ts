@@ -6,7 +6,7 @@
  */
 
 import { reactivityEngine } from './reactivity'
-import { SAFE_SINKS, canonicalizeSinkKey, isDataOrAriaKey } from './security'
+import { SAFE_SINKS, canonicalizeSinkKey, isInertMetadataKey } from './security'
 import { Print } from '@diamondjs/primafacie'
 import { Collection, type CollectionOptions } from './collection'
 
@@ -262,12 +262,42 @@ export class DiamondCore {
 
       const captured = this.captureScope(() => branches[matched].make())
       active = { node: captured.value, cleanup: captured.cleanup }
-      anchor.parentNode?.insertBefore(active.node, anchor)
+      this.placeBefore(anchor, [active.node], () => (active ? [active.node] : []))
     })
 
     this.track(cleanup)
     this.track(() => {
       active?.cleanup()
+    })
+  }
+
+  /**
+   * Insert `nodes` before `anchor` — now when the anchor is in a tree, else on
+   * the next microtask. A structural's master effect runs synchronously inside
+   * the if()/switch()/repeat() call that creates it; when that call precedes
+   * the anchor's own appendChild (a structural at a template root, which
+   * Component.mount() attaches only after createTemplate() returns; or a
+   * hand-written template), `anchor.parentNode` is still null and a bare
+   * insertBefore would silently drop the first render — the branch appeared
+   * only on the next condition change. The deferred pass re-reads `live()` so
+   * a branch replaced or disposed in between is never resurrected, and inserts
+   * in current order (re-inserting a placed node before its anchor is a no-op
+   * move, so repeat's reorder-while-detached is handled too).
+   */
+  private static placeBefore(
+    anchor: Comment,
+    nodes: Iterable<Node>,
+    live: () => Iterable<Node>
+  ): void {
+    const parent = anchor.parentNode
+    if (parent) {
+      for (const node of nodes) parent.insertBefore(node, anchor)
+      return
+    }
+    queueMicrotask(() => {
+      const p = anchor.parentNode
+      if (!p) return
+      for (const node of live()) p.insertBefore(node, anchor)
     })
   }
 
@@ -325,7 +355,7 @@ export class DiamondCore {
       const make = matched === cases.length ? defaultMake! : cases[matched].make
       const captured = this.captureScope(() => make())
       active = { node: captured.value, cleanup: captured.cleanup }
-      anchor.parentNode?.insertBefore(active.node, anchor)
+      this.placeBefore(anchor, [active.node], () => (active ? [active.node] : []))
     })
 
     this.track(cleanup)
@@ -358,7 +388,6 @@ export class DiamondCore {
     const cleanup = this.effect(() => {
       const items = Array.from(itemsGetter() ?? [])
       const next = new Map<unknown, { node: ChildNode; cleanup: CleanupFn }>()
-      const parent = anchor.parentNode
       const ordered: ChildNode[] = []
       // Per-pass occurrence counts so the Nth duplicate of a primitive maps
       // stably to the previous pass's Nth duplicate (D-2).
@@ -394,12 +423,10 @@ export class DiamondCore {
         this.itemRegistry.delete(gone.node)
       }
 
-      // Insert / reorder nodes into document order before the anchor
-      if (parent) {
-        for (const node of ordered) parent.insertBefore(node, anchor)
-      }
-
+      // Insert / reorder nodes into document order before the anchor (the
+      // deferred pass reads `current`, i.e. the latest pass's rows in order)
       current = next
+      this.placeBefore(anchor, ordered, () => Array.from(current.values(), (e) => e.node))
     })
 
     this.track(cleanup)
@@ -414,7 +441,8 @@ export class DiamondCore {
    *
    *   1. GATE FIRST — canonicalize the key, then consult the SAME allowlist the
    *      compiler gates against. Unknown keys fail closed (skipped, with a
-   *      dev-only warn-once); `data-*`/`aria-*` pass via the attribute branch.
+   *      dev-only warn-once); inert metadata (`data-*`/`aria-*`/`role`) passes
+   *      via the attribute branch.
    *      `raw = true` (…attrs.rawBind) bypasses the gate entirely — developer-
    *      owned, audited as a heavy stink:declared at compile time.
    *   2. BRANCH SECOND — `key in el` → property assignment; else → setAttribute.
@@ -451,7 +479,7 @@ export class DiamondCore {
         // [Diamond] gate FIRST, branch SECOND (DDR §7.1) — unknown keys fail closed.
         // The warning is a STINK SIGNAL, prod-visible by design (v2.2, §12.5);
         // warn-once-per-key dedup keeps it from flooding.
-        if (!raw && !SAFE_SINKS.has(canonical) && !isDataOrAriaKey(key)) {
+        if (!raw && !SAFE_SINKS.has(canonical) && !isInertMetadataKey(key)) {
           if (!warnedKeys.has(key)) {
             warnedKeys.add(key)
             Print(
@@ -464,7 +492,7 @@ export class DiamondCore {
         }
 
         seen.add(key)
-        if (canonical in el && !isDataOrAriaKey(key)) {
+        if (canonical in el && !isInertMetadataKey(key)) {
           if (!applied.has(key)) {
             applied.set(key, { kind: 'prop', prior: el[canonical] })
           }

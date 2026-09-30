@@ -14,10 +14,13 @@
  *
  * Packaged as a @diamondjs/dev bin (v2.2.2); tools/route-check.ts is the
  * repo-gate wrapper. TypeScript route modules are loaded through tsx's
- * tsImport so the compiled bin can consume a consumer's .ts routes file.
+ * tsImport so the compiled bin can consume a consumer's .ts routes file; the
+ * page components it drags in import compiled templates and styles, which are
+ * loaded as inert stubs (installTemplateStubs).
  */
 
 import { readFileSync, readdirSync, statSync, existsSync } from 'fs'
+import Module, { register } from 'module'
 import { join, relative, resolve } from 'path'
 import { pathToFileURL } from 'url'
 import { Guard, type RouteMap, type RouteDefinition } from '@diamondjs/runtime'
@@ -377,6 +380,60 @@ export function scanOutletInventory(root: string): OutletInventory {
   return inventory
 }
 
+// ── template / style stubs ─────────────────────────────────────────────────
+
+/**
+ * Page components import their compiled templates
+ * (`import * as T from './page.diamond.html'`) and their styles — files only
+ * the Parcel transformer knows how to load — and route-check never renders,
+ * so they load here as inert stubs (issue #10). tsx takes one of two paths
+ * depending on the consumer's nearest package.json: with "type": "module" the
+ * routes module is ESM and its imports go through the loader-hook chain;
+ * without it tsx compiles TS to CommonJS and require()s the template.
+ * tsImport's namespaced CJS filenames carry a `?namespace=` query, so Node
+ * never matches a '.html' key in Module._extensions — instead the '.js'
+ * handler that tsx delegates every non-TS file to is wrapped. Both paths are
+ * installed once; whichever the loader takes wins.
+ */
+const STUB_FILE_RE = /\.(html|css)(\?.*)?$/
+const STUB_MESSAGE =
+  '[Diamond] route-check loads templates and styles as inert stubs; nothing renders here.'
+const STUB_MODULE =
+  `export function createTemplate() { throw new Error(${JSON.stringify(STUB_MESSAGE)}) }\n` +
+  `export default {}\n`
+
+let stubsInstalled = false
+function installTemplateStubs(): void {
+  if (stubsInstalled) return
+  stubsInstalled = true
+
+  // ESM path: resolve *.html / *.css specifiers to a data: module.
+  if (typeof register === 'function') {
+    const hooks =
+      `const STUB = ${JSON.stringify('data:text/javascript,' + encodeURIComponent(STUB_MODULE))};\n` +
+      `export async function resolve(specifier, context, nextResolve) {\n` +
+      `  if (${STUB_FILE_RE.toString()}.test(specifier)) return { url: STUB, shortCircuit: true, format: 'module' };\n` +
+      `  return nextResolve(specifier, context);\n` +
+      `}\n`
+    register('data:text/javascript,' + encodeURIComponent(hooks))
+  }
+
+  // CJS path: wrap the '.js' handler tsx falls back to for non-TS files.
+  type Loader = (mod: { exports: unknown }, filename: string) => void
+  const extensions = (Module as unknown as { _extensions: Record<string, Loader> })._extensions
+  const previous = extensions['.js']
+  extensions['.js'] = (mod, filename) => {
+    if (!STUB_FILE_RE.test(filename)) return previous(mod, filename)
+    mod.exports = {
+      __esModule: true,
+      default: {},
+      createTemplate: () => {
+        throw new Error(STUB_MESSAGE)
+      },
+    }
+  }
+}
+
 // ── bin ────────────────────────────────────────────────────────────────────
 
 /**
@@ -385,9 +442,10 @@ export function scanOutletInventory(root: string): OutletInventory {
  * native dynamic import. tsx only transforms the TS entry itself — bare
  * package imports inside it (e.g. @diamondjs/runtime) still resolve through
  * the normal loader, so Guard identity is preserved for the
- * guard-check-not-overridden rule.
+ * guard-check-not-overridden rule. Template/style imports are stubbed first.
  */
 async function loadRoutesModule(modulePath: string): Promise<Record<string, unknown>> {
+  installTemplateStubs()
   const url = pathToFileURL(resolve(process.cwd(), modulePath)).href
   if (/\.[cm]?tsx?$/.test(modulePath)) {
     const { tsImport } = await import('tsx/esm/api')

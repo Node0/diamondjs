@@ -22,6 +22,7 @@ DiamondJS has moved from design into a shipped, spec-governed 2.x series. Every 
 - [ ] Add `@diamondjs/guards` to the `check-loc` budget report (header claims 400 LOC budget; report omits the package)
 - [ ] Fix first-build DTS ordering flake (runtime `--clean` double-build leaves stale `index.d.ts` → cascading compiler/plugin test failures on fresh installs)
 - [ ] `npm pkg fix` cleanup — normalize `repository.url` to the `git+https://` form npm auto-corrects at publish time
+- [x] **First-real-app findings (#7–#11)** — the first application built on the published 2.2.2 constellation surfaced five defects, fixed in one pass: `if`/`switch`/`repeat` render on first mount (compiler attaches the anchor before the call; runtime guards the detached case); `<select>` is bound after its `<option>` children; a static `<a href>` with an inert target passes the sink gate and `role` is inert metadata; `@reactive` survives `useDefineForClassFields: true` (repaired at `mount()`, reported in dev); `route-check` loads page components' template/style imports as inert stubs on both loader paths
 ---
  
 ## 🎯 v2.3.0 — Composition & reach

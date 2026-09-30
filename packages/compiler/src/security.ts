@@ -18,7 +18,7 @@
  */
 
 import type { Diagnostic, SinkOp, SourceLocation } from './types'
-import { SAFE_SINKS, isDataOrAriaKey, canonicalizeSinkKey } from '@diamondjs/runtime'
+import { SAFE_SINKS, isInertMetadataKey, canonicalizeSinkKey } from '@diamondjs/runtime'
 
 /**
  * The safe-sink allowlist's canonical home is @diamondjs/runtime (v2.1): the
@@ -46,6 +46,36 @@ function rawSuggestion(op: SinkOp): string {
 }
 
 /**
+ * URL schemes a static link literal may carry and still gate clean: they can
+ * only navigate, never execute. Everything unenumerated (`javascript:`,
+ * `data:`, `blob:`, `vbscript:`, …) fails closed — allowlist, not blocklist.
+ */
+export const INERT_URL_SCHEMES: ReadonlySet<string> = new Set(['http', 'https', 'mailto', 'tel'])
+
+/**
+ * A static `<a href>` / `<area href>` whose literal target is inert is the
+ * router's documented link pattern (spec §6.3: "SPA links use a static href
+ * attribute plus a click-interceptor, never a dynamic href bind") — not a sink
+ * write to gate (issue #8). `href` stays OFF the allowlist for every bound
+ * form: the allowlist's inclusion test asks what an arbitrary attacker string
+ * could do, and a bound href can carry `javascript:`. A literal typed by the
+ * template author is fully known here, so only its scheme matters: scheme-less
+ * targets (`/path`, `./rel`, `#frag`, `?q=`) and INERT_URL_SCHEMES pass; any
+ * other scheme still warns exactly as before (§16 D-10 keeps
+ * `<a href="javascript:…">` visible). Whitespace and control characters are
+ * stripped first because the HTML URL parser strips them too — `java\nscript:`
+ * IS `javascript:` to a browser — and stripping can only make a literal LOOK
+ * more like a scheme, i.e. err toward warning.
+ */
+export function isInertStaticHref(tagName: string, attr: string, value: string): boolean {
+  if (attr !== 'href' || (tagName !== 'a' && tagName !== 'area')) return false
+  // eslint-disable-next-line no-control-regex
+  const cleaned = value.replace(/[\u0000- \u007f]/g, '')
+  const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(cleaned)
+  return scheme === null || INERT_URL_SCHEMES.has(scheme[1].toLowerCase())
+}
+
+/**
  * Gate a single sink write. Returns a Diagnostic to attach (warn/declared/info)
  * or null when the write is a clean, allowlisted sink. The caller emits the
  * write unconditionally — the gate never changes the emitted code.
@@ -60,9 +90,10 @@ export function gateSink(
   expression: string,
   location: SourceLocation | null
 ): Diagnostic | null {
-  // data-*/aria-* pass through the attribute branch — inert metadata, never
-  // parsed as HTML/script/URL (Amendment A2; consistent with the §7.1 spread gate).
-  const safe = SAFE_SINKS.has(property) || isDataOrAriaKey(property)
+  // data-*/aria-*/role pass through the attribute branch — inert metadata,
+  // never parsed as HTML/script/URL (Amendment A2 + #8; consistent with the
+  // §7.1 spread gate).
+  const safe = SAFE_SINKS.has(property) || isInertMetadataKey(property)
 
   if (raw) {
     if (safe) {

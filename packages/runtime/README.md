@@ -24,6 +24,8 @@ npm install @diamondjs/runtime
 
 Every component is a class extending `Component`. Decorate what you mean: `@reactive` properties drive the UI; bare properties are inert. Four lifecycle hooks, and that's it: `constructor` → `mount` → `update` → `unmount`.
 
+Your `tsconfig.json` needs **both** `"experimentalDecorators": true` and `"useDefineForClassFields": false`. With define semantics (TypeScript's default for ES2022+ targets, and what Parcel's SWC emits) a decorated field lands as an own property that shadows the reactive accessor; the runtime repairs this at `mount()` and warns once per class in dev builds, but the flag keeps the compiled output honest.
+
 ```typescript
 import { Component, reactive } from '@diamondjs/runtime';
 

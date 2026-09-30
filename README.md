@@ -111,11 +111,16 @@ npm install --save-dev @diamondjs/dev
 # Configure Parcel (2 lines)
 echo '{ "extends": "@parcel/config-default", "transformers": { "*.html": ["@diamondjs/parcel-transformer-diamond", "..."] } }' > .parcelrc
  
+# Configure TypeScript — @reactive needs BOTH decorator flags
+echo '{ "compilerOptions": { "target": "ES2022", "module": "ES2022", "moduleResolution": "bundler", "strict": true, "experimentalDecorators": true, "useDefineForClassFields": false } }' > tsconfig.json
+ 
 # Start building
 npx parcel src/index.html
 ```
  
 No `vite.config.js`. No `webpack.config.js`. Just `.parcelrc` with two lines.
+ 
+> **Why both tsconfig flags:** `@reactive` installs a getter/setter that a field *assignment* flows through. `useDefineForClassFields` is TypeScript's default for ES2022+ targets (and what Parcel's SWC emits), and it *defines* the field as an own property instead — shadowing the accessor. The runtime detects and repairs this at `mount()` (with a one-time warning in dev builds), but set the flag so your compiled output is what it says it is.
  
 ---
  
