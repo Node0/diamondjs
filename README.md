@@ -96,7 +96,7 @@ DiamondJS takes a different position: **complexity belongs in the compiler, not 
  
 ## Quick Start
  
-> All `@diamondjs/*` packages are live on npm as of v2.2.2 (August 2026). `bun add @diamondjs/app` works too — Bun installs from the npm registry.
+> All `@diamondjs/*` packages are live on npm — current release **v2.2.3** (September 2026; first published as v2.2.2 in August 2026). `bun add @diamondjs/app` works too — Bun installs from the npm registry. Release notes: [CHANGELOG.md](CHANGELOG.md).
  
 ```bash
 # Create a new project
@@ -485,21 +485,21 @@ The entire framework fits in an LLM context window. That's not an accident — i
  
 **Specification**: v2.2.1 ([v2.0 DDR](impl_docs/plans/DiamondJS_v2.0_Design_Decision_Record.md) + Amendment A2 (v2.1) + Amendment A3 and the v2.2 Router section + the v2.2.1 Destinations record)
  
-**Implementation**: v2.2.2 — the routing release on top of v2.1's scale-and-completeness work, **published to npm** (all nine `@diamondjs/*` packages, August 2026), with `@diamondjs/dev` shipping the complete toolchain: compiler, Parcel transformer, Parcel, TypeScript, and the `stink-check`/`route-check` gates as real bins. The full navigation stack: multi-outlet router with specificity matching and atomic two-phase commit, typed URL params through the converter/`ParseResult` contract, class-based guards with a fail-closed execution envelope, the four-arm `Destination` vocabulary shared by redirects and guard denials, `Pending` departure safety, `basePath` for sub-path deployments, the `route-check` build gate, dev-mode route-table narration via `run_mode`/`__DIAMOND_DEV__`, and the logging consolidation (one vocabulary: everything emits through `Print`; browser→server WebSocket log relay with datestamped server files). Plus the v2.1.1 conformance patch: eager disposal of detached `if`/`switch` branches, the scheduler stale-flush retention fix, `repeat` duplicate-primitive reconciliation, static-attribute sink gating, and fail-loud diagnostics for unshipped component composition.
+**Implementation**: v2.2.3 — the first-real-app hardening patch on top of v2.2.2. The first application built on the published constellation surfaced five defects in its first day (#7–#11), all fixed upstream: structural directives render synchronously on first mount, `<select>` is bound after its options, a static `<a href>` passes the sink gate, `@reactive` survives `useDefineForClassFields: true`, and `route-check` loads page components' template imports. Beneath it, v2.2.2 — the routing release on top of v2.1's scale-and-completeness work, **published to npm** (all nine `@diamondjs/*` packages, August 2026), with `@diamondjs/dev` shipping the complete toolchain: compiler, Parcel transformer, Parcel, TypeScript, and the `stink-check`/`route-check` gates as real bins. The full navigation stack: multi-outlet router with specificity matching and atomic two-phase commit, typed URL params through the converter/`ParseResult` contract, class-based guards with a fail-closed execution envelope, the four-arm `Destination` vocabulary shared by redirects and guard denials, `Pending` departure safety, `basePath` for sub-path deployments, the `route-check` build gate, dev-mode route-table narration via `run_mode`/`__DIAMOND_DEV__`, and the logging consolidation (one vocabulary: everything emits through `Print`; browser→server WebSocket log relay with datestamped server files). Plus the v2.1.1 conformance patch: eager disposal of detached `if`/`switch` branches, the scheduler stale-flush retention fix, `repeat` duplicate-primitive reconciliation, static-attribute sink gating, and fail-loud diagnostics for unshipped component composition.
  
 | Package | Production LOC | Budget | Usage |
 |---------|---------------:|-------:|------:|
-| @diamondjs/runtime | 1,551 | 2,500 | 62.0% |
-| @diamondjs/compiler | 2,267 | 5,000 | 45.3% |
+| @diamondjs/runtime | 1,625 | 2,500 | 65.0% |
+| @diamondjs/compiler | 2,296 | 5,000 | 45.9% |
 | @diamondjs/parcel-transformer-diamond | 164 | 300 | 54.7% |
 | @diamondjs/converters | 123 | 500 | 24.6% |
 | @diamondjs/primafacie | 300 | 400 | 75.0% |
-| @diamondjs/dev (toolchain) | 492 | 800 | 61.5% |
-| **Total** | **4,897** | **9,500** | **51.5%** |
+| @diamondjs/dev (toolchain) | 527 | 800 | 65.9% |
+| **Total** | **5,035** | **9,500** | **53.0%** |
  
-**557 tests across 46 files**, all passing.
+**605 tests across 51 files**, all passing.
  
-### What works today (v2.2.2)
+### What works today (v2.2.3)
 
 **Template & binding language (v2.0 + v2.1)**
 
@@ -562,6 +562,14 @@ The entire framework fits in an LLM context window. That's not an accident — i
 - `@diamondjs/dev` — compiler + Parcel transformer + Parcel + TypeScript + both gates, exact-pinned
 - `@diamondjs/app` — runtime + converters + guards + primafacie (browser constellation)
 - `@diamondjs/all` — `app` ∪ `dev` (one tested constellation, exact pins, never ranges)
+
+**First-real-app hardening (v2.2.3)**
+
+- `if` / `switch` / `repeat` render synchronously on first mount (compiler attaches anchors before the call; runtime guards the detached case)
+- `<select>` bound after its `<option>` children — the initial model value selects, static or `repeat.for`-generated
+- Static `<a href="/path">` is the link pattern and passes `stink-check`; `role` is inert metadata like `data-*` / `aria-*`
+- `@reactive` repaired at `mount()` under `useDefineForClassFields: true`, with a once-per-class dev-build report
+- `route-check` loads page components' `*.diamond.html` / `*.css` imports as inert stubs (ESM and CommonJS consumers)
  
 > DiamondJS is in active development. The v2.x API surface is stabilizing; v2.2 marks the point where DiamondJS can single-handedly deliver multi-view SPAs — from presence sites to multi-user application frontends.
  

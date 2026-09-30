@@ -1,16 +1,16 @@
 {
   "name": "@diamondjs/dev",
-  "version": "2.2.2",
+  "version": "2.2.3",
   "description": "DiamondJS development meta-package: compiler + parcel transformer + tool bins (stink-check, route-check) + the toolchain (parcel, typescript), exact-pinned as one tested constellation.",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Node0/diamondjs.git",
+    "url": "git+https://github.com/Node0/diamondjs.git",
     "directory": "packages/dev"
   },
   "bin": {
-    "stink-check": "./dist/bin/stink-check.mjs",
-    "route-check": "./dist/bin/route-check.mjs"
+    "stink-check": "dist/bin/stink-check.mjs",
+    "route-check": "dist/bin/route-check.mjs"
   },
   "files": [
     "dist",
@@ -31,10 +31,10 @@
     "route-check"
   ],
   "dependencies": {
-    "@diamondjs/compiler": "2.2.2",
-    "@diamondjs/parcel-transformer-diamond": "2.2.2",
-    "@diamondjs/primafacie": "2.2.2",
-    "@diamondjs/runtime": "2.2.2",
+    "@diamondjs/compiler": "2.2.3",
+    "@diamondjs/parcel-transformer-diamond": "2.2.3",
+    "@diamondjs/primafacie": "2.2.3",
+    "@diamondjs/runtime": "2.2.3",
     "parcel": "^2.12.0",
     "tsx": "^4.7.0",
     "typescript": "^5.5.0"

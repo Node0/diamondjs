@@ -2,7 +2,7 @@
  
 ## 🛠️ Current Status
  
-**✅ v2.2.2 shipped — published to npm.**
+**✅ v2.2.3 shipped — published to npm.** Release notes: [CHANGELOG.md](CHANGELOG.md).
  
 DiamondJS has moved from design into a shipped, spec-governed 2.x series. Every release lands with its design record: the v2.0 DDR, Amendment A2 (v2.1), Amendment A3 + the Router section (v2.2), and the Destinations record (v2.2.1).
  
@@ -12,17 +12,19 @@ DiamondJS has moved from design into a shipped, spec-governed 2.x series. Every 
 - ✅ **v2.2.0** — The router: nested routes, named multi-outlet targeting, specificity matching, atomic two-phase navigation, class-based guards with a fail-closed execution envelope, `Pending` departure safety, `basePath`, `route-check` build gate, `run_mode` dev/prod builds, logging consolidation (one vocabulary, browser→server relay, datestamped files)
 - ✅ **v2.2.1** — `Destination`: one explicit tagged-union vocabulary (`route-id` / `route-path` / `site-path` / `external-url`) shared by redirects and guard denials; `IntConverter`/`SlugConverter` batteries; `app`/`dev`/`all` meta-packages
 - ✅ **v2.2.2** — The bootstrap npm publication: all nine `@diamondjs/*` packages live on the registry (verified from clean-room npm *and* Bun installs). `@diamondjs/dev` now ships the complete toolchain — compiler, Parcel transformer, Parcel, TypeScript, and `stink-check`/`route-check` as published bins. Plus the preflight repairs it forced: the phantom `@parcel/source-map` devDependency, a stale lockfile, a lint gate that had never actually run, per-package READMEs, and the license reconciled to MIT everywhere
-**4,897 / 9,500 production LOC (51.5%) · 557 tests passing · the whole framework still fits in an LLM context window.**
+- ✅ **v2.2.3** — First-real-app hardening: the first application built on the published constellation surfaced five defects in its first day (#7–#11), all fixed upstream — `if`/`switch`/`repeat` render on first mount, `<select>` binds after its options, static `<a href>` passes the sink gate (+ `role` inert), `@reactive` survives `useDefineForClassFields: true`, `route-check` loads template/style imports. Plus `npm pkg fix` manifest normalization and the first `CHANGELOG.md`
+**5,035 / 9,500 production LOC (53.0%) · 605 tests passing · the whole framework still fits in an LLM context window.**
  
 ---
  
-## 🔜 v2.2.3 — Release hygiene (patch)
+## 🔜 v2.2.4 — Release hygiene (patch)
  
 - [x] ~~Fix phantom `@parcel/source-map ^2.2.1` devDependency~~ — landed in v2.2.2 (npm preflight)
+- [x] ~~`npm pkg fix` cleanup — normalize `repository.url` to the `git+https://` form npm auto-corrects at publish time~~ — landed in v2.2.3
+- [x] ~~First-real-app findings (#7–#11)~~ — landed in v2.2.3 (see above)
 - [ ] Add `@diamondjs/guards` to the `check-loc` budget report (header claims 400 LOC budget; report omits the package)
 - [ ] Fix first-build DTS ordering flake (runtime `--clean` double-build leaves stale `index.d.ts` → cascading compiler/plugin test failures on fresh installs)
-- [ ] `npm pkg fix` cleanup — normalize `repository.url` to the `git+https://` form npm auto-corrects at publish time
-- [x] **First-real-app findings (#7–#11)** — the first application built on the published 2.2.2 constellation surfaced five defects, fixed in one pass: `if`/`switch`/`repeat` render on first mount (compiler attaches the anchor before the call; runtime guards the detached case); `<select>` is bound after its `<option>` children; a static `<a href>` with an inert target passes the sink gate and `role` is inert metadata; `@reactive` survives `useDefineForClassFields: true` (repaired at `mount()`, reported in dev); `route-check` loads page components' template/style imports as inert stubs on both loader paths
+- [ ] Tag `v2.2.2` retroactively (published 2026-08-20 without a git tag; `v2.2.3` onward are tagged)
 ---
  
 ## 🎯 v2.3.0 — Composition & reach

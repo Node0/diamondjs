@@ -1,6 +1,6 @@
 {
   "name": "@diamondjs/compiler",
-  "version": "2.2.2",
+  "version": "2.2.3",
   "description": "DiamondJS template compiler",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
@@ -32,12 +32,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/Node0/diamondjs.git",
+    "url": "git+https://github.com/Node0/diamondjs.git",
     "directory": "packages/compiler"
   },
   "license": "MIT",
   "dependencies": {
-    "@diamondjs/runtime": "^2.2.2",
+    "@diamondjs/runtime": "^2.2.3",
     "parse5": "^7.1.2"
   },
   "devDependencies": {

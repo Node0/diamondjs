@@ -1,11 +1,11 @@
 {
   "name": "diamondjs-monorepo",
-  "version": "2.2.2",
+  "version": "2.2.3",
   "private": true,
   "description": "DiamondJS - JavaScript framework for LLM-assisted development",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Node0/diamondjs.git"
+    "url": "git+https://github.com/Node0/diamondjs.git"
   },
   "workspaces": [
     "packages/*",
