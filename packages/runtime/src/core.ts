@@ -6,7 +6,7 @@
  */
 
 import { reactivityEngine } from './reactivity'
-import { SAFE_SINKS, canonicalizeSinkKey, isDataOrAriaKey } from './security'
+import { SAFE_SINKS, canonicalizeSinkKey, isInertMetadataKey } from './security'
 import { Print } from '@diamondjs/primafacie'
 import { Collection, type CollectionOptions } from './collection'
 
@@ -441,7 +441,8 @@ export class DiamondCore {
    *
    *   1. GATE FIRST — canonicalize the key, then consult the SAME allowlist the
    *      compiler gates against. Unknown keys fail closed (skipped, with a
-   *      dev-only warn-once); `data-*`/`aria-*` pass via the attribute branch.
+   *      dev-only warn-once); inert metadata (`data-*`/`aria-*`/`role`) passes
+   *      via the attribute branch.
    *      `raw = true` (…attrs.rawBind) bypasses the gate entirely — developer-
    *      owned, audited as a heavy stink:declared at compile time.
    *   2. BRANCH SECOND — `key in el` → property assignment; else → setAttribute.
@@ -478,7 +479,7 @@ export class DiamondCore {
         // [Diamond] gate FIRST, branch SECOND (DDR §7.1) — unknown keys fail closed.
         // The warning is a STINK SIGNAL, prod-visible by design (v2.2, §12.5);
         // warn-once-per-key dedup keeps it from flooding.
-        if (!raw && !SAFE_SINKS.has(canonical) && !isDataOrAriaKey(key)) {
+        if (!raw && !SAFE_SINKS.has(canonical) && !isInertMetadataKey(key)) {
           if (!warnedKeys.has(key)) {
             warnedKeys.add(key)
             Print(
@@ -491,7 +492,7 @@ export class DiamondCore {
         }
 
         seen.add(key)
-        if (canonical in el && !isDataOrAriaKey(key)) {
+        if (canonical in el && !isInertMetadataKey(key)) {
           if (!applied.has(key)) {
             applied.set(key, { kind: 'prop', prior: el[canonical] })
           }

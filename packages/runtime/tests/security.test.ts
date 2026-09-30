@@ -8,6 +8,7 @@ import {
   PROPERTY_NAME_MAP,
   canonicalizeSinkKey,
   isDataOrAriaKey,
+  isInertMetadataKey,
 } from '../src/security'
 
 describe('security data (canonical home)', () => {
@@ -49,5 +50,16 @@ describe('security data (canonical home)', () => {
     expect(isDataOrAriaKey('aria-label')).toBe(true)
     expect(isDataOrAriaKey('innerHTML')).toBe(false)
     expect(isDataOrAriaKey('database')).toBe(false) // no dash — not data-*
+  })
+
+  it('isInertMetadataKey = data-*/aria-* plus role (#8), nothing else', () => {
+    expect(isInertMetadataKey('data-user-id')).toBe(true)
+    expect(isInertMetadataKey('aria-label')).toBe(true)
+    expect(isInertMetadataKey('role')).toBe(true)
+    expect(isInertMetadataKey('ROLE')).toBe(true)
+    expect(isInertMetadataKey('roles')).toBe(false)
+    expect(isInertMetadataKey('href')).toBe(false)
+    expect(isInertMetadataKey('innerHTML')).toBe(false)
+    expect(SAFE_SINKS.has('role')).toBe(false) // attribute branch, not a property sink
   })
 })

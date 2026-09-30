@@ -113,3 +113,14 @@ export function canonicalizeSinkKey(key: string): string {
 export function isDataOrAriaKey(key: string): boolean {
   return key.startsWith('data-') || key.startsWith('aria-')
 }
+
+/**
+ * Inert-metadata keys — the ATTRIBUTE branch of the outbound gate: `data-*` /
+ * `aria-*` plus `role`, a constrained ARIA token that, exactly like them, is
+ * never parsed as HTML, script, or a URL (issue #8). Consulted by BOTH gates
+ * (compile-time `gateSink`, runtime spread) so a `role.set` cannot warn where
+ * spread would allow it.
+ */
+export function isInertMetadataKey(key: string): boolean {
+  return isDataOrAriaKey(key) || key.toLowerCase() === 'role'
+}

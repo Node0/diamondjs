@@ -20,7 +20,7 @@ import type {
   SwitchInfo,
 } from './types'
 import { isElementInfo, isTextInfo } from './types'
-import { gateSink, canonicalizeSinkKey } from './security'
+import { gateSink, canonicalizeSinkKey, isInertStaticHref } from './security'
 import {
   parsePipe,
   lowerFormat,
@@ -517,11 +517,15 @@ export class CodeGenerator {
     // bound writes — an inline <div onclick="..."> must produce a stink:warn
     // and a baseline diff, never compile invisibly. The gate never changes the
     // emitted code (permission/audit decision only); literal allowlisted attrs
-    // (class, id, ...) gate clean and are unchanged.
+    // (class, id, ...) gate clean and are unchanged. One literal-only
+    // exception (#8): a static <a href> with an inert target is the router's
+    // documented link pattern (§6.3), not a sink write — see isInertStaticHref.
     for (const [name, value] of element.staticAttrs) {
       const canonical =
         name === 'class' ? 'className' : name === 'for' ? 'htmlFor' : canonicalizeSinkKey(name)
-      const diag = gateSink(canonical, 'set', false, value, element.location)
+      const diag = isInertStaticHref(element.tagName, name, value)
+        ? null
+        : gateSink(canonical, 'set', false, value, element.location)
       if (diag) this.diagnostics.push(diag)
 
       if (name === 'class') {

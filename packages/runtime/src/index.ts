@@ -40,6 +40,7 @@ export {
   PROPERTY_NAME_MAP,
   canonicalizeSinkKey,
   isDataOrAriaKey,
+  isInertMetadataKey,
 } from './security'
 
 // Router (v2.2 §3) — single entry point, no subpaths (§11).
