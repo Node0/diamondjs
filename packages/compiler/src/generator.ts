@@ -10,6 +10,7 @@ import type {
   NodeInfo,
   ElementInfo,
   TextInfo,
+  TextPart,
   BindingInfo,
   CompilerOptions,
   CompileResult,
@@ -26,6 +27,7 @@ import {
   lowerFormat,
   lowerArgs,
   scanInterpolations,
+  interpolationParts,
   type ParsedPipe,
 } from './pipe'
 import { serializeMappings } from './sourcemap'
@@ -586,10 +588,14 @@ export class CodeGenerator {
    */
   private generateText(text: TextInfo): string | null {
     const varName = this.nextVar('text')
+    const parts = this.textParts(text)
 
-    if (text.interpolations.length === 0) {
+    if (!parts.some((part) => part.kind === 'expression')) {
       // Static text
-      const content = text.content.trim()
+      const content = parts
+        .map((part) => (part.kind === 'text' ? part.value : ''))
+        .join('')
+        .trim()
       if (!content) return null
 
       this.emitLine(
@@ -604,7 +610,7 @@ export class CodeGenerator {
       )
 
       // Build template string for interpolation
-      const templateExpr = this.buildInterpolationExpr(text.content)
+      const templateExpr = this.buildInterpolationExpr(parts)
       // Echo the source expression in the hint (parity with every other hint type)
       const interpSrc = text.content.replace(/\s+/g, ' ').trim()
       this.emitHint(`Text interpolation: ${interpSrc}`)
@@ -615,6 +621,16 @@ export class CodeGenerator {
     }
 
     return varName
+  }
+
+  /**
+   * A text node's parts (#29): what the parser read, or — for a hand-built
+   * node — its content scanned as template source.
+   */
+  private textParts(text: TextInfo): TextPart[] {
+    if (text.parts) return text.parts
+    if (text.interpolations.length === 0) return [{ kind: 'text', value: text.content }]
+    return interpolationParts(scanInterpolations(text.content))
   }
 
   /**
@@ -1102,23 +1118,16 @@ export class CodeGenerator {
   /**
    * Build interpolation template expression
    */
-  private buildInterpolationExpr(content: string): string {
-    // Rebuild via the brace-depth scanner (same spans the parser saw): static
-    // chunks are escaped, each ${expr} becomes the lowered (pipe-aware)
-    // outbound expression. An unterminated span (parser already errored) is
-    // emitted as escaped literal text so codegen never crashes on it.
+  private buildInterpolationExpr(parts: TextPart[]): string {
+    // Literal text is re-escaped for a template literal; each expression
+    // becomes the lowered (pipe-aware) outbound expression.
     let result = ''
-    let last = 0
-    for (const span of scanInterpolations(content)) {
-      result += jsTemplatePart(content.slice(last, span.start))
-      if (span.unterminated) {
-        result += jsTemplatePart(content.slice(span.start, span.end))
-      } else {
-        result += '${' + this.lowerOutbound(span.expression.trim()) + '}'
-      }
-      last = span.end
+    for (const part of parts) {
+      result +=
+        part.kind === 'text'
+          ? jsTemplatePart(part.value)
+          : '${' + this.lowerOutbound(part.expression) + '}'
     }
-    result += jsTemplatePart(content.slice(last))
     return '`' + result + '`'
   }
 

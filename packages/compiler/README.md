@@ -63,7 +63,7 @@ const result = compiler.compile(templateSource, { filePath: 'counter.html', sour
 
 ## What it compiles
 
-The full v2.x template grammar: `set`/`rawSet` and the binding commands (`.bind`, `.two-way`, `.calls`, `.capture`, `.delegate`, `.trigger`, `.one-time`), `${interpolation}`, `if`/`else-if`, `repeat.for`, exhaustive `switch`/`case`/`default`, attribute spread (`...attrs.bind`), converter pipes with the `ParseResult` contract, and `error-into` converter error surfaces.
+The full v2.x template grammar: `set`/`rawSet` and the binding commands (`.bind`, `.two-way`, `.calls`, `.capture`, `.delegate`, `.trigger`, `.one-time`), `${interpolation}` (with `\${` or an entity such as `&#36;{` for a literal `${`), `if`/`else-if`, `repeat.for`, exhaustive `switch`/`case`/`default`, attribute spread (`...attrs.bind`), converter pipes with the `ParseResult` contract, and `error-into` converter error surfaces.
 
 ## Diagnostics — the stink gate's fuel
 

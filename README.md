@@ -202,6 +202,8 @@ Aurelia-inspired binding commands on standard HTML attributes:
 <input value.two-way="amount | CurrencyConverter('USD')" value.error-into="amountError">
 <p if="amountError">${amountError}</p>
 ```
+
+**A literal `${`.** In text and in plain attribute values, write `\${`: `<p>Use \${name}</p>` renders `${name}`. An entity works too (`&#36;{name}`) — an encoded character is never syntax. Only a backslash directly before `${` is special, so `C:\temp\notes` is ordinary text; `\\${name}` is one backslash followed by the value of `name`. When a template is built from JavaScript, use `String.raw` so the backslash survives: ``String.raw`<p>Use \${x}</p>` ``.
  
 ---
  
