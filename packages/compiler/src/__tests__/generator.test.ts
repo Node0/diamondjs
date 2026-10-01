@@ -417,6 +417,62 @@ describe('CodeGenerator', () => {
     })
   })
 
+  // #18 — whitespace between two branches is syntax; whitespace after the
+  // last branch is content and must be left for the caller to generate.
+  describe('if / else-if chain collection', () => {
+    const branch = (type: 'if' | 'else-if', expression: string): ElementInfo =>
+      createElement('span', { structural: { type, expression, location: null } })
+    const NBSP = String.fromCharCode(0xa0)
+    // collectIfChain is private; bracket access keeps the call type-checked.
+    const collect = (nodes: NodeInfo[]) => generator['collectIfChain'](nodes, 0)
+
+    it('does not consume whitespace after an if when no else-if follows', () => {
+      const { branches, next } = collect([branch('if', 'ok'), createText(' '), createElement('b')])
+      expect(branches).toHaveLength(1)
+      expect(next).toBe(1)
+    })
+
+    it('consumes whitespace between branches but not after the last one', () => {
+      const { branches, next } = collect([
+        branch('if', 'a'),
+        createText('\n  '),
+        branch('else-if', 'b'),
+        createText('\n'),
+        createElement('p'),
+      ])
+      expect(branches).toHaveLength(2)
+      expect(next).toBe(3) // the trailing whitespace
+    })
+
+    it('collects a chain of three across whitespace', () => {
+      const { branches, next } = collect([
+        branch('if', 'a'),
+        createText(' \t'),
+        branch('else-if', 'b'),
+        createText('\r\n\f'),
+        branch('else-if', 'c'),
+      ])
+      expect(branches.map((b) => b.structural?.expression)).toEqual(['a', 'b', 'c'])
+      expect(next).toBe(5)
+    })
+
+    it('adjacent branches still chain, and an if at the end of its parent stops cleanly', () => {
+      expect(collect([branch('if', 'a'), branch('else-if', 'b')])).toMatchObject({ next: 2 })
+      expect(collect([branch('if', 'a')])).toMatchObject({ next: 1 })
+      expect(collect([branch('if', 'a'), createText('\n')])).toMatchObject({ next: 1 })
+    })
+
+    it('an NBSP between if and else-if is content: the else-if is orphaned', () => {
+      const children = [branch('if', 'a'), createText(NBSP), branch('else-if', 'b')]
+      expect(collect(children)).toMatchObject({ next: 1 })
+
+      const result = generator.generate([createElement('div', { children })])
+      expect(result.diagnostics?.some((d) => d.code === 'orphan-else-if')).toBe(true)
+      expect(result.code).toContain('// [Diamond] Conditional: if="a"')
+      expect(result.code).not.toContain('else-if)')
+    })
+  })
+
   describe('source maps', () => {
     it('generates source map when enabled', () => {
       const gen = new CodeGenerator({ sourceMap: true, filePath: 'test.html' })

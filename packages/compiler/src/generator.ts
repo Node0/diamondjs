@@ -230,30 +230,37 @@ export class CodeGenerator {
 
   /**
    * Collect nodes[i] (an `if`) plus its consecutive `else-if` siblings into one
-   * branch chain, skipping whitespace-only text nodes between them.
+   * branch chain. Whitespace between two branches is syntax and is consumed;
+   * whitespace after the last branch is content and is left for the caller
+   * (#18). So the scan looks ahead without consuming: `next` only ever moves
+   * to just past a confirmed branch.
    */
   private collectIfChain(
     nodes: NodeInfo[],
     i: number
   ): { branches: ElementInfo[]; next: number } {
     const branches: ElementInfo[] = [nodes[i] as ElementInfo]
-    let j = i + 1
+    let next = i + 1
 
-    while (j < nodes.length) {
+    for (;;) {
+      let j = next
+      while (j < nodes.length && this.isBranchSeparator(nodes[j])) j++
       const n = nodes[j]
-      if (isTextInfo(n) && !n.content.trim()) {
-        j++
-        continue
-      }
-      if (isElementInfo(n) && n.structural?.type === 'else-if') {
-        branches.push(n)
-        j++
-        continue
-      }
-      break
+      if (j >= nodes.length || !isElementInfo(n) || n.structural?.type !== 'else-if') break
+      branches.push(n)
+      next = j + 1
     }
 
-    return { branches, next: j }
+    return { branches, next }
+  }
+
+  /**
+   * Text that may sit between an `if` and its `else-if`: ASCII whitespace only
+   * (the characters HTML collapses). NBSP and other Unicode spaces are content
+   * — `.trim()` would treat them as indentation.
+   */
+  private isBranchSeparator(node: NodeInfo): boolean {
+    return isTextInfo(node) && /^[ \t\n\f\r]*$/.test(node.content)
   }
 
   /**
