@@ -865,3 +865,12 @@ Primafacie:     300 /   400 LOC
 Dev toolchain:  527 /   800 LOC
 Total:        5,268 / 9,500 LOC   832 tests
 ```
+
+### Status at pause — 2026-10-01 (read this first when resuming)
+**v2.2.4 is NOT released.** The release PR (#31, branch `release-v2.2.4`) is open and unmerged; nothing is tagged and nothing is published. Work stopped here for the day on Joe's instruction.
+
+- **Five issues are open again: #15, #25, #26, #27, #28.** They were closed for a short time on 2026-10-01 and Joe reopened them the same day. None of them is fixed.
+- **New instructions are coming** (next session) to address those issues as part of preparing v2.2.4. Until they arrive, do not merge PR #31, do not tag, do not publish, and do not start any of the five on your own initiative.
+- **Everything in this section above is provisional as a result.** "What is deliberately not in this release", the changelog's `[2.2.4]` entry (its date, its Known issues list for #15 / #27 / #26), the README's Known issues pointer, the ROADMAP's v2.2.5 hygiene list, the LOC table and the test count were all written for a 2.2.4 that excludes those five issues. Whatever the new instructions bring into 2.2.4 has to be moved out of "known issues / not in this release" and into the fixes, and the release branch re-verified (gates, clean-room build, `npm pack --dry-run`) before it is merged.
+- **What is settled and does not need redoing:** the six fixes on main (#14, #17, #18, #19, #20, #29); the #15 decision (template text preserved exactly, recorded on the issue) and its checkpoint requirement; the publish procedure (v2.2.3's, plus: token only through a temporary npmrc, never printed; never `git clean -x` in the repo; on a tree with no `dist/` the build must run twice until #25 is fixed).
+- **Remove this subsection** when the release is finalized; "The publication" takes its place.
