@@ -42,6 +42,7 @@ export type {
   InterpolationInfo,
   ElementInfo,
   TextInfo,
+  TextPart,
   NodeInfo,
   CompilerOptions,
   CompileResult,

@@ -7,8 +7,9 @@
 
 import { parseFragment, DefaultTreeAdapterMap } from 'parse5'
 import { PROPERTY_NAME_MAP } from '@diamondjs/runtime'
-import { scanInterpolations } from './pipe'
+import { scanInterpolations, interpolationParts, type InterpolationScan } from './pipe'
 import { jsString } from './js-text'
+import { rawTextSpan, rawAttributeValue, decodeText, decodeAttributeValue } from './raw-source'
 import type {
   SourceLocation,
   BindingInfo,
@@ -79,6 +80,9 @@ export class TemplateParser {
   /** Diagnostics (retired/unknown commands) collected during the most recent parse() */
   diagnostics: Diagnostic[] = []
 
+  /** The template being parsed — interpolation syntax is read from the raw source (#29) */
+  private source = ''
+
   /**
    * Parse an HTML template string
    *
@@ -87,6 +91,7 @@ export class TemplateParser {
    */
   parse(html: string): NodeInfo[] {
     this.diagnostics = []
+    this.source = html
     const fragment = parseFragment(html, {
       sourceCodeLocationInfo: true,
     }) as DocumentFragment
@@ -436,21 +441,8 @@ export class TemplateParser {
       }
 
       if (segments.length < 2) {
-        // §16 D-3: attribute interpolation compiles the literal silently —
-        // diagnose it (support is a future decision, not a shipped feature).
-        if (attr.value.includes('${')) {
-          this.diagnostics.push({
-            severity: 'error',
-            code: 'attr-interpolation-unsupported',
-            message:
-              `Attribute interpolation is not supported: ${name}="${attr.value}" ` +
-              `would ship the literal text. Use a binding instead, e.g. ` +
-              `${name}.to-view="${this.suggestConcatExpression(attr.value)}".`,
-            location,
-          })
-          continue
-        }
-        staticAttrs.set(name, attr.value)
+        const value = this.staticAttrValue(element, attr, location)
+        if (value !== null) staticAttrs.set(name, value)
         continue
       }
 
@@ -669,22 +661,136 @@ export class TemplateParser {
   }
 
   /**
-   * Process a text node, extracting interpolations
+   * A plain attribute's value. Interpolation syntax is read from the raw
+   * source (#29): `\${` and entity spellings are literal text. §16 D-3 stands
+   * for a real `${` — attribute interpolation would compile the literal
+   * silently, so it is diagnosed (support is a future decision, not a shipped
+   * feature) and null is returned.
+   */
+  private staticAttrValue(
+    element: Element,
+    attr: { name: string; value: string },
+    location: SourceLocation | null
+  ): string | null {
+    const raw = rawAttributeValue(this.source, element, attr.name)
+    // No raw `${`: nothing to scan — the parser's own value is the text.
+    if (raw !== null && !raw.includes('${')) return attr.value
+
+    const { scan, decode } = this.scanRaw(raw, attr.value, decodeAttributeValue)
+
+    if (scan.spans.length > 0) {
+      this.diagnostics.push({
+        severity: 'error',
+        code: 'attr-interpolation-unsupported',
+        message:
+          `Attribute interpolation is not supported: ${attr.name}="${attr.value}" ` +
+          `would ship the literal text. Use a binding instead, e.g. ` +
+          `${attr.name}.to-view="${this.suggestConcatExpression(scan, decode)}".`,
+        location,
+      })
+      return null
+    }
+    for (let k = 0; k < scan.escapes.length; k++) this.noteEscapedInterpolation(location)
+    return decode(scan.statics[0])
+  }
+
+  /**
+   * Process a text node into literal text + interpolations (#29). Syntax —
+   * the `${` opener, its `}`, an escaping backslash — is recognized in the
+   * RAW source only, so an entity-encoded `$` or `{` is never an
+   * interpolation; each piece is then entity-decoded as the HTML parser
+   * decoded the whole (`${a &lt; b}` keeps working).
    */
   private processTextNode(node: TextNode): TextInfo | null {
     const content = node.value
-    
+
     // Skip whitespace-only nodes
     if (!content.trim()) {
       return null
     }
 
-    const interpolations = this.extractInterpolations(content, node)
+    const location = this.getTextLocation(node)
+    const span = rawTextSpan(this.source, node)
 
+    // No raw `${`: nothing to scan — the parser's own value is the text.
+    if (span !== null && !span.text.includes('${')) {
+      return { content, interpolations: [], parts: [{ kind: 'text', value: content }], location }
+    }
+
+    const { scan, decode, trusted } = this.scanRaw(span?.text ?? null, content, (piece) =>
+      decodeText(piece, node.parentNode)
+    )
+
+    for (const at of scan.escapes) {
+      this.noteEscapedInterpolation(trusted ? this.locationAt(span!.offset + at) : location)
+    }
+
+    const interpolations: InterpolationInfo[] = []
+    for (const found of scan.spans) {
+      const expression = decode(found.expression).trim()
+      if (found.unterminated) {
+        this.diagnostics.push({
+          severity: 'error',
+          code: 'unterminated-interpolation',
+          message: `Unterminated interpolation: '\${${expression}' has no closing '}'.`,
+          location,
+        })
+        continue
+      }
+      this.checkRemovedAmpersand(expression, location)
+      interpolations.push({
+        expression,
+        location, // Simplified - same as text node
+      })
+    }
+    const parts = interpolationParts(scan, decode)
+
+    return { content, interpolations, parts, location }
+  }
+
+  /**
+   * Scan raw source for interpolation syntax (#29). The raw text is trusted
+   * only when it decodes to exactly what the HTML parser produced; when it
+   * does not (no location info, a span the parser reports imprecisely), the
+   * decoded value is scanned instead, as before #29.
+   */
+  private scanRaw(
+    raw: string | null,
+    value: string,
+    decodeRaw: (piece: string) => string
+  ): { scan: InterpolationScan; decode: (piece: string) => string; trusted: boolean } {
+    const trusted = raw !== null && decodeRaw(raw) === value
     return {
-      content,
-      interpolations,
-      location: this.getTextLocation(node),
+      scan: scanInterpolations(trusted ? raw : value),
+      decode: trusted ? decodeRaw : (piece) => piece,
+      trusted,
+    }
+  }
+
+  /**
+   * Advisory (#29): a `\${` was read as a literal `${`. Literal `${` is rare,
+   * and the one case that silently changes meaning is a backslash meant as
+   * text right before an interpolation — a Windows path.
+   */
+  private noteEscapedInterpolation(location: SourceLocation | null): void {
+    this.diagnostics.push({
+      severity: 'info',
+      code: 'escaped-interpolation',
+      message:
+        `'\\\${' is a literal '\${', not an interpolation. If the backslash is itself text ` +
+        `followed by an interpolation — a path such as C:\\Users\\\${user} — write '\\\\\${'.`,
+      location,
+    })
+  }
+
+  /** Source location of an offset into the template. */
+  private locationAt(offset: number): SourceLocation {
+    const before = this.source.slice(0, offset)
+    const lineStart = before.lastIndexOf('\n') + 1
+    return {
+      line: before.split('\n').length,
+      column: offset - lineStart + 1,
+      offset,
     }
   }
 
@@ -694,49 +800,23 @@ export class TemplateParser {
    * `'Hello ' + name`. Best-effort (an unterminated span falls back to a
    * quoted literal); the output is a suggestion, never emitted code.
    */
-  private suggestConcatExpression(value: string): string {
+  private suggestConcatExpression(
+    scan: InterpolationScan,
+    decode: (piece: string) => string
+  ): string {
     const parts: string[] = []
-    let last = 0
-    for (const span of scanInterpolations(value)) {
-      const staticPart = value.slice(last, span.start)
+    scan.spans.forEach((span, k) => {
+      const staticPart = decode(scan.statics[k])
+      if (span.unterminated) {
+        parts.push(jsString(staticPart + '${' + decode(span.expression)))
+        return
+      }
       if (staticPart) parts.push(jsString(staticPart))
-      if (!span.unterminated) parts.push(span.expression.trim())
-      last = span.end
-    }
-    const tail = value.slice(last)
+      parts.push(decode(span.expression).trim())
+    })
+    const tail = decode(scan.statics[scan.spans.length])
     if (tail) parts.push(jsString(tail))
     return parts.join(' + ') || "''"
-  }
-
-  /**
-   * Extract ${...} interpolations from text
-   */
-  private extractInterpolations(
-    content: string,
-    node: TextNode
-  ): InterpolationInfo[] {
-    const interpolations: InterpolationInfo[] = []
-
-    // Brace-depth scanner (not a regex): a `}` inside nested braces or a string
-    // literal — `${x | Conv('}')}` — does not terminate the interpolation.
-    for (const span of scanInterpolations(content)) {
-      if (span.unterminated) {
-        this.diagnostics.push({
-          severity: 'error',
-          code: 'unterminated-interpolation',
-          message: `Unterminated interpolation: '\${${span.expression.trim()}' has no closing '}'.`,
-          location: this.getTextLocation(node),
-        })
-        continue
-      }
-      this.checkRemovedAmpersand(span.expression, this.getTextLocation(node))
-      interpolations.push({
-        expression: span.expression.trim(),
-        location: this.getTextLocation(node), // Simplified - same as text node
-      })
-    }
-
-    return interpolations
   }
 
   /**

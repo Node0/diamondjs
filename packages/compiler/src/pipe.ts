@@ -13,6 +13,8 @@
  * the data leaf and the args are prefixed by the caller's `prefix` callback.
  */
 
+import type { TextPart } from './types'
+
 export interface PipeSegment {
   /** Transform/converter name — emitted verbatim (it is an imported symbol) */
   head: string
@@ -103,58 +105,115 @@ export interface InterpolationSpan {
   unterminated?: boolean
 }
 
+export interface InterpolationScan {
+  /** Real interpolations, in source order. */
+  spans: InterpolationSpan[]
+  /**
+   * The static text around them, escapes resolved: statics[i] precedes
+   * spans[i], and one more entry follows the last span.
+   */
+  statics: string[]
+  /** Offset of each backslash that turned a `${` into literal text. */
+  escapes: number[]
+}
+
 /**
- * Scan `${...}` interpolations with brace-depth + string-literal awareness
- * (same quote/escape discipline as splitTopLevel). Unlike the old regex, a `}`
- * inside a nested brace pair or a string literal — `${x | Conv('}')}` — does
- * not terminate the span.
+ * Scan template text for `${...}` interpolations — the one scanner for text
+ * and attribute values (#29). Three things are syntax, and nothing else is:
+ *
+ *  - the `${` opener;
+ *  - its closing `}`, found with brace-depth + string-literal awareness (a `}`
+ *    inside a nested brace pair or a string literal — `${x | Conv('}')}` —
+ *    does not terminate the span);
+ *  - a run of backslashes directly before a `${`, read by the JS rule: pairs
+ *    collapse to one backslash each, and an odd one left over makes the `${`
+ *    literal text. A backslash anywhere else is ordinary text.
  */
-export function scanInterpolations(content: string): InterpolationSpan[] {
+export function scanInterpolations(source: string): InterpolationScan {
   const spans: InterpolationSpan[] = []
+  const statics: string[] = []
+  const escapes: number[] = []
+  let text = '' // the static chunk being built
+  let from = 0 // start of the source not yet copied into `text`
   let i = 0
 
-  while (i < content.length) {
-    if (content[i] !== '$' || content[i + 1] !== '{') {
+  while (i < source.length) {
+    if (source[i] !== '$' || source[i + 1] !== '{') {
       i++
       continue
     }
 
+    let run = i
+    while (run > from && source[run - 1] === '\\') run--
+    const slashes = i - run
+    text += source.slice(from, run) + '\\'.repeat(slashes >> 1)
+    if (slashes % 2 === 1) {
+      escapes.push(i - 1)
+      text += '${'
+      i += 2
+      from = i
+      continue
+    }
+
     const start = i
-    i += 2
-    const exprStart = i
-    let depth = 1
-    let quote: string | null = null
-
-    while (i < content.length && depth > 0) {
-      const c = content[i]
-      if (quote) {
-        if (c === '\\') {
-          i += 2 // skip the escaped char
-          continue
-        }
-        if (c === quote) quote = null
-        i++
-        continue
-      }
-      if (c === "'" || c === '"' || c === '`') quote = c
-      else if (c === '{') depth++
-      else if (c === '}') depth--
-      i++
-    }
-
-    if (depth === 0) {
-      spans.push({ expression: content.slice(exprStart, i - 1), start, end: i })
+    const close = findInterpolationClose(source, i + 2)
+    statics.push(text)
+    text = ''
+    if (close < 0) {
+      i = source.length
+      spans.push({ expression: source.slice(start + 2), start, end: i, unterminated: true })
     } else {
-      spans.push({
-        expression: content.slice(exprStart),
-        start,
-        end: content.length,
-        unterminated: true,
-      })
+      i = close + 1
+      spans.push({ expression: source.slice(start + 2, close), start, end: i })
     }
+    from = i
   }
 
-  return spans
+  statics.push(text + source.slice(from))
+  return { spans, statics, escapes }
+}
+
+/**
+ * Offset of the `}` that closes an interpolation whose expression starts at
+ * `from`, or -1 when it is never closed. Brace-depth + string-literal aware.
+ */
+function findInterpolationClose(source: string, from: number): number {
+  let depth = 1
+  let quote: string | null = null
+
+  for (let i = from; i < source.length; i++) {
+    const c = source[i]
+    if (quote) {
+      if (c === '\\') i++ // skip the escaped char
+      else if (c === quote) quote = null
+    } else if (c === "'" || c === '"' || c === '`') quote = c
+    else if (c === '{') depth++
+    else if (c === '}' && --depth === 0) return i
+  }
+  return -1
+}
+
+/**
+ * Lay a scan out as ordered text parts. `decode` turns a raw piece into its
+ * text (the parser entity-decodes; already-decoded content passes through).
+ * An unterminated span — the parser reports it — stays literal text, so
+ * codegen never crashes on it.
+ */
+export function interpolationParts(
+  scan: InterpolationScan,
+  decode: (piece: string) => string = (piece) => piece
+): TextPart[] {
+  const parts: TextPart[] = []
+  const pushText = (value: string): void => {
+    if (value) parts.push({ kind: 'text', value })
+  }
+  scan.spans.forEach((span, k) => {
+    pushText(decode(scan.statics[k]))
+    if (span.unterminated) pushText('${' + decode(span.expression))
+    else parts.push({ kind: 'expression', expression: decode(span.expression).trim() })
+  })
+  pushText(decode(scan.statics[scan.spans.length]))
+  return parts
 }
 
 /**

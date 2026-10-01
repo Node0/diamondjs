@@ -82,29 +82,29 @@ describe('parsePipe', () => {
 
 describe('scanInterpolations', () => {
   it('scans simple interpolations with spans', () => {
-    const spans = scanInterpolations('Hello ${name}!')
+    const { spans } = scanInterpolations('Hello ${name}!')
     expect(spans).toEqual([{ expression: 'name', start: 6, end: 13 }])
   })
 
   it("does not terminate on a '}' inside a string literal (pipe args)", () => {
-    const spans = scanInterpolations("${x | Conv('}')}")
+    const { spans } = scanInterpolations("${x | Conv('}')}")
     expect(spans).toHaveLength(1)
     expect(spans[0].expression).toBe("x | Conv('}')")
     expect(spans[0].unterminated).toBeUndefined()
   })
 
   it("does not terminate on a '}' inside nested braces", () => {
-    const spans = scanInterpolations('${ {a:1}.a } end')
+    const { spans } = scanInterpolations('${ {a:1}.a } end')
     expect(spans[0].expression).toBe(' {a:1}.a ')
   })
 
   it("handles a static '}' between two interpolations", () => {
-    const spans = scanInterpolations('${a} } ${b}')
+    const { spans } = scanInterpolations('${a} } ${b}')
     expect(spans.map((s) => s.expression)).toEqual(['a', 'b'])
   })
 
   it('flags an unterminated interpolation', () => {
-    const spans = scanInterpolations('text ${a.b')
+    const { spans } = scanInterpolations('text ${a.b')
     expect(spans[0].unterminated).toBe(true)
     expect(spans[0].expression).toBe('a.b')
   })

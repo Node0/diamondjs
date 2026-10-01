@@ -152,10 +152,23 @@ export interface ElementInfo {
  * Text node information
  */
 export interface TextInfo {
+  /** The text as the HTML parser decoded it (escapes such as `\${` still in place). */
   content: string
   interpolations: InterpolationInfo[]
+  /**
+   * What the parser read (#29): literal text and interpolated expressions, in
+   * order. A literal `${` — written `\${` or with an entity — is text here,
+   * which `content` alone cannot tell apart from an interpolation. Absent on
+   * hand-built nodes, whose `content` is then scanned as template source.
+   */
+  parts?: TextPart[]
   location: SourceLocation | null
 }
+
+/** One piece of a text node: literal text, or an interpolated expression. */
+export type TextPart =
+  | { kind: 'text'; value: string }
+  | { kind: 'expression'; expression: string }
 
 /**
  * Union of all node types

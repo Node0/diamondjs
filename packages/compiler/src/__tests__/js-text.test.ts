@@ -117,8 +117,8 @@ describe('round trip: compiled text renders exactly what the template says', () 
     expect(mount('<p>C:\\temp\\notes</p>').textContent).toBe('C:\\temp\\notes')
   })
 
-  it('a backslash directly before an interpolation does not escape it', () => {
-    expect(mount('<p>a\\${x}</p>', { x: 'X' }).textContent).toBe('a\\X')
+  it('a literal backslash directly before an interpolation survives (#29: written \\\\${)', () => {
+    expect(mount('<p>a\\\\${x}</p>', { x: 'X' }).textContent).toBe('a\\X')
   })
 })
 
