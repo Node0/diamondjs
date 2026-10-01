@@ -44,6 +44,9 @@ export abstract class Component {
    */
   private mounted = false
 
+  /** Removes the mounted template's node range (#17: it may have many roots) */
+  private removeRange: (() => void) | null = null
+
   /**
    * Compiler-generated instance method that builds the DOM tree.
    * Uses 'this' to reference component properties and methods.
@@ -84,7 +87,9 @@ export abstract class Component {
     const { value, cleanup } = DiamondCore.captureScope(() => this.createTemplate())
     this.element = value
     this.registerCleanup(cleanup)
-    hostElement.appendChild(this.element)
+    const range = DiamondCore.trackRange(value)
+    this.removeRange = range.remove
+    hostElement.appendChild(range.node)
   }
 
   /**
@@ -109,7 +114,8 @@ export abstract class Component {
       }
     }
     this.cleanups = []
-    this.element?.remove()
+    this.removeRange?.()
+    this.removeRange = null
     this.element = null
     this.mounted = false
   }
