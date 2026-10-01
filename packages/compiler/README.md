@@ -65,6 +65,20 @@ const result = compiler.compile(templateSource, { filePath: 'counter.html', sour
 
 The full v2.x template grammar: `set`/`rawSet` and the binding commands (`.bind`, `.two-way`, `.calls`, `.capture`, `.delegate`, `.trigger`, `.one-time`), `${interpolation}` (with `\${` or an entity such as `&#36;{` for a literal `${`), `if`/`else-if`, `repeat.for`, exhaustive `switch`/`case`/`default`, attribute spread (`...attrs.bind`), converter pipes with the `ParseResult` contract, and `error-into` converter error surfaces.
 
+### A literal `${`
+
+Interpolation syntax is read from the raw template source, in text and in plain attribute values:
+
+| Source | Renders |
+|---|---|
+| `${name}` | value of `name` |
+| `\${name}` | `${name}` |
+| `\\${name}` | `\` + value of `name` |
+| `&#36;{name}` | `${name}` — an encoded character is never syntax |
+| `C:\temp\notes` | `C:\temp\notes` — a backslash is only special directly before `${` |
+
+An unescaped `${` in a plain attribute is still the `attr-interpolation-unsupported` error (use a binding). Every `\${` raises an `escaped-interpolation` diagnostic (severity `info`) at the backslash, because one case changes meaning: a Windows path directly before a value must be written `C:\Users\\${user}`. When a template is built from JavaScript, use `String.raw` so the backslash survives.
+
 ## Diagnostics — the stink gate's fuel
 
 Every compile emits typed diagnostics routed by **severity, never by code prefix**:
@@ -74,13 +88,13 @@ Every compile emits typed diagnostics routed by **severity, never by code prefix
 | `error` | Retired/unknown command — broken source | FAIL |
 | `warn` | Latent hole nobody declared (unsafe sink without `raw`, dead switch) | FAIL (hard gate) |
 | `declared` | Intentional `raw` escape hatch | Baselined; drift lands in code review, not a build block |
-| `info` | Advisory | Never gated |
+| `info` | Advisory (e.g. `escaped-interpolation`) | Never gated |
 
 The `stink-check` bin in [`@diamondjs/dev`](https://www.npmjs.com/package/@diamondjs/dev) runs this taxonomy over your whole template tree as a CI gate.
 
 ## Design constraints
 
-- **Compiler < 5,000 LOC** — modular, each pass independently comprehensible (currently ~45% of budget)
+- **Compiler < 5,000 LOC** — modular, each pass independently comprehensible (currently ~49% of budget)
 - **Complexity belongs in the compiler**, not in the runtime or the developer's head
 - **Show your work** — every transformation is visible in compiled output
 

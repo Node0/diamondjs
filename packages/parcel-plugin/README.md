@@ -38,6 +38,10 @@ npx parcel build src/index.html    # production build
 
 `app/config/config.json` → `run_mode: "dev" | "prod"` controls `__DIAMOND_DEV__` injection. In dev, the router narrates its resolved route table at startup through `Print` and dev-only diagnostics stay live; in prod, every such path is eliminated from the bundle.
 
+## Diagnostics
+
+An `error` diagnostic from the compiler fails the build. Everything else — `warn`, `declared` and `info`, including the `escaped-interpolation` notice for a `\${` — is logged through `Print` with the file and line and does not stop the build. The hard gate for `warn` is `stink-check`, not the bundler.
+
 ## Design constraints
 
 - **< 300 LOC** — currently ~55% of budget; the transformer stays a thin honest adapter, with the real work in the compiler
