@@ -235,7 +235,8 @@ export class DiamondCore {
     anchor: Comment,
     branches: Array<{ when: () => boolean; make: () => Node }>
   ): void {
-    let active: { node: Node; cleanup: CleanupFn } | null = null
+    this.unstable.add(anchor)
+    let active: { node: Node; remove: CleanupFn; cleanup: CleanupFn } | null = null
     let activeIndex = -1
 
     // Conditions are read here (before make()) so the master effect tracks their
@@ -253,7 +254,7 @@ export class DiamondCore {
       // Dispose the outgoing branch eagerly (same shape as repeat's
       // gone.cleanup()); it is rebuilt from make() if re-activated.
       if (active) {
-        ;(active.node as ChildNode).remove()
+        active.remove()
         active.cleanup()
         active = null
       }
@@ -261,7 +262,7 @@ export class DiamondCore {
       if (matched < 0) return
 
       const captured = this.captureScope(() => branches[matched].make())
-      active = { node: captured.value, cleanup: captured.cleanup }
+      active = { ...this.trackRange(captured.value, anchor), cleanup: captured.cleanup }
       this.placeBefore(anchor, [active.node], () => (active ? [active.node] : []))
     })
 
@@ -302,6 +303,56 @@ export class DiamondCore {
   }
 
   /**
+   * Nodes a mounted range cannot start on: the anchors of if()/switch()/
+   * repeat() (output lands BEFORE an anchor) and the first node of each
+   * mounted range (a nested branch is replaced when its condition changes).
+   * Repeat rows are the third kind — itemRegistry already knows those.
+   */
+  private static unstable = new WeakSet<Node>()
+
+  /**
+   * Track the mounted range of a body (#17). A multi-root body arrives as a
+   * DocumentFragment, which is empty once inserted — so the range is held as
+   * its first/last node, taken before the insert, and `remove()` walks the
+   * siblings between them as they are at removal time. Nodes a nested
+   * structural inserts after mount are inside: they land before its anchor,
+   * which is one of the roots. The one escape is a body that BEGINS with a
+   * nested structural (its anchor, or output it already rendered); only then
+   * is an empty comment prepended as a fixed start (returned in `node`, which
+   * is what the caller must insert). A single element/text root is its own
+   * range and mounts exactly as before.
+   *
+   * The walk is bounded: it ends at `last`, at `stop` (the owning structural's
+   * anchor, never removed) or at the end of the parent, whichever comes first.
+   */
+  static trackRange(body: Node, stop?: Node): { node: Node; remove: CleanupFn } {
+    const isFragment = body.nodeType === 11
+    let first = isFragment ? body.firstChild : body
+    const last = isFragment ? body.lastChild : body
+    let node = body
+    if (first && (this.unstable.has(first) || this.itemRegistry.has(first))) {
+      const start = document.createComment('')
+      if (!isFragment) {
+        node = document.createDocumentFragment()
+        node.appendChild(body)
+      }
+      node.insertBefore(start, first)
+      first = start
+    }
+    if (first) this.unstable.add(first)
+    return {
+      node,
+      remove: () => {
+        for (let n = first; n && n !== stop; ) {
+          const next = n === last ? null : n.nextSibling
+          n.parentNode?.removeChild(n)
+          n = next
+        }
+      },
+    }
+  }
+
+  /**
    * Reactive exhaustive multi-state rendering (v2.1, Amendment A1 §7.3 —
    * <switch>/<case>/<default>). The on-value is evaluated ONCE per update, then
    * tested against each case's match predicate in document order; first match
@@ -323,8 +374,9 @@ export class DiamondCore {
     cases: Array<{ match: (v: unknown) => boolean; make: () => Node }>,
     defaultMake?: () => Node
   ): void {
+    this.unstable.add(anchor)
     // Index cases.length denotes the default branch (when present)
-    let active: { node: Node; cleanup: CleanupFn } | null = null
+    let active: { node: Node; remove: CleanupFn; cleanup: CleanupFn } | null = null
     let activeIndex = -1
 
     // onGetter + match predicates run inside the master effect, so both the
@@ -345,7 +397,7 @@ export class DiamondCore {
       // Dispose the outgoing branch eagerly (same shape as repeat's
       // gone.cleanup()); it is rebuilt from make() if re-activated.
       if (active) {
-        ;(active.node as ChildNode).remove()
+        active.remove()
         active.cleanup()
         active = null
       }
@@ -354,7 +406,7 @@ export class DiamondCore {
 
       const make = matched === cases.length ? defaultMake! : cases[matched].make
       const captured = this.captureScope(() => make())
-      active = { node: captured.value, cleanup: captured.cleanup }
+      active = { ...this.trackRange(captured.value, anchor), cleanup: captured.cleanup }
       this.placeBefore(anchor, [active.node], () => (active ? [active.node] : []))
     })
 
@@ -380,6 +432,7 @@ export class DiamondCore {
     itemsGetter: () => Iterable<T> | null | undefined,
     makeItem: (item: T, index: number) => Node
   ): void {
+    this.unstable.add(anchor)
     let current = new Map<unknown, { node: ChildNode; cleanup: CleanupFn }>()
     const isIdentityKeyed = (item: unknown): boolean =>
       (typeof item === 'object' && item !== null) || typeof item === 'function'

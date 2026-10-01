@@ -142,7 +142,10 @@ describe('end-to-end: compiled structurals render synchronously on mount', () =>
     const host = document.createElement('div')
     c.mount(host)
     await new Promise<void>((r) => setTimeout(r, 0))
-    expect(host.innerHTML).toBe('<div>ROOT</div><!--if-->')
+    // #17: a body that begins with a structural mounts behind a start marker,
+    // so unmount() can remove the branch that rendered before the anchor.
+    expect(host.innerHTML).toBe('<!----><div>ROOT</div><!--if-->')
     c.unmount()
+    expect(host.innerHTML).toBe('')
   })
 })
