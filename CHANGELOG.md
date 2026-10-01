@@ -4,6 +4,11 @@ All notable changes to DiamondJS are recorded here. The format follows [Keep a C
 
 Each release's *why* lives in its design record under `impl_docs/plans/` and `impl_docs/spec/`; the narrative account of how it was built is `impl_docs/project_update_log.md`.
 
+## [Unreleased]
+
+### Fixed
+- **The router's link interceptor routed anchors that are not navigation** (#14). A same-origin `<a href>` click was claimed even when the anchor was a file save or opened elsewhere, so the usual `<a download href="blob:…">` + `click()` idiom landed on the not-found route instead of downloading (a `blob:` URL reports its creating document's origin). The interceptor now leaves these to the browser: anchors with `download`, a `target` other than `_self`, `rel="external"`, and any href whose scheme is not `http` / `https` (`blob:`, `data:`, `mailto:`, `tel:`).
+
 ## [2.2.3] — 2026-09-29
 
 The first application built on the published constellation surfaced five defects within its first day (issues #7–#11). All five are fixed upstream in this patch; no API is removed.

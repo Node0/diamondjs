@@ -61,7 +61,7 @@ const router = new Router(routes);   // { basePath: '/my-app' } when not at doma
 await router.start();                // guards run on the initial URL too
 ```
 
-Navigation is a two-phase transaction: **all** guards for the whole plan run before **anything** mounts, then the commit is atomic. A guard rejection means zero DOM change. Links are plain `<a href>` — the router intercepts same-origin primary clicks and leaves middle-click, modifier-click, and external links to the browser.
+Navigation is a two-phase transaction: **all** guards for the whole plan run before **anything** mounts, then the commit is atomic. A guard rejection means zero DOM change. Links are plain `<a href>` — the router intercepts same-origin primary clicks and leaves middle-click, modifier-click, and external links to the browser. Anchors that are not navigation pass through too: `download`, a `target` other than `_self`, `rel="external"`, and non-http(s) hrefs (`blob:`, `data:`, `mailto:`, `tel:`).
 
 ### Guards
 

@@ -209,3 +209,13 @@ The first application built on the published 2.2.2 constellation (a hosted singl
 ## Tooling
 - **route-check template stubs (#10)**: `installTemplateStubs()` registers ESM hooks from a `data:` URL (no extra file to ship in `dist/bin`) AND wraps `Module._extensions['.js']`. Why the wrapper: tsx's `tsImport` tags CommonJS filenames with `?namespace=…`, so Node's `findLongestRegisteredExtension` never matches a `.html` key — but tsx's transformer delegates every non-TS file to the `.js` handler it captured at registration, which is ours when installed first. Consumers without `"type": "module"` (the Quick Start's `npm init -y` default) hit the CJS path; a `"type": "module"` consumer hits the ESM path. Both are tested.
 - The loader test spawns the real bin from source via `tsx/cli` (resolved through tsx's exports map — `tsx/dist/cli.mjs` is not an exported subpath) against two on-disk fixtures. Fixtures must live inside the repo tree so `@diamondjs/runtime` resolves; copying them to a temp dir would break resolution.
+
+---
+
+# v2.2.4 — Turbine findings, continued (2026-09-30)
+
+## Runtime
+- **Link interceptor pass-throughs (#14).** `Router.onClick` now returns before `preventDefault` for anchors with `download`, a `target` other than `_self`, a `rel` token `external` (both compared case-insensitively), and any resolved URL whose protocol is not `http:` / `https:`. The protocol test is what catches `blob:` — a `blob:` URL's `origin` is the creating document's origin, so the same-origin test alone claims it; `data:` / `mailto:` / `tel:` already failed that test (`origin` is `'null'`) and are now pinned by tests rather than incidental. The attribute checks live in `Router.optsOutOfRouting` to keep `onClick` near its previous lint complexity.
+- `_top` / `_parent` are passed through like `_blank` even though they equal `_self` in a top-level document: the browser then does an ordinary full-page load of a same-origin URL, which is correct, just not SPA.
+- **Spec touch-point for Joe:** Router Specification §9 (and the Work Order's link bullet) enumerate the pass-throughs as "middle-click, modifier clicks, and external hrefs". The #14 set extends that list; the spec text is unchanged here — amend when it is next touched.
+- **happy-dom performs the default action of an unprevented anchor click** — it navigates the test document. A pass-through test that clicks a `blob:` link moves `location` to the blob URL and every later `history.replaceState` in the file throws `SecurityError`. The #14 tests add a `window` click listener (runs after the router's `document` listener) that records `defaultPrevented` and then cancels the click itself.

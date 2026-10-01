@@ -543,6 +543,63 @@ describe('link interception (priority 4)', () => {
     const e = click(anchor)
     expect(e.defaultPrevented).toBe(false)
   })
+
+  // #14 — anchors that are not navigation pass through and never route.
+  // The window listener runs after the router's document listener: it records
+  // whether the router claimed the click, then cancels happy-dom's own default
+  // navigation so a passed-through click cannot move the test document.
+  async function expectPassThrough(attrs: Record<string, string>): Promise<void> {
+    const { anchor } = linkSetup()
+    for (const [name, value] of Object.entries(attrs)) anchor.setAttribute(name, value)
+    router = new Router(linkRoutes())
+    await router.start()
+    let claimed: boolean | null = null
+    const afterRouter = (e: Event): void => {
+      claimed = e.defaultPrevented
+      e.preventDefault()
+    }
+    window.addEventListener('click', afterRouter, { once: true })
+    click(anchor)
+    expect(claimed).toBe(false)
+    await tick()
+    expect(activeClasses()).toEqual(['home'])
+    expect(location.pathname).toBe('/')
+  }
+
+  it('download anchors pass through untouched', async () => {
+    await expectPassThrough({ download: 'about.txt' })
+  })
+
+  it('blob: hrefs pass through untouched (same origin, never a route)', async () => {
+    const href = `blob:${location.origin}/9f2c1e0a-6b7d-4c3e-8a51-0d2f4b6c8e10`
+    expect(new URL(href).origin).toBe(location.origin) // the trap the origin test fell into
+    await expectPassThrough({ href })
+  })
+
+  it.each(['mailto:someone@example.com', 'tel:+15550100', 'data:text/plain,hi'])(
+    'non-http(s) href %s passes through untouched',
+    async (href) => {
+      await expectPassThrough({ href })
+    }
+  )
+
+  it('target other than _self passes through untouched', async () => {
+    await expectPassThrough({ target: '_blank' })
+  })
+
+  it('target="_self" is still intercepted', async () => {
+    const { anchor } = linkSetup()
+    anchor.setAttribute('target', '_self')
+    router = new Router(linkRoutes())
+    await router.start()
+    expect(click(anchor).defaultPrevented).toBe(true)
+    await tick()
+    expect(activeClasses()).toContain('about')
+  })
+
+  it('rel="external" passes through untouched (token match, any position)', async () => {
+    await expectPassThrough({ rel: 'noopener external' })
+  })
 })
 
 // ── 5. mount failure ───────────────────────────────────────────────────────
