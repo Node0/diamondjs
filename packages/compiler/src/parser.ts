@@ -8,6 +8,7 @@
 import { parseFragment, DefaultTreeAdapterMap } from 'parse5'
 import { PROPERTY_NAME_MAP } from '@diamondjs/runtime'
 import { scanInterpolations } from './pipe'
+import { jsString } from './js-text'
 import type {
   SourceLocation,
   BindingInfo,
@@ -698,12 +699,12 @@ export class TemplateParser {
     let last = 0
     for (const span of scanInterpolations(value)) {
       const staticPart = value.slice(last, span.start)
-      if (staticPart) parts.push(`'${staticPart.replace(/'/g, "\\'")}'`)
+      if (staticPart) parts.push(jsString(staticPart))
       if (!span.unterminated) parts.push(span.expression.trim())
       last = span.end
     }
     const tail = value.slice(last)
-    if (tail) parts.push(`'${tail.replace(/'/g, "\\'")}'`)
+    if (tail) parts.push(jsString(tail))
     return parts.join(' + ') || "''"
   }
 

@@ -29,6 +29,7 @@ import {
   type ParsedPipe,
 } from './pipe'
 import { serializeMappings } from './sourcemap'
+import { jsString, jsTemplatePart, jsCommentText } from './js-text'
 
 interface SourceMapping {
   generated: { line: number; column: number }
@@ -103,7 +104,7 @@ export class CodeGenerator {
     this.reset()
 
     // [Diamond] hint: instance template method
-    this.emitLine('// [Diamond] Compiler-generated instance template method')
+    this.emitHint('Compiler-generated instance template method')
     this.emitLine('createTemplate() {')
     this.indent++
 
@@ -268,8 +269,8 @@ export class CodeGenerator {
       first.location
     )
     this.deferUntilAttached(() => {
-      this.emitLine(
-        `// [Diamond] Conditional: if="${first.expression}"` +
+      this.emitHint(
+        `Conditional: if="${first.expression}"` +
           (branches.length > 1 ? ` (+${branches.length - 1} else-if)` : '')
       )
       this.emitLine(`DiamondCore.if(${anchor}, [`)
@@ -313,8 +314,8 @@ export class CodeGenerator {
       info.location
     )
     this.deferUntilAttached(() => {
-      this.emitLine(
-        `// [Diamond] Switch: on="${info.onExpression}" (${info.cases.length} case${
+      this.emitHint(
+        `Switch: on="${info.onExpression}" (${info.cases.length} case${
           info.cases.length === 1 ? '' : 's'
         }${info.defaultChildren ? ' + default' : ''})`
       )
@@ -326,8 +327,8 @@ export class CodeGenerator {
           c.kind === 'equality'
             ? `v === ${this.literalJs(c.literal)}`
             : this.prefixExpression(c.match)
-        this.emitLine(
-          `// [Diamond] case if="${c.match}" → ${
+        this.emitHint(
+          `case if="${c.match}" → ${
             c.kind === 'equality' ? cond : `${cond} (boolean expression)`
           }`
         )
@@ -342,7 +343,7 @@ export class CodeGenerator {
       if (info.defaultChildren) {
         this.emitLine(`], () => {`)
         this.indent++
-        this.emitLine(`// [Diamond] default — renders when no case matches`)
+        this.emitHint(`default — renders when no case matches`)
         const defRoot = this.combineRoots(info.defaultChildren, 'defaultRoot')
         this.emitLine(`return ${defRoot};`)
         this.indent--
@@ -367,14 +368,14 @@ export class CodeGenerator {
 
     const winner = info.cases.find((c) => c.literal === onLiteral.value)
     if (winner) {
-      this.emitLine(
-        `// [Diamond] Switch on=${JSON.stringify(info.onExpression)} resolved at compile time → case if="${winner.match}" (zero runtime cost)`
+      this.emitHint(
+        `Switch on=${JSON.stringify(info.onExpression)} resolved at compile time → case if="${winner.match}" (zero runtime cost)`
       )
       return this.combineRoots(winner.children, 'caseRoot')
     }
     if (info.defaultChildren) {
-      this.emitLine(
-        `// [Diamond] Switch on=${JSON.stringify(info.onExpression)} resolved at compile time → default (no case matched)`
+      this.emitHint(
+        `Switch on=${JSON.stringify(info.onExpression)} resolved at compile time → default (no case matched)`
       )
       return this.combineRoots(info.defaultChildren, 'defaultRoot')
     }
@@ -395,12 +396,12 @@ export class CodeGenerator {
       .map((c) => c.match)
       .join(', ')} — matched none, no default`
     // DOM comments cannot contain '--'
-    const commentSafe = this.escapeString(summary.replace(/--/g, '—'))
-    this.emitLine(
-      `// [Diamond] DEAD switch (switch-static-dead): unused code, emitted as an inspectable comment node`
+    const commentSafe = jsString(` ${summary.replace(/--/g, '—')} `)
+    this.emitHint(
+      `DEAD switch (switch-static-dead): unused code, emitted as an inspectable comment node`
     )
     this.emitLine(
-      `const ${deadVar} = document.createComment(' ${commentSafe} ');`,
+      `const ${deadVar} = document.createComment(${commentSafe});`,
       info.location
     )
     return deadVar
@@ -427,7 +428,7 @@ export class CodeGenerator {
 
   /** Emit a JS literal for an equality-case value. */
   private literalJs(literal: string | number | boolean | null | undefined): string {
-    return typeof literal === 'string' ? `'${this.escapeString(literal)}'` : String(literal)
+    return typeof literal === 'string' ? jsString(literal) : String(literal)
   }
 
   /**
@@ -471,8 +472,8 @@ export class CodeGenerator {
       s.location
     )
     this.deferUntilAttached(() => {
-      this.emitLine(
-        `// [Diamond] Repeat: repeat.for="${s.itemName} of ${s.itemsExpression}"`
+      this.emitHint(
+        `Repeat: repeat.for="${s.itemName} of ${s.itemsExpression}"`
       )
       const itemsExpr = this.prefixExpression(s.itemsExpression!)
       this.emitLine(`DiamondCore.repeat(${anchor}, () => ${itemsExpr}, (${s.itemName}) => {`)
@@ -509,7 +510,7 @@ export class CodeGenerator {
 
     // Create element
     this.emitLine(
-      `const ${varName} = document.createElement('${element.tagName}');`,
+      `const ${varName} = document.createElement(${jsString(element.tagName)});`,
       element.location
     )
 
@@ -529,11 +530,9 @@ export class CodeGenerator {
       if (diag) this.diagnostics.push(diag)
 
       if (name === 'class') {
-        this.emitLine(`${varName}.className = '${this.escapeString(value)}';`)
+        this.emitLine(`${varName}.className = ${jsString(value)};`)
       } else {
-        this.emitLine(
-          `${varName}.setAttribute('${name}', '${this.escapeString(value)}');`
-        )
+        this.emitLine(`${varName}.setAttribute(${jsString(name)}, ${jsString(value)});`)
       }
     }
 
@@ -556,8 +555,8 @@ export class CodeGenerator {
     this.closeFrame()
 
     if (wireAfterChildren && (element.bindings.length || element.events.length)) {
-      this.emitLine(
-        `// [Diamond] <select> wiring follows its <option> children: value needs the options to exist`
+      this.emitHint(
+        `<select> wiring follows its <option> children: value needs the options to exist`
       )
       this.generateWiring(varName, element)
     }
@@ -587,7 +586,7 @@ export class CodeGenerator {
       if (!content) return null
 
       this.emitLine(
-        `const ${varName} = document.createTextNode('${this.escapeString(content)}');`,
+        `const ${varName} = document.createTextNode(${jsString(content)});`,
         text.location
       )
     } else {
@@ -601,7 +600,7 @@ export class CodeGenerator {
       const templateExpr = this.buildInterpolationExpr(text.content)
       // Echo the source expression in the hint (parity with every other hint type)
       const interpSrc = text.content.replace(/\s+/g, ' ').trim()
-      this.emitLine(`// [Diamond] Text interpolation: ${interpSrc}`)
+      this.emitHint(`Text interpolation: ${interpSrc}`)
       this.emitLine(
         `DiamondCore.bind(${varName}, 'textContent', () => ${templateExpr});`,
         text.interpolations[0]?.location
@@ -695,8 +694,8 @@ export class CodeGenerator {
     // opt-in for an accidental dangerous-sink write. (from-view raw is inbound —
     // a different contract — so it is excluded here.)
     if (binding.raw && binding.type !== 'from-view') {
-      this.emitLine(
-        `// [Diamond] raw sink — explicit opt-in (developer-owned, unescaped); recorded for stink-baseline review, no runtime XSS protection here`
+      this.emitHint(
+        `raw sink — explicit opt-in (developer-owned, unescaped); recorded for stink-baseline review, no runtime XSS protection here`
       )
     }
 
@@ -704,13 +703,13 @@ export class CodeGenerator {
       case 'set': {
         // Static one-shot assignment — direct property write (v2.0: was .one-time)
         const outbound = this.lowerOutboundParsed(parsed)
-        this.emitLine(
-          `// [Diamond] ${rawTag}Set (static one-shot): ${binding.property} = ${binding.expression}`
+        this.emitHint(
+          `${rawTag}Set (static one-shot): ${binding.property} = ${binding.expression}`
         )
         if (binding.property.includes('-')) {
           // Attribute (data-*/aria-*): no JS property exists — write the attribute
           this.emitLine(
-            `${varName}.setAttribute('${binding.property}', ${outbound});`,
+            `${varName}.setAttribute(${jsString(binding.property)}, ${outbound});`,
             binding.location
           )
         } else {
@@ -721,8 +720,8 @@ export class CodeGenerator {
 
       case 'to-view': {
         const outbound = this.lowerOutboundParsed(parsed)
-        this.emitLine(
-          `// [Diamond] ${rawTag}One-way binding: ${binding.property} ← ${binding.expression}`
+        this.emitHint(
+          `${rawTag}One-way binding: ${binding.property} ← ${binding.expression}`
         )
         this.emitBindCall(
           varName,
@@ -745,8 +744,8 @@ export class CodeGenerator {
           binding.errorInto
         )
         const evt = this.updateOnArg(binding)
-        this.emitLine(
-          `// [Diamond] ${rawTag}From-view binding (one-way DOM → ${binding.expression}): ${binding.property}` +
+        this.emitHint(
+          `${rawTag}From-view binding (one-way DOM → ${binding.expression}): ${binding.property}` +
             (binding.updateOn ? ` [update-on: ${binding.updateOn}]` : '')
         )
         this.emitBindCall(
@@ -770,8 +769,8 @@ export class CodeGenerator {
           binding.errorInto
         )
         const evt = this.updateOnArg(binding)
-        this.emitLine(
-          `// [Diamond] ${rawTag}Two-way binding: ${binding.property} ↔ ${binding.expression}` +
+        this.emitHint(
+          `${rawTag}Two-way binding: ${binding.property} ↔ ${binding.expression}` +
             (binding.updateOn ? ` [update-on: ${binding.updateOn}]` : '')
         )
         this.emitBindCall(
@@ -806,7 +805,7 @@ export class CodeGenerator {
     const isBlock = typeof setter === 'object' && setter !== null
 
     if (!isBlock) {
-      const args = [`'${property}'`, getter]
+      const args = [jsString(property), getter]
       if (setter) args.push(setter as string)
       const line = `DiamondCore.bind(${varName}, ${args.join(', ')}${evt});`
       if (this.indent * 2 + line.length <= 100) {
@@ -815,7 +814,7 @@ export class CodeGenerator {
       }
     }
 
-    this.emitLine(`DiamondCore.bind(${varName}, '${property}',`, location)
+    this.emitLine(`DiamondCore.bind(${varName}, ${jsString(property)},`, location)
     this.indent++
     if (setter === null) {
       this.emitLine(`${getter}${evt ? ',' : ''}`)
@@ -856,18 +855,18 @@ export class CodeGenerator {
         raw: true,
         expression: binding.expression,
       })
-      this.emitLine(
-        `// [Diamond] raw sink — explicit opt-in (developer-owned, unescaped); recorded for stink-baseline review, no runtime XSS protection here`
+      this.emitHint(
+        `raw sink — explicit opt-in (developer-owned, unescaped); recorded for stink-baseline review, no runtime XSS protection here`
       )
-      this.emitLine(
-        `// [Diamond] RAW attribute spread: ...attrs.rawBind="${binding.expression}" — allowlist bypassed; developer owns every key (incl. innerHTML/on*)`
+      this.emitHint(
+        `RAW attribute spread: ...attrs.rawBind="${binding.expression}" — allowlist bypassed; developer owns every key (incl. innerHTML/on*)`
       )
       this.emitLine(`DiamondCore.spread(${varName}, ${getter}, true);`, binding.location)
       return
     }
 
-    this.emitLine(
-      `// [Diamond] Attribute spread: ...attrs.bind="${binding.expression}" — runtime-gated: gate FIRST (non-allowlisted keys skipped), branch SECOND`
+    this.emitHint(
+      `Attribute spread: ...attrs.bind="${binding.expression}" — runtime-gated: gate FIRST (non-allowlisted keys skipped), branch SECOND`
     )
     this.emitLine(`DiamondCore.spread(${varName}, ${getter});`, binding.location)
   }
@@ -877,7 +876,7 @@ export class CodeGenerator {
    * set (§4.3) — overrides the default input/change sampling event. Empty otherwise.
    */
   private updateOnArg(binding: BindingInfo): string {
-    return binding.updateOn ? `, '${this.escapeString(binding.updateOn)}'` : ''
+    return binding.updateOn ? `, ${jsString(binding.updateOn)}` : ''
   }
 
   /**
@@ -1042,11 +1041,11 @@ export class CodeGenerator {
     switch (event.type) {
       case 'capture':
         // [Diamond] hint — capture-phase listener (DDR §6.6)
-        this.emitLine(
-          `// [Diamond] Capture event: ${event.property} → this.${event.expression}`
+        this.emitHint(
+          `Capture event: ${event.property} → this.${event.expression}`
         )
         this.emitLine(
-          `DiamondCore.on(${varName}, '${event.property}', ${handler}, true);`,
+          `DiamondCore.on(${varName}, ${jsString(event.property)}, ${handler}, true);`,
           event.location
         )
         break
@@ -1054,11 +1053,11 @@ export class CodeGenerator {
       case 'calls':
       default:
         // [Diamond] hint — bubble-phase listener (DDR §6.5: .calls)
-        this.emitLine(
-          `// [Diamond] Event binding: ${event.property} → this.${event.expression}`
+        this.emitHint(
+          `Event binding: ${event.property} → this.${event.expression}`
         )
         this.emitLine(
-          `DiamondCore.on(${varName}, '${event.property}', ${handler});`,
+          `DiamondCore.on(${varName}, ${jsString(event.property)}, ${handler});`,
           event.location
         )
         break
@@ -1101,21 +1100,18 @@ export class CodeGenerator {
     // chunks are escaped, each ${expr} becomes the lowered (pipe-aware)
     // outbound expression. An unterminated span (parser already errored) is
     // emitted as escaped literal text so codegen never crashes on it.
-    const escapeStatic = (s: string) =>
-      s.replace(/`/g, '\\`').replace(/\$\{/g, '\\${')
-
     let result = ''
     let last = 0
     for (const span of scanInterpolations(content)) {
-      result += escapeStatic(content.slice(last, span.start))
+      result += jsTemplatePart(content.slice(last, span.start))
       if (span.unterminated) {
-        result += escapeStatic(content.slice(span.start, span.end))
+        result += jsTemplatePart(content.slice(span.start, span.end))
       } else {
         result += '${' + this.lowerOutbound(span.expression.trim()) + '}'
       }
       last = span.end
     }
-    result += escapeStatic(content.slice(last))
+    result += jsTemplatePart(content.slice(last))
     return '`' + result + '`'
   }
 
@@ -1139,6 +1135,14 @@ export class CodeGenerator {
         return `this.${id}`
       }
     )
+  }
+
+  /**
+   * Emit a `// [Diamond]` hint. Hints quote author text (expressions,
+   * attribute values), which must not be able to end the comment line.
+   */
+  private emitHint(text: string): void {
+    this.emitLine(`// [Diamond] ${jsCommentText(text)}`)
   }
 
   /**
@@ -1170,17 +1174,6 @@ export class CodeGenerator {
   private nextVar(hint: string): string {
     const sanitized = hint.replace(/[^A-Za-z0-9_$]/g, '_')
     return `${sanitized}_${this.varCounter++}`
-  }
-
-  /**
-   * Escape string for JavaScript
-   */
-  private escapeString(str: string): string {
-    return str
-      .replace(/\\/g, '\\\\')
-      .replace(/'/g, "\\'")
-      .replace(/\n/g, '\\n')
-      .replace(/\r/g, '\\r')
   }
 
   /**
