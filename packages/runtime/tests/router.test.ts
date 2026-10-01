@@ -602,6 +602,171 @@ describe('link interception (priority 4)', () => {
   })
 })
 
+// ── 4b. query and hash (#20) ───────────────────────────────────────────────
+
+describe('query and hash', () => {
+  let guardRuns = 0
+  class CountingGuard extends Guard {
+    static override check(_ctx: GuardContext): boolean {
+      guardRuns++
+      return true
+    }
+  }
+  class Exploding extends Component {
+    constructor(_params?: Record<string, unknown>) {
+      super()
+      throw new Error('constructor boom')
+    }
+  }
+  const routes = (): RouteMap => ({
+    home: { path: '', component: makePage('home'), outlet: 'main' },
+    about: {
+      path: 'about',
+      component: makePage('about'),
+      outlet: 'main',
+      query: { tab: IntConverter },
+      guard: CountingGuard,
+    },
+    broken: { path: 'broken', component: Exploding as never, outlet: 'main' },
+    'not-found': { path: '*', component: makePage('nf'), outlet: 'main' },
+  })
+
+  const here = (): string => location.pathname + location.search + location.hash
+  const aboutText = (): string | null | undefined => document.querySelector('.about')?.textContent
+  /** happy-dom delivers history.back() / forward() asynchronously. */
+  const traversed = () => new Promise<void>((r) => setTimeout(r, 10))
+
+  async function startAt(url: string, options?: { basePath?: string }): Promise<void> {
+    rootShell('main')
+    history.replaceState(null, '', url)
+    router = new Router(routes(), options)
+    await router.start()
+    guardRuns = 0
+  }
+
+  /**
+   * Click a link; true when the router claimed it. An unclaimed fragment
+   * link keeps its default action (happy-dom sets the hash, as a browser
+   * does); any other unclaimed link is cancelled so it cannot move the test
+   * document.
+   */
+  function clickLink(href: string): boolean {
+    const a = document.createElement('a')
+    a.setAttribute('href', href)
+    document.body.appendChild(a)
+    let claimed = false
+    const afterRouter = (e: Event): void => {
+      claimed = e.defaultPrevented
+      if (!href.startsWith('#')) e.preventDefault()
+    }
+    window.addEventListener('click', afterRouter, { once: true })
+    a.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }))
+    return claimed
+  }
+
+  it('a hash-only link is left to the browser', async () => {
+    await startAt('/about?tab=2')
+    expect(clickLink('#section')).toBe(false)
+    await tick()
+    expect(here()).toBe('/about?tab=2#section') // the browser's own fragment navigation
+    expect(guardRuns).toBe(0)
+    expect(aboutText()).toBe('about:{"tab":2}')
+  })
+
+  it('a link to the same path and query with a new hash is left to the browser', async () => {
+    await startAt('/about?tab=2#one')
+    expect(clickLink('/about?tab=2#two')).toBe(false)
+    await tick()
+    expect(guardRuns).toBe(0)
+  })
+
+  it('a link carries its query and hash into the URL; matching uses the path only', async () => {
+    await startAt('/')
+    expect(clickLink('/about?tab=2#x')).toBe(true)
+    await tick()
+    expect(here()).toBe('/about?tab=2#x')
+    expect(aboutText()).toBe('about:{"tab":2}') // the LINK's query, not the page being left
+  })
+
+  it('the same path with a different query is a navigation', async () => {
+    await startAt('/about?tab=2')
+    expect(clickLink('/about?tab=3#x')).toBe(true)
+    await tick()
+    expect(here()).toBe('/about?tab=3#x')
+    expect(aboutText()).toBe('about:{"tab":3}')
+  })
+
+  it("a link's query that fails its converter fails the match", async () => {
+    await startAt('/')
+    expect(clickLink('/about?tab=abc')).toBe(true)
+    await tick()
+    expect(activeClasses()).toEqual(['nf'])
+    expect(here()).toBe('/about?tab=abc')
+  })
+
+  it('initial load keeps the query and hash', async () => {
+    await startAt('/about?tab=2#x')
+    expect(here()).toBe('/about?tab=2#x')
+    expect(aboutText()).toBe('about:{"tab":2}')
+  })
+
+  it('Back and Forward restore the query and hash', async () => {
+    await startAt('/?from=1#top')
+    clickLink('/about?tab=2#x')
+    await tick()
+    expect(here()).toBe('/about?tab=2#x')
+
+    history.back()
+    await traversed()
+    expect(here()).toBe('/?from=1#top')
+    expect(activeClasses()).toEqual(['home'])
+
+    // happy-dom's replaceState on a back entry discards its forward history
+    // (a browser keeps it), so Forward is the entry re-created + a popstate.
+    history.pushState(null, '', '/about?tab=2#x')
+    window.dispatchEvent(new PopStateEvent('popstate'))
+    await tick()
+    expect(here()).toBe('/about?tab=2#x')
+    expect(aboutText()).toBe('about:{"tab":2}')
+  })
+
+  it('a popstate that only changes the hash does not route or re-guard', async () => {
+    await startAt('/about?tab=2')
+    history.pushState(null, '', '/about?tab=2#x') // what a fragment navigation leaves behind
+    window.dispatchEvent(new PopStateEvent('popstate'))
+    await tick()
+    expect(guardRuns).toBe(0)
+    expect(here()).toBe('/about?tab=2#x')
+
+    history.pushState(null, '', '/?q=1#y') // a different path still routes, tail kept
+    window.dispatchEvent(new PopStateEvent('popstate'))
+    await tick()
+    expect(activeClasses()).toEqual(['home'])
+    expect(here()).toBe('/?q=1#y')
+  })
+
+  it('a failed mount restores the previous query and hash', async () => {
+    await startAt('/about?tab=2#x')
+    await router!.navigate('/broken')
+    expect(here()).toBe('/about?tab=2#x')
+    expect(aboutText()).toBe('about:{"tab":2}')
+  })
+
+  it('navigate(path) is path-only: no query or hash is carried over', async () => {
+    await startAt('/?from=1#top')
+    await router!.navigate('/about')
+    expect(here()).toBe('/about')
+  })
+
+  it('under a basePath the prefix, query and hash all survive', async () => {
+    await startAt('/tools/reports/', { basePath: '/tools/reports' })
+    expect(clickLink('/tools/reports/about?tab=2#x')).toBe(true)
+    await tick()
+    expect(here()).toBe('/tools/reports/about?tab=2#x')
+    expect(aboutText()).toBe('about:{"tab":2}')
+  })
+})
+
 // ── 5. mount failure ───────────────────────────────────────────────────────
 
 describe('mount failure (priority 5)', () => {
