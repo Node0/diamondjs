@@ -726,15 +726,20 @@ export class Router {
 
   /** Link pattern (spec §6.3, verbatim authority): static href + interceptor.
    *  Same-origin, primary button, no modifier keys → preventDefault +
-   *  navigate(). Middle-click / modifiers / external pass through untouched. */
+   *  navigate(). Middle-click / modifiers / external pass through untouched.
+   *  So do anchors that are not navigation at all (#14): `download`, a
+   *  `target` other than `_self`, `rel="external"`, and non-http(s) schemes. */
   private onClick = (e: MouseEvent): void => {
     if (e.defaultPrevented || e.button !== 0) return
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
     const target = e.target as Element | null
     const anchor = target?.closest?.('a[href]')
-    if (!anchor) return
+    if (!anchor || Router.optsOutOfRouting(anchor)) return
     const href = anchor.getAttribute('href')!
     const url = new URL(href, location.href)
+    // A blob: URL reports its creating document's origin, so the origin test
+    // alone would claim it; only http(s) URLs can be routes.
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return
     if (url.origin !== location.origin) return
     // Under a basePath, only links inside the public prefix belong to this
     // app; anything else (e.g. a sibling app one folder over) passes through.
@@ -747,6 +752,16 @@ export class Router {
     }
     e.preventDefault()
     void this.navigate(this.stripBase(url.pathname))
+  }
+
+  /** The anchor's own attributes say the browser should handle it: a file
+   *  save, another browsing context, or an author-marked external link. */
+  private static optsOutOfRouting(anchor: Element): boolean {
+    if (anchor.hasAttribute('download')) return true
+    const target = anchor.getAttribute('target')
+    if (target && target.toLowerCase() !== '_self') return true
+    const rel = anchor.getAttribute('rel')
+    return !!rel && rel.toLowerCase().split(/\s+/).includes('external')
   }
 
   private onPopstate = (): void => {

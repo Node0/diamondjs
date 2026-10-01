@@ -323,7 +323,7 @@ The app shell is an ordinary component. Persistent chrome (headers, nav, hamburg
 <outlet name="overlay"></outlet>
 ```
  
-Links are plain `<a href>` — the router intercepts same-origin primary clicks and leaves middle-click, modifier-click, and external links to the browser. No `<RouterLink>` component to learn.
+Links are plain `<a href>` — the router intercepts same-origin primary clicks and leaves middle-click, modifier-click, and external links to the browser. Anchors that are not navigation pass through too: `download`, a `target` other than `_self`, `rel="external"`, and non-http(s) hrefs (`blob:`, `data:`, `mailto:`, `tel:`). No `<RouterLink>` component to learn.
  
 ```typescript
 // main.ts
