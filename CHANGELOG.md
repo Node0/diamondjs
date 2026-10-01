@@ -8,6 +8,7 @@ Each release's *why* lives in its design record under `impl_docs/plans/` and `im
 
 ### Fixed
 - **The router's link interceptor routed anchors that are not navigation** (#14). A same-origin `<a href>` click was claimed even when the anchor was a file save or opened elsewhere, so the usual `<a download href="blob:…">` + `click()` idiom landed on the not-found route instead of downloading (a `blob:` URL reports its creating document's origin). The interceptor now leaves these to the browser: anchors with `download`, a `target` other than `_self`, `rel="external"`, and any href whose scheme is not `http` / `https` (`blob:`, `data:`, `mailto:`, `tel:`).
+- **The router claimed hash-only links and dropped the query and hash on navigation** (#20). `<a href="#section">` was intercepted and nothing happened: no scroll, no hash in the URL. A link to a fragment of the page already showing is now left to the browser. `<a href="/about?tab=2#x">` navigated to `/about`; a link's query and hash are now carried into the URL, and initial load and Back / Forward keep them too (matching still uses the path only). A route's declared `query` converters now parse the query of the URL being navigated to — on a link click they used to read the page being left.
 
 ## [2.2.3] — 2026-09-29
 

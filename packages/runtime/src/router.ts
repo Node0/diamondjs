@@ -115,6 +115,15 @@ interface Occupant {
 
 type NavVector = 'push' | 'initial' | 'popstate'
 
+/** What follows the path in a URL. It never takes part in matching (declared
+ *  query converters read `search`); it is carried into the history write. */
+interface UrlTail {
+  search: string // '' or '?…'
+  hash: string // '' or '#…'
+}
+
+const NO_TAIL: UrlTail = { search: '', hash: '' }
+
 const TIMEOUT: unique symbol = Symbol('guard-timeout')
 
 function isDev(): boolean {
@@ -132,6 +141,7 @@ export class Router {
   private navSeq = 0
   private historyIndex = 0
   private currentPath: string | null = null
+  private currentTail: UrlTail = NO_TAIL
   private narrate = true
   private started = false
   /** Browser-visible public prefix ('' at domain root; '/a/b' when nested). */
@@ -175,7 +185,7 @@ export class Router {
     window.addEventListener('popstate', this.onPopstate)
     document.addEventListener('click', this.onClick)
     if (isDev()) this.printRouteTable()
-    await this.run(this.readLocation(), 'initial')
+    await this.run(this.readLocation(), 'initial', 0, this.readTail())
   }
 
   /** Detach listeners and unmount everything (deepest-first). */
@@ -195,6 +205,11 @@ export class Router {
    * active Pending holds, confirm departure and abort cleanly on decline.
    */
   async navigate(path: string): Promise<void> {
+    await this.request(path, NO_TAIL)
+  }
+
+  /** navigate() plus the link's query and hash (the interceptor's entry). */
+  private async request(path: string, tail: UrlTail): Promise<void> {
     if (Pending.active) {
       const ok = window.confirm(
         `You have unsaved work (${Pending.labels().join(', ')}). Leave anyway?`
@@ -204,7 +219,7 @@ export class Router {
         return
       }
     }
-    await this.run(this.normalize(path), 'push')
+    await this.run(this.normalize(path), 'push', 0, tail)
   }
 
   // ────────────────────────────── the pipeline ──────────────────────────────
@@ -213,13 +228,14 @@ export class Router {
     path: string,
     vector: NavVector,
     hops = 0,
-    query?: QueryParams
+    tail: UrlTail = NO_TAIL
   ): Promise<void> {
     // 1. TRIGGER
     const navId = ++this.navSeq
 
-    // 2. RECOGNIZE
-    const recognized = this.recognize(path)
+    // 2. RECOGNIZE — query converters parse the TARGET's search; on a push
+    //    the location still shows the page being left.
+    const recognized = this.recognize(path, tail.search)
     if (!recognized) {
       Print('WARNING', `no route matched '${path}' (and no '*' route declared)`)
       return
@@ -283,28 +299,15 @@ export class Router {
     // 5. RACE CHECK — a newer navigation supersedes this one, silently.
     if (navId !== this.navSeq) return
 
-    // 6. HISTORY WRITE — stamped for canLeave forward-compatibility. A
-    //    route-* Destination's query rides here (e.g. a login returnTo).
-    const search =
-      query && Object.keys(query).length
-        ? '?' +
-          new URLSearchParams(
-            Object.entries(query).map(([k, v]) => [k, String(v)])
-          ).toString()
-        : ''
+    // 6. HISTORY WRITE — stamped for canLeave forward-compatibility. The
+    //    query and hash ride here: a link's own, the location's on initial
+    //    load / popstate, a route-* Destination's query (e.g. a login returnTo).
+    const url = this.href(path) + tail.search + tail.hash
     if (vector === 'push') {
       this.historyIndex++
-      history.pushState(
-        { diamondNavId: navId, index: this.historyIndex },
-        '',
-        this.href(path) + search
-      )
+      history.pushState({ diamondNavId: navId, index: this.historyIndex }, '', url)
     } else {
-      history.replaceState(
-        { diamondNavId: navId, index: this.historyIndex },
-        '',
-        this.href(path) + search
-      )
+      history.replaceState({ diamondNavId: navId, index: this.historyIndex }, '', url)
     }
 
     // 7. COMMIT — synchronous; mount failure preserves the previous route
@@ -320,12 +323,13 @@ export class Router {
         history.replaceState(
           { diamondNavId: navId, index: this.historyIndex },
           '',
-          this.href(this.currentPath)
+          this.href(this.currentPath) + this.currentTail.search + this.currentTail.hash
         )
       }
       return
     }
     this.currentPath = path
+    this.currentTail = tail
 
     // 8. SETTLE
     if (this.narrate) {
@@ -335,12 +339,12 @@ export class Router {
 
   // ─────────────────────────────── recognize ───────────────────────────────
 
-  private recognize(path: string): Recognition | null {
+  private recognize(path: string, search: string): Recognition | null {
     const segments = this.split(path)
     let best: { route: FlatRoute; params: Record<string, unknown> } | null = null
 
     for (const route of this.flat) {
-      const params = this.match(route, segments)
+      const params = this.match(route, segments, search)
       if (params === null) continue // includes converter parse failures
       if (!best || this.moreSpecific(route, best.route)) {
         best = { route, params }
@@ -361,14 +365,18 @@ export class Router {
   /** Match URL segments against one route; parse :params through converters.
    *  Returns parsed params, or null for no-match (a failed ParseResult IS a
    *  failed match — it falls through toward not-found). */
-  private match(route: FlatRoute, url: string[]): Record<string, unknown> | null {
+  private match(
+    route: FlatRoute,
+    url: string[],
+    search: string
+  ): Record<string, unknown> | null {
     const pattern = route.segments
     const params: Record<string, unknown> = {}
     const def = route.def as Partial<Extract<RouteDefinition, { component: unknown }>>
 
     for (let i = 0; i < pattern.length; i++) {
       const p = pattern[i]
-      if (p === '*') return this.parseQuery(def, params) // consumes the rest
+      if (p === '*') return this.parseQuery(def, params, search) // consumes the rest
       if (i >= url.length) return null
       if (p.startsWith(':')) {
         const name = p.slice(1)
@@ -385,21 +393,20 @@ export class Router {
       }
     }
     if (url.length !== pattern.length) return null
-    return this.parseQuery(def, params)
+    return this.parseQuery(def, params, search)
   }
 
   /** Optional per-route query converter map (§3.3). Query params never
    *  participate in matching; undeclared ones pass through raw (app concern). */
   private parseQuery(
     def: Partial<Extract<RouteDefinition, { component: unknown }>>,
-    params: Record<string, unknown>
+    params: Record<string, unknown>,
+    search: string
   ): Record<string, unknown> | null {
     if (!def.query) return params
-    const search = new URLSearchParams(
-      typeof location !== 'undefined' ? location.search : ''
-    )
+    const given = new URLSearchParams(search)
     for (const [name, converter] of Object.entries(def.query)) {
-      const raw = search.get(name)
+      const raw = given.get(name)
       if (raw === null) continue
       const r = converter.parse(raw)
       if (!r.valid) return null
@@ -599,7 +606,14 @@ export class Router {
   ): Promise<void> {
     if (this.normalize(path) === this.normalize(fromPath)) return
     const v: NavVector = vector === 'push' ? 'push' : vector
-    await this.run(this.normalize(path), v, hops + 1, query)
+    const search =
+      query && Object.keys(query).length
+        ? '?' +
+          new URLSearchParams(
+            Object.entries(query).map(([k, v]) => [k, String(v)])
+          ).toString()
+        : ''
+    await this.run(this.normalize(path), v, hops + 1, { search, hash: '' })
   }
 
   // ────────────────────────────── commit ───────────────────────────────────
@@ -728,7 +742,9 @@ export class Router {
    *  Same-origin, primary button, no modifier keys → preventDefault +
    *  navigate(). Middle-click / modifiers / external pass through untouched.
    *  So do anchors that are not navigation at all (#14): `download`, a
-   *  `target` other than `_self`, `rel="external"`, and non-http(s) schemes. */
+   *  `target` other than `_self`, `rel="external"`, and non-http(s) schemes;
+   *  and a link to a fragment of the page already showing (#20). A claimed
+   *  link's query and hash ride into the history write. */
   private onClick = (e: MouseEvent): void => {
     if (e.defaultPrevented || e.button !== 0) return
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
@@ -750,8 +766,15 @@ export class Router {
     ) {
       return
     }
+    if (Router.isSameDocumentFragment(url)) return
     e.preventDefault()
-    void this.navigate(this.stripBase(url.pathname))
+    void this.request(this.stripBase(url.pathname), { search: url.search, hash: url.hash })
+  }
+
+  /** A link to a fragment of the page already showing (#20): only the hash
+   *  differs, so the browser's own scroll + hashchange is the whole job. */
+  private static isSameDocumentFragment(url: URL): boolean {
+    return url.hash !== '' && url.pathname === location.pathname && url.search === location.search
   }
 
   /** The anchor's own attributes say the browser should handle it: a file
@@ -765,12 +788,24 @@ export class Router {
   }
 
   private onPopstate = (): void => {
+    const path = this.readLocation()
+    const tail = this.readTail()
+    // A fragment change within the page showing (a hash link, or Back/Forward
+    // between two hashes of it) is the browser's: nothing routes or re-guards.
+    if (
+      path === this.currentPath &&
+      tail.search === this.currentTail.search &&
+      tail.hash !== this.currentTail.hash
+    ) {
+      this.currentTail = tail
+      return
+    }
     // Known gap (recorded): SPA Back is not intercepted — that is the
     // deferred canLeave problem. Departure with active holds narrates.
     if (Pending.active) {
       Print('WARNING', `departure with active holds: ${Pending.labels().join(', ')}`)
     }
-    void this.run(this.readLocation(), 'popstate')
+    void this.run(path, 'popstate', 0, tail)
   }
 
   /** Dev-only startup route table: line-oriented (greppable, survives
@@ -850,5 +885,9 @@ export class Router {
 
   private readLocation(): string {
     return this.stripBase(location.pathname)
+  }
+
+  private readTail(): UrlTail {
+    return { search: location.search, hash: location.hash }
   }
 }
