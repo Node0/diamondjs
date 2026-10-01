@@ -823,3 +823,54 @@ Operational lessons, updating the v2.2.2 note:
 - The granular-token **"Bypass two-factor authentication"** checkbox silently reverts when the token page is refreshed — verify the ✔ in the *Access Tokens* list before publishing; a token without it fails every publish with `EOTP` even though `npm whoami` succeeds.
 - npm now processes a publish **asynchronously**: `npm publish` answers "being processed and may take a few minutes to become available", and `npm view` surfaced each version 2–4 minutes later. Verify visibility once at the end of the batch, not per package, or the batch stalls on a version the registry has already accepted.
 - The dependency order is a courtesy to mid-batch installers, not a registry requirement — publish does not check that a package's dependencies are already visible.
+
+## 2026-10-01 — v2.2.4: The Second Hardening Pass
+
+The same application that produced v2.2.3 kept growing, and two more reports arrived the day after that release: a "Save output" button that landed on the not-found page (#14) and prose that rendered as "pressStart jobon" (#15). #14 was a contained router fix. #15 was not: reviewing its suggested regex — in this repo, then adversarially by two other models — turned one compiler report into a decision (template text is preserved exactly; indentation is content) and four prerequisite or adjacent defects, each filed and fixed on its own branch: #17, #18, #19, #20. A fifth, #29, followed from #19. The whitespace change itself is a behaviour change and is held for 2.3; everything it stands on ships here. Six PRs (#16, #21–#24, #30), one issue each.
+
+### The six fixes
+- **#14 — the link interceptor routed anchors that are not navigation.** `Router.onClick` claimed every same-origin `<a href>` click. A `blob:` URL reports its creating document's origin, so the usual `<a download href="blob:…">` + `click()` passed the origin test and was navigated to the not-found route. The handler now returns before `preventDefault` for `download`, a `target` other than `_self`, a `rel` token `external`, and any non-http(s) scheme.
+- **#20 — hash-only links were claimed; query and hash were dropped.** Found while fixing #14. `run()` now carries a `UrlTail` (`search` + `hash`) into the history write — from the anchor on a click, from the location on initial load and popstate (both used to rewrite the entry to the bare path), from a route-* Destination's `query`. Declared `query` converters parse the TARGET's search (they read `location.search`, which on a push is the page being left). A same-document fragment link is not claimed, and a popstate that only changes the hash returns early. Driven in real Chromium afterwards: fragment links scroll natively, and Chromium does fire popstate on a fragment click, so the early return is required. What it does not do — scroll to the hash after a route navigation, `navigate()` taking a URL, `href="#"` passing through — is #28.
+- **#17 — multi-root bodies could not be removed, and structural-only bodies leaked.** A body with two or more roots mounts as a `DocumentFragment`, which is empty once inserted; `switch()` and `Component.unmount()` then called `.remove()` on it. Separately, a body that is ONLY a structural left its output behind even with a single root, because that output sits before the anchor the old code removed. The runtime now tracks the mounted range (`DiamondCore.trackRange`) and `if()`, `switch()` and `Component` remove through it; a body that begins with a structural mounts behind one `<!---->` marker. Done by a separate session in its own worktree (PR #24).
+- **#18 — `collectIfChain` consumed whitespace after a finished chain.** Latent: the parser still drops whitespace-only text. Fixed now as groundwork — lookahead without consuming, ASCII whitespace only as a branch separator.
+- **#19 — author text in emitted JS had no single encoder.** Interpolated text escaped only the backtick and `${`, so `C:\temp ${x}` rendered a tab and `C:\users ${x}` did not parse. `js-text.ts` now holds one encoder per position (`jsString`, `jsTemplatePart`, `jsCommentText`) and the generator assembles no quotes by hand. Routing the hint comments through it exposed a second defect: a line break inside a quoted expression ended the `// [Diamond]` comment, so a multi-line `if="…"` did not compile.
+- **#29 — a literal `${`.** With backslashes literal (#19), `\${name}` on main meant "backslash, then interpolation", while published 2.2.3 rendered `${this.name}`; neither is a way to write a literal `${`, and `&#36;{` was decoded back into an interpolation by parse5. Decision: interpolation syntax is recognized in the RAW source only (an encoded character is never syntax), and `\${` is a literal `${` with the JS backslash-run rule. The parser scans raw spans from parse5's source locations and hands each piece back to parse5, in the same context, to decode — nothing is reimplemented. Shipping this in the same release as #19 means no published version carries the in-between behaviour.
+
+### Verification
+- 832 tests (605 → +227) across 55 files; new suites: `js-text` (98, the #19 round-trip corpus), `literal-interpolation` (79, including a zero-diff property test over a hand corpus and 1,500 generated templates), `mounted-range` (16), plus router cases for the #14 pass-throughs and the #20 query/hash paths and generator cases for the #18 lookahead.
+- All gates green: `check-loc`, `stink:check`, `check-meta`, `lint` (0 errors), `typecheck`, `build`.
+- Compiled code, source maps and diagnostics for the six example + consuming-app templates were byte-identical across each compiler PR (#21, #22, #30).
+- Clean-room build from a fresh clone of the release branch, outside the repo: `npm ci` succeeds; the FIRST `npm run build` fails (runtime's DTS build runs before primafacie has types — #25) and `npm test` then fails in three files; a SECOND `npm run build` succeeds and all 832 tests pass. A single build is not enough on a fresh clone.
+- `npm pack --dry-run` for all nine packages: each tarball holds `package.json`, `README.md`, `LICENSE` and `dist/` only (the two meta-packages have no `dist/`).
+
+### What is deliberately not in this release
+- **#15** (whitespace between inline elements) — decided, not shipped: 2.3.
+- **#26** (`push()` on a reactive array does not re-run `repeat`) — needs a spec decision.
+- **#27** (`route-check` on Node 22.22.2) and **#25** (first build on a fresh clone) — tooling, next patch.
+- **#28** (router scroll + `navigate()` as a URL) — follow-up to #20.
+
+### Release mechanics
+- Lockstep bump 2.2.3 → 2.2.4 across root, hello-world and all nine manifests (exact pins in app/dev/all; `^` ranges in compiler/converters/guards/parcel-plugin/runtime), lockfile regenerated with `--package-lock-only`, `check-meta` green.
+- `CHANGELOG.md`: `[Unreleased]` → `[2.2.4]`, with the #18 and #19 entries that their PRs had left out (to avoid conflicting `[Unreleased]` edits), a Changed list for the #29 behaviour changes, and a Known issues subsection (#15, #27, #26).
+- README / ROADMAP / FAQ reconciled to v2.2.4; package READMEs updated where 2.2.4 made them stale (runtime, compiler, Parcel transformer).
+- Spec amendments are Joe's: Router Specification §9 (pass-throughs, query and hash, fragment links) and the literal-`${` rule. Proposed wording is in PRs #16, #23, #30 and issue #28.
+
+### Final state
+```
+Runtime:      1,690 / 2,500 LOC
+Compiler:     2,464 / 5,000 LOC
+Parcel:         164 /   300 LOC
+Converters:     123 /   500 LOC
+Primafacie:     300 /   400 LOC
+Dev toolchain:  527 /   800 LOC
+Total:        5,268 / 9,500 LOC   832 tests
+```
+
+### Status at pause — 2026-10-01 (read this first when resuming)
+**v2.2.4 is NOT released.** The release PR (#31, branch `release-v2.2.4`) is open and unmerged; nothing is tagged and nothing is published. Work stopped here for the day on Joe's instruction.
+
+- **Five issues are open again: #15, #25, #26, #27, #28.** They were closed for a short time on 2026-10-01 and Joe reopened them the same day. None of them is fixed.
+- **New instructions are coming** (next session) to address those issues as part of preparing v2.2.4. Until they arrive, do not merge PR #31, do not tag, do not publish, and do not start any of the five on your own initiative.
+- **Everything in this section above is provisional as a result.** "What is deliberately not in this release", the changelog's `[2.2.4]` entry (its date, its Known issues list for #15 / #27 / #26), the README's Known issues pointer, the ROADMAP's v2.2.5 hygiene list, the LOC table and the test count were all written for a 2.2.4 that excludes those five issues. Whatever the new instructions bring into 2.2.4 has to be moved out of "known issues / not in this release" and into the fixes, and the release branch re-verified (gates, clean-room build, `npm pack --dry-run`) before it is merged.
+- **What is settled and does not need redoing:** the six fixes on main (#14, #17, #18, #19, #20, #29); the #15 decision (template text preserved exactly, recorded on the issue) and its checkpoint requirement; the publish procedure (v2.2.3's, plus: token only through a temporary npmrc, never printed; never `git clean -x` in the repo; on a tree with no `dist/` the build must run twice until #25 is fixed).
+- **Remove this subsection** when the release is finalized; "The publication" takes its place.

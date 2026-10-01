@@ -239,3 +239,6 @@ The first application built on the published 2.2.2 constellation (a hosted singl
 - Interpolation locations are unchanged (still the text node's start). The `escaped-interpolation` notice carries the exact line/column of the backslash in text, and the attribute's location in attributes.
 - Encoded syntax inside an expression follows the same rule: an encoded quote or `}` in the RAW expression is not seen by the scanner's string/brace tracking (`${a &#125; b}` closes at the real `}`; the body then decodes to `a } b`).
 - D-3's `attr.value.includes('${')` is gone; a real raw `${` in a plain attribute is still the error. Binding / structural attribute values are expressions and are never scanned.
+
+## Handoff — 2026-10-01
+- v2.2.4 is paused before release: PR #31 is open, nothing tagged or published. Issues #15, #25, #26, #27 and #28 are open again, and new instructions for them are expected in the next session as part of preparing 2.2.4. The full status is in `impl_docs/project_update_log.md`, "Status at pause — 2026-10-01".

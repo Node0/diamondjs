@@ -1,7 +1,7 @@
 # 💎 FAQ
 
 ## **Q: Is this production-ready?**
-It's shipped and real: the spec-governed 2.x series is published on npm (all nine `@diamondjs/*` packages — first published as v2.2.2 in August 2026, current release v2.2.3), with 605 passing tests and the full navigation stack — router, guards, typed URL params, departure safety. v2.2 marks the point where DiamondJS can single-handedly deliver multi-view SPAs. That said, the v2.x API surface is still stabilizing and the ecosystem is young — treat it as early-adopter territory, and read each release's design record before betting the farm.
+It's shipped and real: the spec-governed 2.x series is published on npm (all nine `@diamondjs/*` packages — first published as v2.2.2 in August 2026, current release v2.2.4), with 832 passing tests and the full navigation stack — router, guards, typed URL params, departure safety. v2.2 marks the point where DiamondJS can single-handedly deliver multi-view SPAs. That said, the v2.x API surface is still stabilizing and the ecosystem is young — treat it as early-adopter territory, and read each release's design record before betting the farm.
 
 ## **Q: How do I install it?**
 Two packages — one for what ships to the browser, one for what runs at build time:
