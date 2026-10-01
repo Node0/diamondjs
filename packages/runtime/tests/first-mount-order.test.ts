@@ -193,7 +193,10 @@ describe('Component whose template ROOT is a structural', () => {
     const c = new RootIf()
     c.mount(host)
     await tick()
-    expect(host.innerHTML).toBe('<span>ROOT-READY</span><!--if-->')
+    // #17: a body that begins with a structural mounts behind a start marker,
+    // so unmount() can remove the branch that rendered before the anchor.
+    expect(host.innerHTML).toBe('<!----><span>ROOT-READY</span><!--if-->')
     c.unmount()
+    expect(host.innerHTML).toBe('')
   })
 })
