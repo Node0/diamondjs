@@ -752,7 +752,7 @@ describe('query and hash', () => {
     expect(aboutText()).toBe('about:{"tab":2}')
   })
 
-  it('navigate(path) is path-only: no query or hash is carried over', async () => {
+  it('navigate(path) without a query or hash carries none over from the current URL', async () => {
     await startAt('/?from=1#top')
     await router!.navigate('/about')
     expect(here()).toBe('/about')
@@ -762,6 +762,222 @@ describe('query and hash', () => {
     await startAt('/tools/reports/', { basePath: '/tools/reports' })
     expect(clickLink('/tools/reports/about?tab=2#x')).toBe(true)
     await tick()
+    expect(here()).toBe('/tools/reports/about?tab=2#x')
+    expect(aboutText()).toBe('about:{"tab":2}')
+  })
+})
+
+describe('URLs behave as in HTML (#28)', () => {
+  let guardRuns = 0
+  class CountingGuard extends Guard {
+    static override check(_ctx: GuardContext): boolean {
+      guardRuns++
+      return true
+    }
+  }
+  /** A page with a fragment target (`id="x"`). */
+  class AboutPage extends Component {
+    params: Record<string, unknown> | undefined
+    constructor(params?: Record<string, unknown>) {
+      super()
+      this.params = params
+    }
+    createTemplate(): HTMLElement {
+      const div = document.createElement('div')
+      div.className = 'about'
+      div.textContent = `about:${JSON.stringify(this.params ?? {})}`
+      const section = document.createElement('h2')
+      section.id = 'x'
+      div.appendChild(section)
+      return div
+    }
+  }
+  const routes = (): RouteMap => ({
+    home: { path: '', component: makePage('home'), outlet: 'main' },
+    about: {
+      path: 'about',
+      component: AboutPage,
+      outlet: 'main',
+      query: { tab: IntConverter },
+      guard: CountingGuard,
+    },
+    'not-found': { path: '*', component: makePage('nf'), outlet: 'main' },
+  })
+
+  const here = (): string => location.pathname + location.search + location.hash
+  const aboutText = (): string | null | undefined => document.querySelector('.about')?.textContent
+  const traversed = () => new Promise<void>((r) => setTimeout(r, 10))
+
+  async function startAt(url: string, options?: { basePath?: string }): Promise<void> {
+    rootShell('main')
+    history.replaceState(null, '', url)
+    router = new Router(routes(), options)
+    await router.start()
+    guardRuns = 0
+  }
+
+  function clickLink(href: string): boolean {
+    const a = document.createElement('a')
+    a.setAttribute('href', href)
+    document.body.appendChild(a)
+    let claimed = false
+    const afterRouter = (e: Event): void => {
+      claimed = e.defaultPrevented
+      if (!href.startsWith('#')) e.preventDefault()
+    }
+    window.addEventListener('click', afterRouter, { once: true })
+    a.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }))
+    return claimed
+  }
+
+  // happy-dom does no layout, so the viewport is simulated: `position` is
+  // what window.scrollX / scrollY report, scrollTo() writes it, and
+  // scrollIntoView() is recorded with its element.
+  let position = { x: 0, y: 0 }
+  const scrollTo = vi.fn((x: number, y: number) => {
+    position = { x, y }
+  })
+  const scrollIntoView = vi.fn()
+  const saved: Record<string, PropertyDescriptor | undefined> = {}
+
+  beforeEach(() => {
+    position = { x: 0, y: 0 }
+    scrollTo.mockClear()
+    scrollIntoView.mockClear()
+    for (const key of ['scrollX', 'scrollY', 'scrollTo']) {
+      saved[key] = Object.getOwnPropertyDescriptor(window, key)
+    }
+    Object.defineProperty(window, 'scrollX', { get: () => position.x, configurable: true })
+    Object.defineProperty(window, 'scrollY', { get: () => position.y, configurable: true })
+    Object.defineProperty(window, 'scrollTo', { value: scrollTo, configurable: true, writable: true })
+    saved.scrollIntoView = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollIntoView')
+    Object.defineProperty(Element.prototype, 'scrollIntoView', {
+      value: scrollIntoView,
+      configurable: true,
+      writable: true,
+    })
+  })
+
+  afterEach(() => {
+    for (const key of ['scrollX', 'scrollY', 'scrollTo']) {
+      const d = saved[key]
+      if (d) Object.defineProperty(window, key, d)
+      else Reflect.deleteProperty(window, key)
+    }
+    const d = saved.scrollIntoView
+    if (d) Object.defineProperty(Element.prototype, 'scrollIntoView', d)
+    else Reflect.deleteProperty(Element.prototype, 'scrollIntoView')
+  })
+
+  it('navigate(url) carries the query and hash, and shares the link code path', async () => {
+    await startAt('/')
+    await router!.navigate('/about?tab=2#x')
+    expect(here()).toBe('/about?tab=2#x')
+    expect(aboutText()).toBe('about:{"tab":2}')
+    expect(guardRuns).toBe(1)
+
+    await router!.navigate('/')
+    guardRuns = 0
+    expect(clickLink('/about?tab=2#x')).toBe(true)
+    await tick()
+    expect(here()).toBe('/about?tab=2#x') // the same URL, params and guard run
+    expect(aboutText()).toBe('about:{"tab":2}')
+    expect(guardRuns).toBe(1)
+  })
+
+  it('href="#" passes through to the browser', async () => {
+    await startAt('/about?tab=2')
+    expect(clickLink('#')).toBe(false)
+    await tick()
+    expect(guardRuns).toBe(0)
+    expect(aboutText()).toBe('about:{"tab":2}') // no remount
+  })
+
+  it('a route navigation with a hash scrolls to its target once the page is in place', async () => {
+    await startAt('/')
+    expect(clickLink('/about?tab=2#x')).toBe(true)
+    await tick()
+    expect(scrollIntoView).toHaveBeenCalledTimes(1)
+    expect(scrollIntoView.mock.instances[0]).toBe(document.getElementById('x'))
+    expect(scrollTo).not.toHaveBeenCalled()
+  })
+
+  it('a route navigation without a hash starts at the top', async () => {
+    await startAt('/')
+    position = { x: 0, y: 300 }
+    await router!.navigate('/about')
+    expect(scrollTo).toHaveBeenLastCalledWith(0, 0)
+    expect(scrollIntoView).not.toHaveBeenCalled()
+  })
+
+  it('a hash with no target behaves like no hash; #top scrolls to the top', async () => {
+    await startAt('/')
+    position = { x: 0, y: 300 }
+    await router!.navigate('/about#nope')
+    expect(scrollIntoView).not.toHaveBeenCalled()
+    expect(scrollTo).toHaveBeenLastCalledWith(0, 0)
+
+    position = { x: 0, y: 300 }
+    scrollTo.mockClear()
+    await router!.navigate('/?a=1#top')
+    expect(scrollTo).toHaveBeenLastCalledWith(0, 0)
+  })
+
+  it('Back returns to where the page was left, and Forward likewise', async () => {
+    await startAt('/')
+    position = { x: 0, y: 120 } // home, scrolled
+    expect(clickLink('/about?tab=2')).toBe(true)
+    await tick()
+    expect(scrollTo).toHaveBeenLastCalledWith(0, 0) // fresh navigation: top
+    const aboutEntry = history.state
+    position = { x: 0, y: 40 } // about, scrolled a little
+
+    history.back()
+    await traversed()
+    expect(activeClasses()).toEqual(['home'])
+    expect(scrollTo).toHaveBeenLastCalledWith(0, 120)
+
+    // happy-dom's replaceState on a back entry discards its forward history
+    // (a browser keeps it), so Forward is the entry re-created with the state
+    // the browser would have kept, plus a popstate.
+    position = { x: 0, y: 120 }
+    history.pushState(aboutEntry, '', '/about?tab=2')
+    window.dispatchEvent(new PopStateEvent('popstate'))
+    await tick()
+    expect(aboutText()).toBe('about:{"tab":2}')
+    expect(scrollTo).toHaveBeenLastCalledWith(0, 40)
+  })
+
+  it('Back to an entry with no recorded position falls back to its hash target', async () => {
+    await startAt('/')
+    await router!.navigate('/about?tab=2#x')
+    scrollIntoView.mockClear()
+    scrollTo.mockClear()
+    // An entry the router did not write (no navId): nothing recorded for it.
+    history.pushState(null, '', '/about?tab=3#x')
+    window.dispatchEvent(new PopStateEvent('popstate'))
+    await tick()
+    expect(aboutText()).toBe('about:{"tab":3}')
+    expect(scrollIntoView).toHaveBeenCalledTimes(1)
+    expect(scrollTo).not.toHaveBeenCalled()
+  })
+
+  it('initial load: a hash scrolls to its target; without one the position is left alone', async () => {
+    await startAt('/about?tab=2#x')
+    expect(scrollIntoView).toHaveBeenCalledTimes(1)
+    expect(scrollTo).not.toHaveBeenCalled()
+
+    router!.stop()
+    document.body.innerHTML = ''
+    scrollIntoView.mockClear()
+    await startAt('/')
+    expect(scrollIntoView).not.toHaveBeenCalled()
+    expect(scrollTo).not.toHaveBeenCalled()
+  })
+
+  it('under a basePath navigate(url) writes the prefix, query and hash', async () => {
+    await startAt('/tools/reports/', { basePath: '/tools/reports' })
+    await router!.navigate('/about?tab=2#x')
     expect(here()).toBe('/tools/reports/about?tab=2#x')
     expect(aboutText()).toBe('about:{"tab":2}')
   })
