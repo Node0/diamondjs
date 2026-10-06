@@ -37,6 +37,8 @@ export class Counter extends Component {
 }
 ```
 
+A `@reactive` array re-renders on in-place mutation — `push`, `pop`, `shift`, `unshift`, `splice`, `items[i] = v`, `items.length = 0` — and on reassignment alike; every change made in one tick batches into a single flush.
+
 For large datasets (100K+ items, log viewers, chat histories), `Collection<T>` gives O(1) append and 77% less memory than reactive proxies at scale.
 
 `unmount()` removes everything the template mounted, whatever its shape: a template (or a `<case>` body) may have several roots, or be nothing but an `if` / `repeat.for`. The runtime tracks the range of nodes each body mounted and removes that range — on `unmount()` and when a `switch` or `if` leaves a branch. A body that begins with a structural directive mounts behind one empty comment (`<!---->`) that marks where its range starts. `DiamondCore.trackRange` is the internal mechanism for this; it is not part of the app-facing API.

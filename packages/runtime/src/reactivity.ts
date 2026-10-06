@@ -77,7 +77,15 @@ export class ReactivityEngine {
           this.checkInboundSmell(target, prop, oldValue, value)
           this.triggerEffects(target, prop)
           // A NEW key changes the object's shape — wake key-set iterators
-          if (!hadKey) this.triggerEffects(target, ITERATE_KEY)
+          if (!hadKey) {
+            this.triggerEffects(target, ITERATE_KEY)
+            // On an array a new index IS a length change, but the array has
+            // already bumped `length` by the time push/unshift/splice write
+            // it, so that write sees oldValue === value and triggers nothing.
+            // Wake the `length` readers here (Array.from, for…of, .length) —
+            // what repeat() and every iterating effect depend on (#26).
+            if (Array.isArray(target)) this.triggerEffects(target, 'length')
+          }
         }
         return result
       },
