@@ -41,6 +41,8 @@ A `@reactive` array re-renders on in-place mutation — `push`, `pop`, `shift`, 
 
 For large datasets (100K+ items, log viewers, chat histories), `Collection<T>` gives O(1) append and 77% less memory than reactive proxies at scale.
 
+`unmount()` removes everything the template mounted, whatever its shape: a template (or a `<case>` body) may have several roots, or be nothing but an `if` / `repeat.for`. The runtime tracks the range of nodes each body mounted and removes that range — on `unmount()` and when a `switch` or `if` leaves a branch. A body that begins with a structural directive mounts behind one empty comment (`<!---->`) that marks where its range starts. `DiamondCore.trackRange` is the internal mechanism for this; it is not part of the app-facing API.
+
 ## Routing (v2.2)
 
 One router — one *navigation authority*, not one view. Nested routes, multiple named outlets, guards, and typed URL params, declared in a single statically-analyzable route map. Plain data: no decorators, no registration calls.
@@ -109,7 +111,7 @@ async save() {
 
 ## Design constraints
 
-- **Runtime < 2,500 LOC** — the entire runtime fits in a single LLM context window (currently ~62% of budget)
+- **Runtime < 2,500 LOC** — the entire runtime fits in a single LLM context window (currently ~68% of budget)
 - **Zero runtime template parsing** — all compilation happens at build time
 - **32B LLM comprehension** — models achieve >80% bug-fix rate on compiled output
 
