@@ -157,10 +157,13 @@ For small UI state (forms, toggles, counters), `@reactive` is all you need. For 
 // Small state — use @reactive
 @reactive searchQuery = '';
 @reactive isOpen = false;
+@reactive tags: string[] = [];      // tags.push('x') re-renders; so does tags = [...]
  
 // Large dataset — use Collection
 private logs = DiamondCore.collection<string>();
 ```
+ 
+A `@reactive` array re-renders on in-place mutation (`push`, `pop`, `splice`, `tags[i] = v`, `tags.length = 0`) as well as on reassignment; changes made in one tick batch into a single flush.
  
 ### Template Syntax
  
