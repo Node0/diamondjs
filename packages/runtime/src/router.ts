@@ -124,6 +124,12 @@ interface UrlTail {
 
 const NO_TAIL: UrlTail = { search: '', hash: '' }
 
+/** Where a history entry's page stood when it was left (#28). */
+interface ScrollPosition {
+  x: number
+  y: number
+}
+
 const TIMEOUT: unique symbol = Symbol('guard-timeout')
 
 function isDev(): boolean {
@@ -142,6 +148,12 @@ export class Router {
   private historyIndex = 0
   private currentPath: string | null = null
   private currentTail: UrlTail = NO_TAIL
+  /** The `diamondNavId` the current history entry carries (scroll bookkeeping). */
+  private currentNavId: number | null = null
+  /** Each entry's scroll position at the moment it was left, by its navId (#28). */
+  private scrollPositions = new Map<number, ScrollPosition>()
+  /** The position to return to once the popstate navigation in flight commits. */
+  private pendingScroll: ScrollPosition | null = null
   private narrate = true
   private started = false
   /** Browser-visible public prefix ('' at domain root; '/a/b' when nested). */
@@ -201,14 +213,21 @@ export class Router {
   }
 
   /**
-   * Request a navigation (the only way anything moves). Phase-1 check: with
-   * active Pending holds, confirm departure and abort cleanly on decline.
+   * Request a navigation (the only way anything moves). `url` is app-relative
+   * and reads as a URL: a path, optionally followed by a query and a hash
+   * (`/about?tab=2#x`) — the same code path an intercepted link takes (#28).
+   * Phase-1 check: with active Pending holds, confirm departure and abort
+   * cleanly on decline.
    */
-  async navigate(path: string): Promise<void> {
-    await this.request(path, NO_TAIL)
+  async navigate(url: string): Promise<void> {
+    const parsed = new URL(url, 'http://app.invalid/') // the base only lends a parser
+    await this.request(this.normalize(parsed.pathname), {
+      search: parsed.search,
+      hash: parsed.hash,
+    })
   }
 
-  /** navigate() plus the link's query and hash (the interceptor's entry). */
+  /** navigate() with the URL already split into its path and tail. */
   private async request(path: string, tail: UrlTail): Promise<void> {
     if (Pending.active) {
       const ok = window.confirm(
@@ -304,6 +323,7 @@ export class Router {
     //    load / popstate, a route-* Destination's query (e.g. a login returnTo).
     const url = this.href(path) + tail.search + tail.hash
     if (vector === 'push') {
+      this.rememberScroll() // where the entry being left stands (#28)
       this.historyIndex++
       history.pushState({ diamondNavId: navId, index: this.historyIndex }, '', url)
     } else {
@@ -325,13 +345,18 @@ export class Router {
           '',
           this.href(this.currentPath) + this.currentTail.search + this.currentTail.hash
         )
+        this.currentNavId = navId
       }
       return
     }
     this.currentPath = path
     this.currentTail = tail
+    this.currentNavId = navId
 
-    // 8. SETTLE
+    // 8. SCROLL — the DOM is in place, so scroll as HTML would (#28).
+    this.settleScroll(vector, tail.hash)
+
+    // 9. SETTLE
     if (this.narrate) {
       Print('STATE', `nav → ${path} [${[...plan.keys()].join(', ')}]`)
     }
@@ -744,7 +769,7 @@ export class Router {
    *  So do anchors that are not navigation at all (#14): `download`, a
    *  `target` other than `_self`, `rel="external"`, and non-http(s) schemes;
    *  and a link to a fragment of the page already showing (#20). A claimed
-   *  link's query and hash ride into the history write. */
+   *  link goes through navigate() with its path, query and hash (#28). */
   private onClick = (e: MouseEvent): void => {
     if (e.defaultPrevented || e.button !== 0) return
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
@@ -768,13 +793,15 @@ export class Router {
     }
     if (Router.isSameDocumentFragment(url)) return
     e.preventDefault()
-    void this.request(this.stripBase(url.pathname), { search: url.search, hash: url.hash })
+    void this.navigate(this.stripBase(url.pathname) + url.search + url.hash)
   }
 
-  /** A link to a fragment of the page already showing (#20): only the hash
-   *  differs, so the browser's own scroll + hashchange is the whole job. */
+  /** A link to a fragment of the page already showing (#20), `href="#"`
+   *  included (#28): only the fragment differs, so the browser's own scroll
+   *  (to the target, or to the top for an empty fragment) is the whole job. */
   private static isSameDocumentFragment(url: URL): boolean {
-    return url.hash !== '' && url.pathname === location.pathname && url.search === location.search
+    const hasFragment = url.hash !== '' || url.href.endsWith('#')
+    return hasFragment && url.pathname === location.pathname && url.search === location.search
   }
 
   /** The anchor's own attributes say the browser should handle it: a file
@@ -800,12 +827,66 @@ export class Router {
       this.currentTail = tail
       return
     }
+    // Where the page being left stands, and where the entry being returned
+    // to was left — read before run() stamps that entry with a new navId.
+    this.rememberScroll()
+    this.pendingScroll = this.savedScrollFor(history.state)
     // Known gap (recorded): SPA Back is not intercepted — that is the
     // deferred canLeave problem. Departure with active holds narrates.
     if (Pending.active) {
       Print('WARNING', `departure with active holds: ${Pending.labels().join(', ')}`)
     }
     void this.run(path, 'popstate', 0, tail)
+  }
+
+  // ─────────────────────────────── scroll ──────────────────────────────────
+
+  /** Record where the current entry stands, so Back / Forward can return
+   *  to it (#28). Keyed by the navId the entry's state carries. */
+  private rememberScroll(): void {
+    if (this.currentNavId === null) return
+    this.scrollPositions.set(this.currentNavId, { x: window.scrollX, y: window.scrollY })
+  }
+
+  private savedScrollFor(state: unknown): ScrollPosition | null {
+    const id = (state as { diamondNavId?: unknown } | null)?.diamondNavId
+    return typeof id === 'number' ? (this.scrollPositions.get(id) ?? null) : null
+  }
+
+  /** Scroll as HTML would once the route has mounted (#28): Back / Forward
+   *  return to where the entry was left (where one was recorded); a hash
+   *  scrolls to its target; a new navigation without one starts at the top.
+   *  The initial load is the browser's (a reload keeps its position) unless
+   *  there is a hash target to find once the page is in place. */
+  private settleScroll(vector: NavVector, hash: string): void {
+    const saved = this.pendingScroll
+    this.pendingScroll = null
+    if (vector === 'popstate' && saved) {
+      window.scrollTo(saved.x, saved.y)
+      return
+    }
+    if (hash && Router.scrollToFragment(hash)) return
+    if (vector === 'push') window.scrollTo(0, 0)
+  }
+
+  /** HTML's "scroll to the fragment": the element with that id, else `top`. */
+  private static scrollToFragment(hash: string): boolean {
+    let id = hash.slice(1)
+    try {
+      id = decodeURIComponent(id)
+    } catch {
+      // a malformed escape is looked up as written, as a browser does
+    }
+    const target = document.getElementById(id)
+    if (target) {
+      target.scrollIntoView()
+      return true
+    }
+    if (id.toLowerCase() === 'top') {
+      window.scrollTo(0, 0)
+      return true
+    }
+    return false
   }
 
   /** Dev-only startup route table: line-oriented (greppable, survives
