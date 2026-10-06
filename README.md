@@ -492,19 +492,19 @@ The entire framework fits in an LLM context window. That's not an accident — i
  
 **Specification**: v2.2.1 ([v2.0 DDR](impl_docs/plans/DiamondJS_v2.0_Design_Decision_Record.md) + Amendment A2 (v2.1) + Amendment A3 and the v2.2 Router section + the v2.2.1 Destinations record)
  
-**Implementation**: v2.2.4 — the second hardening patch from the same application (#14, #17–#20, #29): the link interceptor leaves non-navigation anchors and same-page fragment links to the browser and keeps a link's query and hash; multi-root and structural-only bodies are removed through their mounted range; author text reaches compiled output through one encoder; and template text can finally say a literal `${` (`\${`, or an entity). Beneath it, v2.2.3 — the first-real-app hardening patch on top of v2.2.2. The first application built on the published constellation surfaced five defects in its first day (#7–#11), all fixed upstream: structural directives render synchronously on first mount, `<select>` is bound after its options, a static `<a href>` passes the sink gate, `@reactive` survives `useDefineForClassFields: true`, and `route-check` loads page components' template imports. Beneath it, v2.2.2 — the routing release on top of v2.1's scale-and-completeness work, **published to npm** (all nine `@diamondjs/*` packages, August 2026), with `@diamondjs/dev` shipping the complete toolchain: compiler, Parcel transformer, Parcel, TypeScript, and the `stink-check`/`route-check` gates as real bins. The full navigation stack: multi-outlet router with specificity matching and atomic two-phase commit, typed URL params through the converter/`ParseResult` contract, class-based guards with a fail-closed execution envelope, the four-arm `Destination` vocabulary shared by redirects and guard denials, `Pending` departure safety, `basePath` for sub-path deployments, the `route-check` build gate, dev-mode route-table narration via `run_mode`/`__DIAMOND_DEV__`, and the logging consolidation (one vocabulary: everything emits through `Print`; browser→server WebSocket log relay with datestamped server files). Plus the v2.1.1 conformance patch: eager disposal of detached `if`/`switch` branches, the scheduler stale-flush retention fix, `repeat` duplicate-primitive reconciliation, static-attribute sink gating, and fail-loud diagnostics for unshipped component composition.
+**Implementation**: v2.2.4 — the second hardening patch from the same application (#14, #17–#20, #25–#29): the link interceptor leaves non-navigation anchors and same-page fragment links to the browser and keeps a link's query and hash; router URLs behave as in HTML (`navigate(url)`, scroll to the fragment, Back / Forward restore the position); a reactive array re-renders on `push()`; multi-root and structural-only bodies are removed through their mounted range; author text reaches compiled output through one encoder; template text can finally say a literal `${` (`\${`, or an entity); `route-check` works on Node 22; and a fresh clone builds in one pass. Beneath it, v2.2.3 — the first-real-app hardening patch on top of v2.2.2. The first application built on the published constellation surfaced five defects in its first day (#7–#11), all fixed upstream: structural directives render synchronously on first mount, `<select>` is bound after its options, a static `<a href>` passes the sink gate, `@reactive` survives `useDefineForClassFields: true`, and `route-check` loads page components' template imports. Beneath it, v2.2.2 — the routing release on top of v2.1's scale-and-completeness work, **published to npm** (all nine `@diamondjs/*` packages, August 2026), with `@diamondjs/dev` shipping the complete toolchain: compiler, Parcel transformer, Parcel, TypeScript, and the `stink-check`/`route-check` gates as real bins. The full navigation stack: multi-outlet router with specificity matching and atomic two-phase commit, typed URL params through the converter/`ParseResult` contract, class-based guards with a fail-closed execution envelope, the four-arm `Destination` vocabulary shared by redirects and guard denials, `Pending` departure safety, `basePath` for sub-path deployments, the `route-check` build gate, dev-mode route-table narration via `run_mode`/`__DIAMOND_DEV__`, and the logging consolidation (one vocabulary: everything emits through `Print`; browser→server WebSocket log relay with datestamped server files). Plus the v2.1.1 conformance patch: eager disposal of detached `if`/`switch` branches, the scheduler stale-flush retention fix, `repeat` duplicate-primitive reconciliation, static-attribute sink gating, and fail-loud diagnostics for unshipped component composition.
  
 | Package | Production LOC | Budget | Usage |
 |---------|---------------:|-------:|------:|
-| @diamondjs/runtime | 1,690 | 2,500 | 67.6% |
+| @diamondjs/runtime | 1,746 | 2,500 | 69.8% |
 | @diamondjs/compiler | 2,464 | 5,000 | 49.3% |
 | @diamondjs/parcel-transformer-diamond | 164 | 300 | 54.7% |
 | @diamondjs/converters | 123 | 500 | 24.6% |
 | @diamondjs/primafacie | 300 | 400 | 75.0% |
-| @diamondjs/dev (toolchain) | 527 | 800 | 65.9% |
-| **Total** | **5,268** | **9,500** | **55.5%** |
+| @diamondjs/dev (toolchain) | 545 | 800 | 68.1% |
+| **Total** | **5,342** | **9,500** | **56.2%** |
  
-**832 tests across 55 files**, all passing.
+**859 tests across 57 files**, all passing.
  
 ### What works today (v2.2.4)
 
@@ -585,12 +585,14 @@ The entire framework fits in an LLM context window. That's not an accident — i
 - Multi-root bodies and bodies that are only a structural are removed whole on switch-away and `unmount()` (mounted-range tracking)
 - Backslashes in interpolated text are literal; multi-line attribute expressions compile
 - A literal `${` in text and plain attributes: `\${`, or an entity such as `&#36;{`
+- URLs behave as in HTML: `navigate(url)` takes a query and hash and shares the link's code path; a navigation scrolls to its hash target or starts at the top; Back / Forward restore the scroll position; `href="#"` passes through
+- A `@reactive` array re-renders on `push()`, `splice()` and every other in-place mutation, not only on reassignment
+- `route-check` runs on Node 20 and Node 22 for ESM and CommonJS consumers
+- A fresh clone builds with a single `npm run build`
 
 **Known issues (v2.2.4)** — details in [CHANGELOG.md](CHANGELOG.md)
 
 - Whitespace between text and inline elements is still dropped (`press <em>Start job</em> on` renders "pressStart jobon") — fixed in 2.3 (#15)
-- `route-check` fails on Node 22.22.2 when page components import templates or styles on the ESM path; Node 20 is unaffected (#27)
-- `push()` on a reactive array does not re-run `repeat.for` — reassign the array (#26)
  
 > DiamondJS is in active development. The v2.x API surface is stabilizing; v2.2 marks the point where DiamondJS can single-handedly deliver multi-view SPAs — from presence sites to multi-user application frontends.
  

@@ -13,8 +13,8 @@ DiamondJS has moved from design into a shipped, spec-governed 2.x series. Every 
 - ✅ **v2.2.1** — `Destination`: one explicit tagged-union vocabulary (`route-id` / `route-path` / `site-path` / `external-url`) shared by redirects and guard denials; `IntConverter`/`SlugConverter` batteries; `app`/`dev`/`all` meta-packages
 - ✅ **v2.2.2** — The bootstrap npm publication: all nine `@diamondjs/*` packages live on the registry (verified from clean-room npm *and* Bun installs). `@diamondjs/dev` now ships the complete toolchain — compiler, Parcel transformer, Parcel, TypeScript, and `stink-check`/`route-check` as published bins. Plus the preflight repairs it forced: the phantom `@parcel/source-map` devDependency, a stale lockfile, a lint gate that had never actually run, per-package READMEs, and the license reconciled to MIT everywhere
 - ✅ **v2.2.3** — First-real-app hardening: the first application built on the published constellation surfaced five defects in its first day (#7–#11), all fixed upstream — `if`/`switch`/`repeat` render on first mount, `<select>` binds after its options, static `<a href>` passes the sink gate (+ `role` inert), `@reactive` survives `useDefineForClassFields: true`, `route-check` loads template/style imports. Plus `npm pkg fix` manifest normalization and the first `CHANGELOG.md`
-- ✅ **v2.2.4** — Second hardening pass from the same application (#14, #17–#20, #29): the link interceptor leaves non-navigation anchors and same-page fragment links to the browser and keeps a link's query and hash; multi-root and structural-only bodies are removed through their mounted range; author text reaches compiled output through one encoder (backslashes, multi-line attribute expressions); a literal `${` can be written as `\${` or with an entity
-**5,268 / 9,500 production LOC (55.5%) · 832 tests passing · the whole framework still fits in an LLM context window.**
+- ✅ **v2.2.4** — Second hardening pass from the same application (#14, #17–#20, #25–#29): the link interceptor leaves non-navigation anchors and same-page fragment links to the browser and keeps a link's query and hash; router URLs behave as in HTML (`navigate(url)`, scroll to the fragment after a navigation, Back / Forward restore the position); a reactive array re-renders on `push()` and every other in-place mutation; multi-root and structural-only bodies are removed through their mounted range; author text reaches compiled output through one encoder (backslashes, multi-line attribute expressions); a literal `${` can be written as `\${` or with an entity; `route-check` works on Node 22; a fresh clone builds in one `npm run build`
+**5,342 / 9,500 production LOC (56.2%) · 859 tests passing · the whole framework still fits in an LLM context window.**
  
 ---
  
@@ -23,10 +23,10 @@ DiamondJS has moved from design into a shipped, spec-governed 2.x series. Every 
 - [x] ~~Fix phantom `@parcel/source-map ^2.2.1` devDependency~~ — landed in v2.2.2 (npm preflight)
 - [x] ~~`npm pkg fix` cleanup — normalize `repository.url` to the `git+https://` form npm auto-corrects at publish time~~ — landed in v2.2.3
 - [x] ~~First-real-app findings (#7–#11)~~ — landed in v2.2.3 (see above)
-- [x] ~~Second-pass findings (#14, #17–#20, #29)~~ — landed in v2.2.4 (see above)
+- [x] ~~Second-pass findings (#14, #17–#20, #25–#29)~~ — landed in v2.2.4 (see above)
 - [ ] Add `@diamondjs/guards` to the `check-loc` budget report (header claims 400 LOC budget; report omits the package)
-- [ ] Fix first-build DTS ordering flake (runtime `--clean` double-build leaves stale `index.d.ts` → cascading compiler/plugin test failures on fresh installs); on a fresh clone the first `npm run build` fails outright because runtime is built before primafacie (#25)
-- [ ] `route-check` on Node 22.22.2: tsx appends a query to the `data:` URL stub and the template/style stub fails to parse (#27)
+- [x] ~~First build on a fresh clone fails because runtime is built before primafacie (#25)~~ — landed in v2.2.4; the root build now runs in dependency order
+- [x] ~~`route-check` on Node 22: the `data:` URL stub and the CommonJS module shape (#27)~~ — landed in v2.2.4; `@diamondjs/dev` requires tsx ≥ 4.23.15
 - [ ] Tag `v2.2.2` retroactively (published 2026-08-20 without a git tag; `v2.2.3` onward are tagged)
 ---
  
@@ -43,9 +43,7 @@ DiamondJS has moved from design into a shipped, spec-governed 2.x series. Every 
 ## 📋 Recorded backlog (designed or scoped, not yet scheduled)
  
 - `canLeave` route-scoped departure veto — popstate compensation semantics; history entries are already stamped (`{ diamondNavId, index }`) for forward-compatibility
-- Keep-alive / route caching · stacked overlay routing · transitions · data resolvers · scroll restoration
-- Router URLs behave as in HTML (#28): scroll to the fragment after a route navigation, `navigate()` takes a URL with query and hash, `href="#"` passes through
-- Reactive array mutation (#26): decide between tracking in-place mutation (`push` / `splice`) and reassignment-as-contract with a dev warning
+- Keep-alive / route caching · stacked overlay routing · transitions · data resolvers
 - Per-route parameterized guards (`{ use, state }`) · `ctx.state` request-scoped store · `challenge` decision type
 - Attribute interpolation support (currently a fail-loud diagnostic)
 - Compiler-injected `Print` caller-name memoization (kills the per-call stack walk if a hot path ever needs it)
