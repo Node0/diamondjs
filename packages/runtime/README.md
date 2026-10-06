@@ -37,6 +37,8 @@ export class Counter extends Component {
 }
 ```
 
+A `@reactive` array re-renders on in-place mutation — `push`, `pop`, `shift`, `unshift`, `splice`, `items[i] = v`, `items.length = 0` — and on reassignment alike; every change made in one tick batches into a single flush.
+
 For large datasets (100K+ items, log viewers, chat histories), `Collection<T>` gives O(1) append and 77% less memory than reactive proxies at scale.
 
 ## Routing (v2.2)

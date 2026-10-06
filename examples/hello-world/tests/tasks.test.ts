@@ -30,7 +30,7 @@ class Tasks extends Component {
   add() {
     const t = this.draft.trim()
     if (t) {
-      this.tasks = [...this.tasks, { title: t }]
+      this.tasks.push({ title: t })
       this.draft = ''
     }
   }
