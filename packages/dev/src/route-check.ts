@@ -398,9 +398,14 @@ export function scanOutletInventory(root: string): OutletInventory {
 const STUB_FILE_RE = /\.(html|css)(\?.*)?$/
 const STUB_MESSAGE =
   '[Diamond] route-check loads templates and styles as inert stubs; nothing renders here.'
-const STUB_MODULE =
+/** The inert module every template / style import resolves to. It ends in a
+ *  line comment on purpose: tsx's namespaced loader appends `?tsx-namespace=…`
+ *  to the resolved `data:` URL (#27), and in a `data:` URL everything after
+ *  the comma is module source, so an appended tail has to land in a comment. */
+export const STUB_MODULE =
   `export function createTemplate() { throw new Error(${JSON.stringify(STUB_MESSAGE)}) }\n` +
-  `export default {}\n`
+  `export default {}\n` +
+  `//`
 
 let stubsInstalled = false
 function installTemplateStubs(): void {
@@ -411,9 +416,15 @@ function installTemplateStubs(): void {
   if (typeof register === 'function') {
     const hooks =
       `const STUB = ${JSON.stringify('data:text/javascript,' + encodeURIComponent(STUB_MODULE))};\n` +
+      `const SOURCE = ${JSON.stringify(STUB_MODULE)};\n` +
       `export async function resolve(specifier, context, nextResolve) {\n` +
       `  if (${STUB_FILE_RE.toString()}.test(specifier)) return { url: STUB, shortCircuit: true, format: 'module' };\n` +
       `  return nextResolve(specifier, context);\n` +
+      `}\n` +
+      `// The stub is served for its URL whatever an outer hook appended to it (#27).\n` +
+      `export async function load(url, context, nextLoad) {\n` +
+      `  if (url.startsWith(STUB)) return { format: 'module', source: SOURCE, shortCircuit: true };\n` +
+      `  return nextLoad(url, context);\n` +
       `}\n`
     register('data:text/javascript,' + encodeURIComponent(hooks))
   }
@@ -454,6 +465,27 @@ async function loadRoutesModule(modulePath: string): Promise<Record<string, unkn
   return import(url) as Promise<Record<string, unknown>>
 }
 
+/**
+ * The route map a loaded module exports: `routes`, else the default export.
+ * tsx's tsImport surfaces a CommonJS routes module differently per Node
+ * version (#27): Node 20 lists the detected named exports beside `default`;
+ * Node 22 gives `default` = `module.exports` whole, so `routes` (or the
+ * `__esModule` default) sits one level down. A route map whose only route is
+ * literally named `routes` is told apart by its `path`.
+ */
+export function pickRouteMap(mod: Record<string, unknown>): RouteMap | undefined {
+  if (isObject(mod.routes)) return mod.routes as RouteMap
+  const d = mod.default
+  if (!isObject(d)) return undefined
+  if (d.__esModule === true && isObject(d.default)) return d.default as RouteMap
+  if (isObject(d.routes) && typeof d.routes.path !== 'string') return d.routes as RouteMap
+  return d as RouteMap
+}
+
+function isObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null
+}
+
 export async function routeCheckMain(): Promise<void> {
   const modulePath = process.argv[2]
   if (!modulePath) {
@@ -461,7 +493,7 @@ export async function routeCheckMain(): Promise<void> {
     process.exit(2)
   }
   const mod = await loadRoutesModule(modulePath)
-  const routes = (mod.routes ?? mod.default) as RouteMap | undefined
+  const routes = pickRouteMap(mod)
   if (!routes) {
     Print('FAILURE', `${modulePath} exports neither \`routes\` nor a default RouteMap.`)
     process.exit(2)
