@@ -2,7 +2,7 @@
 
 All notable changes to DiamondJS are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow [Semantic Versioning](https://semver.org/). All nine `@diamondjs/*` packages ship in exact-pin lockstep, so one version number covers the whole constellation.
 
-Each release's *why* lives in its design record under `impl_docs/plans/` and `impl_docs/spec/`; the narrative account of how it was built is `impl_docs/project_update_log.md`.
+Each release's *why* lives in its design record under `docs/spec/vX.Y.Z/`; the narrative account of how it was built is `impl_docs/project_update_log.md`.
 
 ## [2.2.4] — 2026-10-06
 
@@ -100,5 +100,5 @@ Earlier work (Phase 0, v1.3 → v1.5.1) is chronicled in `impl_docs/project_upda
 [2.2.1]: https://github.com/Node0/diamondjs/releases/tag/v2.2.1
 [2.2.0]: https://github.com/Node0/diamondjs/releases/tag/v2.2.0
 [2.1.1]: https://github.com/Node0/diamondjs/releases/tag/v2.1.1
-[2.1.0]: https://github.com/Node0/diamondjs/blob/main/impl_docs/plans/DiamondJS_v2.1_Amendment_A2_Design_Record.md
-[2.0.0]: https://github.com/Node0/diamondjs/blob/main/impl_docs/plans/DiamondJS_v2.0_Design_Decision_Record.md
+[2.1.0]: https://github.com/Node0/diamondjs/blob/main/docs/spec/v2.1.0/DiamondJS_v2.1_Amendment_A2_Design_Record.md
+[2.0.0]: https://github.com/Node0/diamondjs/blob/main/docs/spec/v2.1.0/DiamondJS_v2.0_Design_Decision_Record.md
