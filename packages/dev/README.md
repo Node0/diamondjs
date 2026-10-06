@@ -48,7 +48,7 @@ Validates your route map against your actual templates, with errors that speak *
 npx route-check src/app.routes.ts   # module exporting `routes` (or default)
 ```
 
-Your route map imports real page components, and those import their compiled templates (`import * as T from './page.diamond.html'`) and styles — `route-check` loads both as inert stubs, so the recommended project layout validates as-is; nothing renders.
+Your route map imports real page components, and those import their compiled templates (`import * as T from './page.diamond.html'`) and styles — `route-check` loads both as inert stubs, so the recommended project layout validates as-is; nothing renders. Both loader paths are verified on Node 20 and Node 22 (tsx 4.23.15 or newer, which `@diamondjs/dev` requires).
 
 ```
 ✖ unknown-redirect-target  Route 'home': unknown route ID 'corpora'.
