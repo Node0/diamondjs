@@ -169,7 +169,187 @@ export class MyComponent extends Component {
 }
 ```
  
-Six lifecycle phases, one callback each: `constructor` → `constructed()` → `mounting()` → `mounted()` → `unmounting()` → `unmounted()`. The names promise states: `mounted()` runs only when your element is in the document — children first, root-level `if`/`repeat` output already placed — so measuring, focusing and observers belong there, with no `requestAnimationFrame` dance. `mount()`, `unmount()` and `dispose()` are final; overriding them throws at construction and names the callback to use. A failed mount rolls back by inventory (every binding, listener, effect and child the attempt acquired is released) and the error is rethrown; `phase`, `generation` and `history()` tell you where an instance stands.
+### Lifecycles
+
+A component moves through six phases, one callback each. The names promise **states**: a callback runs only when the state its name describes holds. Two further phases, `faulted` and `disposed`, are terminal and have no callback.
+
+| Phase | 2.3.0 callback | What is true when it runs | What you did in 2.2.x |
+|---|---|---|---|
+| `constructed` | `constructed()` | `@reactive` fields are live under any toolchain; no element yet; once per instance | Wrote fields in the constructor and hoped `useDefineForClassFields` had not made them inert until `mount()` |
+| `mounting` | `mounting()` | About to appear; no template built yet | Code before `super.mount(host)` |                                 
+| `mounted` | `mounted()` | **In the document.** Children mounted first; root-level `if` / `repeat` / `switch` output placed | No analogue, clunky `requestAnimationFrame` + `isConnected` polling after `super.mount(host)` |                                                   
+| `unmounting` | `unmounting()` | Still in the document, on the way out | Code before `super.unmount()` |
+| `unmounted` | `unmounted()` | Detached; state preserved; may mount again | Code after `super.unmount()`, which had also emptied the cleanup registry, so a class-field `debounce` lost its cancel on remount |
+| `faulted` / `disposed` | — | Terminal; recovery is a fresh instance | No analogue, a throw inside `createTemplate()` left an instance flagged mounted with live effects |
+
+<br/>
+
+#### Real Before/After lifecycle Examples
+
+**`constructed()` Reactive state is safe to touch, nothing is on screen.**
+                                                                                                                                         
+```typescript
+// 2.2.x: The constructor was the only pre-mount hook.                                                                                  
+export class Settings extends Component {
+  @reactive activeTab = ''                                                                                                               
+  constructor() {
+    super()                                                                                                                              
+    // Under useDefineForClassFields: true (TypeScript's ES2022 default) this write
+    // landed on a plain own property that shadowed the reactive accessor. The                                                           
+    // framework repaired the field at mount() — after this line had already run.
+    this.activeTab = 'general'                                                                                                           
+  }
+}                                                                                                                                        
+
+// 2.3.0: One callback that runs when @reactive is guaranteed live, once per instance.                                                  
+export class Settings extends Component {
+  @reactive activeTab = ''                                                                                                               
+  override constructed() {
+    this.activeTab = 'general'   // tracked, under any toolchain; no element exists yet                                                  
+  }
+}                                                                                                                                        
+```
+<br/>
+
+**`mounting()` About to appear.** 2.2.x had this: it was the code before `super.mount()`.
+                                                                                                                                         
+```typescript
+// 2.2.x:                                                                                                                                 
+override mount(host: HTMLElement) {
+  this.openedAt = performance.now()   // runs before the template is built                                                               
+  super.mount(host)
+}                                                                                                                                        
+
+// 2.3.0: Same moment, its own name; no template or children exist yet.                                                                 
+override mounting() {
+  this.openedAt = performance.now()                                                                                                      
+}
+```                                                                                                                                      
+<br/>
+
+**`mounted()` Your element is in the document.** This is the one 2.2.x did not have, and the one every real app worked around.         
+
+```typescript                                                                                                                            
+// 2.2.x: When `mount()` ran it meant "template built and appended to host". The host was in
+// the document only for a root or a route component; a child built inside a parent's                                                    
+// template was still detached, and a root-level `if` had not been placed yet (that
+// happened on a microtask). So "in the document" was guessed:                                                                           
+override mount(host: HTMLElement) {
+  super.mount(host)                                                                                                                      
+  requestAnimationFrame(() => {                       // wait a frame and hope
+    const el = this.getElement()                                                                                                         
+    if (!el?.isConnected) {                           // …not yet? try next frame
+      requestAnimationFrame(() => this.measure())    // (and the branch under a root `if`                                                
+      return                                          //  might still be missing)
+    }                                                                                                                                    
+    this.measure()
+  })                                                                                                                                     
+}
+                                                                                                                                         
+// 2.3.0: The framework knows when the range reaches the document and tells you.
+// Children's mounted() have already run; root-level structurals are placed.                                                             
+override mounted() {
+  const el = this.getElement()!                                                                                                          
+  this.observer = new ResizeObserver(() => this.layout(el))
+  this.observer.observe(el)                                                                                                              
+  this.registerCleanup(() => this.observer.disconnect())   // released at unmount()
+  el.querySelector('input')?.focus()                        // layout is real; focus works                                               
+}
+```                                                                                                                                      
+<br/>
+
+**Child components** followed the same pattern, by hand.                                                                                 
+
+```typescript                                                                                                                            
+// 2.2.x: Mount the child yourself, unmount it yourself, remember to do both.
+override mount(host: HTMLElement) {                                                                                                      
+  super.mount(host)
+  this.viewer = new SourceViewer()                                                                                                       
+  this.viewer.mount(this.getElement()!.querySelector('.viewer')!)   // detached host: the
+}                                                                   // child never "connects"                                            
+override unmount() {
+  this.viewer?.unmount()        // forget this and the child's effects outlive the parent                                                
+  super.unmount()
+}                                                                                                                                        
+
+// 2.3.0: Register the child; it is delivered child-first when the parent connects                                                      
+// and disposed with the parent's mount scope. Nothing to undo.
+override mounting() {                                                                                                                    
+  this.viewer = new SourceViewer()
+  DiamondCore.child(this.viewer, this.getElement()!.querySelector('.viewer')!)                                                           
+}
+```                                                                                                                                      
+<br/>
+
+**`unmounting()` Still in the document.** 2.2.x had this too: the code before `super.unmount()`.                                       
+
+```typescript                                                                                                                            
+// 2.2.x:
+override unmount() {                                                                                                                     
+  this.savedScroll = this.getElement()!.scrollTop   // the range is still attached here
+  super.unmount()                                                                                                                        
+}
+                                                                                                                                         
+// 2.3.0:
+override unmounting() {                                                                                                                  
+  this.savedScroll = this.getElement()!.scrollTop
+}                                                                                                                                        
+```
+<br/>
+
+**`unmounted()` Detached, state kept, remount allowed.** The 2.2.x analogue existed but came with a trap.
+                                                                                                                                         
+```typescript
+// 2.2.x: When unmount() ran it emptied the whole cleanup registry, including the cancel that a                                                     
+// class-field debounce had registered. After a remount the wrapper still worked, but
+// its pending timer could no longer be cancelled — the documented "re-mount caveat".                                                    
+// The workaround was to rebuild the handler on every mount():
+handleInput!: (v: string) => void                                                                                                        
+override mount(host: HTMLElement) {
+  this.handleInput = this.debounce((v) => (this.query = v), 300)   // re-created each mount                                              
+  super.mount(host)
+}                                                                                                                                        
+override unmount() {
+  super.unmount()                                                                                                                        
+  this.visits++
+}                                                                                                                                        
+
+// 2.3.0: Two scopes. A class-field debounce lives in the instance scope: its timer is                                                  
+// cancelled at unmount() and the cancel is kept, so the one-liner survives a remount.
+handleInput = this.debounce((v: string) => (this.query = v), 300)                                                                        
+override unmounted() {
+  this.visits++                 // state is preserved; mount() may be called again                                                       
+}
+```
+<br/>
+
+**Callbacks the framework cannot cancel** get a guard instead of a flag.
+
+```typescript
+// 2.2.x: A `mounted` flag by hand, checked in every async continuation.
+override mount(host: HTMLElement) {
+  super.mount(host)
+  this.alive = true
+  fetch(this.url).then((r) => { if (this.alive) this.show(r) })
+}
+override unmount() { this.alive = false; super.unmount() }
+
+// 2.3.0: Bind the continuation to this mount's generation; after unmount() it declines.
+override mounted() {
+  fetch(this.url).then(this.whileMounted((r) => this.show(r)))
+}
+```
+<br/>
+
+**The entry points are final.** `mount(host)`, `unmount()` and `dispose()` belong to the framework. Overriding `mount` or `unmount` fails at construction, not quietly at runtime, and the message says what to write instead:
+
+```
+[Diamond] Chart overrides mount()/unmount(). These are final. Override mounted()/unmounting() instead (spec §4.4).
+```
+
+**A failed mount leaves nothing behind.** Everything a mount attempt acquires — bindings, listeners, effects, timers, children, the DOM range — is inventoried as it is created. If anything throws on the way to `mounted()`, the inventory is released in reverse order, the instance returns to `constructed` (first mount) or `unmounted` (remount), and the error is rethrown to you unchanged. In 2.2.x a throw inside `createTemplate()` left the instance flagged as mounted with its effects live; the only remedy was a `try { … } catch { c.unmount() }` around every `mount()` call, and even that missed what had been acquired before the throw.
+
+**Where an instance stands** is always readable: `phase` and `generation` are reactive (`if="phase === 'mounted'"` works in a template), `history()` returns the last 32 transitions with cause, outcome and timestamp, and in dev builds `domPing()` checks that snapshot against the real DOM.
  
 ### Reactivity
  
