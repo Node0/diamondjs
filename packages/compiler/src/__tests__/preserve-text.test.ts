@@ -170,7 +170,7 @@ describe('#15 — structurals: whitespace around a removed element is content', 
   })
 
   it('a space before a conditional block survives the false branch', async () => {
-    const { host, state } = mount('<section>Hello <div if="state.aside">Aside</div>world</section>', { aside: false })
+    const { host } = mount('<section>Hello <div if="state.aside">Aside</div>world</section>', { aside: false })
     expect(domText(host)).toEqual(plainText('<section>Hello world</section>'))
   })
 
