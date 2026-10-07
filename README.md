@@ -341,7 +341,9 @@ override mounted() {
 ```
 <br/>
 
-**The entry points are final.** `mount(host)`, `unmount()` and `dispose()` belong to the framework. Overriding `mount` or `unmount` fails at construction, not quietly at runtime, and the message says what to write instead:
+**The entry points are final.**
+`mount(host)`, `unmount()` and `dispose()` belong to the framework.  
+Overriding `mount` or `unmount` fails at construction, not quietly at runtime, and the message says what to write instead:
 
 ```
 [Diamond] Chart overrides mount()/unmount(). These are final. Override mounted()/unmounting() instead (spec §4.4).
