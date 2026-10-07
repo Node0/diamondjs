@@ -57,9 +57,6 @@ const COMMAND_MAP: Record<string, { type: BindingType; raw: boolean }> = {
   'to-view': { type: 'to-view', raw: false },
   'from-view': { type: 'from-view', raw: false },
   'two-way': { type: 'two-way', raw: false },
-  'bind.to-view': { type: 'to-view', raw: false },
-  'bind.from-view': { type: 'from-view', raw: false },
-  'bind.two-way': { type: 'two-way', raw: false },
   'rawbind.to-view': { type: 'to-view', raw: true },
   'rawbind.from-view': { type: 'from-view', raw: true },
   'rawbind.two-way': { type: 'two-way', raw: true },
@@ -210,11 +207,14 @@ export class TemplateParser {
 
     for (const child of element.childNodes) {
       if (this.isTextNode(child)) {
-        if (child.value.trim()) {
+        // Only ASCII whitespace is syntax here (§5.9 (b), D-28) — the same class
+        // as between `if`/`else-if` and at a template's root edges. Anything else,
+        // a non-breaking space included, is text, and text has no place here.
+        if (!/^[ \t\n\f\r]*$/.test(child.value)) {
           this.diagnostics.push({
             severity: 'error',
             code: 'switch-bad-child',
-            message: `Text is not valid directly inside <switch>; wrap it in a <case> or <default>.`,
+            message: `Text is not valid directly inside <switch> (a non-breaking space counts as text); wrap it in a <case> or <default>.`,
             location,
           })
         }
@@ -884,11 +884,15 @@ export class TemplateParser {
       return null
     }
 
-    // Unknown command — replaces the old silent `|| 'bind'` fallback
+    // Unknown command — replaces the old silent `|| 'bind'` fallback. The
+    // non-raw three-segment spelling (`.bind.to-view`) was never grammar (D-27):
+    // one spelling per command, and the three-segment form is rawBind's.
+    const dir = /^bind\.(to-view|from-view|two-way)$/.exec(key)?.[1]
+    const hint = dir ? ` Write '.${dir}' (or '.rawBind.${dir}' for a raw sink); the three-segment form is for rawBind only (spec §5.1).` : ''
     this.diagnostics.push({
       severity: 'error',
       code: 'unknown-command',
-      message: `Unknown binding command '.${key}' in '${attrName}'.`,
+      message: `Unknown binding command '.${key}' in '${attrName}'.${hint}`,
       location,
     })
     return null

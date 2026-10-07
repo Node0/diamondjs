@@ -5,6 +5,8 @@
  * into a single microtask execution.
  */
 
+import { Print } from '@diamondjs/primafacie'
+
 /**
  * An effect as the scheduler sees it. `disposed` is set by effect cleanup
  * (§16 D-7): an effect queued before its disposal must be dropped at flush,
@@ -51,7 +53,8 @@ export class Scheduler {
       try {
         effect()
       } catch (error) {
-        console.error('[Diamond] Effect execution error:', error)
+        // One vocabulary (§15, D-26): the flush continues, the throw is recorded.
+        Print('EXCEPTION', `[Diamond] effect threw during flush: ${String(error)}`)
       }
     }
   }

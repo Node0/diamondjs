@@ -6,8 +6,12 @@
  * @diamondjs/primafacie: prod-visible stink signals with warn-once dedup.
  * The format-drift tripwire asserts they carry primafacie's line shape —
  * a drift back toward a private format re-breaks this test.
+ *
+ * 2.3.0 (D-26): the last two console.error sites — an effect throwing during
+ * a flush, a cleanup throwing in a captured scope — go through Print too, so
+ * every runtime report reaches the sinks.
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { DiamondCore } from '../src/core'
 import { addSink, configure, type LogRecord } from '@diamondjs/primafacie'
 
@@ -70,5 +74,60 @@ describe('runtime warnings speak primafacie (format-drift tripwire)', () => {
         (r) => r.logType === 'WARNING' && r.message.includes('inbound corruption')
       )
     ).toHaveLength(1)
+  })
+})
+
+describe('nothing in the runtime writes to the console directly (D-26)', () => {
+  let records: LogRecord[] = []
+  let detach: () => void
+  let consoleError: ReturnType<typeof vi.spyOn>
+
+  beforeEach(() => {
+    records = []
+    configure({ console: false })
+    detach = addSink((r) => records.push(r))
+    consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+  })
+  afterEach(() => {
+    consoleError.mockRestore()
+    detach()
+    configure({ console: true })
+  })
+
+  it('an effect that throws during a flush prints EXCEPTION, and the flush continues', async () => {
+    const state = DiamondCore.reactive({ n: 0 })
+    let ran = 0
+    DiamondCore.effect(() => {
+      if (state.n > 0) throw new Error('boom')
+    })
+    DiamondCore.effect(() => {
+      void state.n
+      ran++
+    })
+    state.n = 1
+    await tick()
+
+    expect(ran).toBe(2)
+    const thrown = records.filter(
+      (r) => r.logType === 'EXCEPTION' && r.message.includes('effect threw during flush')
+    )
+    expect(thrown).toHaveLength(1)
+    expect(thrown[0].message).toContain('boom')
+    expect(consoleError).not.toHaveBeenCalled()
+  })
+
+  it('a cleanup that throws inside a captured scope prints FAILURE, by index', () => {
+    const { scope, cleanup } = DiamondCore.captureScope(() => 'value')
+    scope.add(() => {
+      throw new Error('cleanup boom')
+    })
+    cleanup()
+
+    const failed = records.filter(
+      (r) => r.logType === 'FAILURE' && r.message.includes('cleanup #0 threw')
+    )
+    expect(failed).toHaveLength(1)
+    expect(failed[0].message).toContain('cleanup boom')
+    expect(consoleError).not.toHaveBeenCalled()
   })
 })
