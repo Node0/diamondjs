@@ -113,12 +113,12 @@ describe('TemplateParser', () => {
       }
     })
 
-    it('parses three-segment bind.from-view', () => {
+    it('rejects the non-raw three-segment spelling: .bind.from-view is unknown-command (D-27)', () => {
       const nodes = parser.parse('<input value.bind.from-view="query">')
-      if (isElementInfo(nodes[0])) {
-        expect(nodes[0].bindings[0].type).toBe('from-view')
-        expect(nodes[0].bindings[0].raw).toBe(false)
-      }
+      const unknown = parser.diagnostics.filter((d) => d.code === 'unknown-command')
+      expect(unknown).toHaveLength(1)
+      expect(unknown[0].message).toContain("Write '.from-view'")
+      if (isElementInfo(nodes[0])) expect(nodes[0].bindings).toHaveLength(0)
     })
 
     it('parses to-view binding', () => {

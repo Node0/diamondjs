@@ -1,6 +1,6 @@
 # DiamondJS — Architecture & Design Specification v2.3.0
 
-**Status:** Complete, for ratification · describes `main` at `07cf171` — the content of v2.3.0: v2.2.4 plus the Lifecycle Contract (PR #39) and preserved template text (#15, PR #40). The `v2.3.0` tag and publication are pending; nothing in this document waits on them. §4.5 records the template component composition proposal, deferred to v2.3.1.
+**Status:** Complete, for ratification · describes `main` with the D-26…D-28 fixes merged (last code change `bc55a7e`) — the content of v2.3.0: v2.2.4 plus the Lifecycle Contract (PR #39) and preserved template text (#15, PR #40). The `v2.3.0` tag and publication are pending; nothing in this document waits on them. §4.5 records the template component composition proposal, deferred to v2.3.1.
 **Author:** Joe Hacobian
 **Supersedes:** the v2.2.4 specification (`docs/spec/v2.2.4/`), and through it the v2.1 spec, Amendment A3, the v2.2 Router Specification and Work Order. Those remain the *rationale* archive; this document is the single authoritative *reference*. `diff` against the v2.2.4 file shows exactly what 2.3.0 changes.
 
@@ -294,7 +294,7 @@ Imperative mounting remains available for children a template cannot describe: c
 
 ### 4.6 Failure and recovery *(new 2.3.0, LC-7/LC-10/LC-11/LC-12)*
 
-Rollback is by inventory, not by snapshot: whatever a failed transaction acquired is in a scope, and recovery is that scope's `dispose()`. There is no mutation journal and no value rollback. Disposal is total and LIFO — each cleanup in its own `try`, failures collected and never thrown mid-dispose; if any cleanup threw, the instance becomes `faulted` (LC-10). A throw in `unmounting()` or `unmounted()` is recorded as `callback-failed` and teardown continues (LC-12); what faults an instance is a cleanup failure during a dispose, or a throw in `constructed()` (the instance scope is disposed; cause `construct`). When a cleanup throws during `unmount()`, `unmounted()` is not called. A cleanup failure inside a structural branch is reported (⚠ §16 D-26) and faults no instance: the branch has none, and the enclosing component stays mounted.
+Rollback is by inventory, not by snapshot: whatever a failed transaction acquired is in a scope, and recovery is that scope's `dispose()`. There is no mutation journal and no value rollback. Disposal is total and LIFO — each cleanup in its own `try`, failures collected and never thrown mid-dispose; if any cleanup threw, the instance becomes `faulted` (LC-10). A throw in `unmounting()` or `unmounted()` is recorded as `callback-failed` and teardown continues (LC-12); what faults an instance is a cleanup failure during a dispose, or a throw in `constructed()` (the instance scope is disposed; cause `construct`). When a cleanup throws during `unmount()`, `unmounted()` is not called. A cleanup failure inside a structural branch is reported through `Print` (`FAILURE`, §12.5) and faults no instance: the branch has none, and the enclosing component stays mounted.
 
 | Transaction fails during | Dispose removes | Destination |
 |---|---|---|
@@ -357,7 +357,7 @@ Bindings are **attribute-based and element-scoped**, not statement-based. An att
 
 > **parse5 lowercases attribute names.** `innerHTML.rawBind.to-view` reaches the compiler as `innerhtml.rawbind.to-view`. The camelCase legibility of `rawBind`/`rawSet` is a **source-only affordance**; the property segment is restored to its camelCase DOM name through the runtime's `PROPERTY_NAME_MAP` (§6.3: lowercased author input maps to the canonical property name; for the gate alone a static `class` reads as `className` and `for` as `htmlFor`) and command matching is lowercase-keyed. Internally a binding is `{ type, raw }` where `type` is the operation and `raw` is a boolean — the source surface stays three-segment; flattened tokens like `rawTo-view` never exist.
 
-> ⚠ The shipped parser also accepts the non-raw three-segment spellings `property.bind.to-view`, `.bind.from-view` and `.bind.two-way` as synonyms of the two-segment commands; this grammar does not define them (§16 D-27).
+A non-raw three-segment spelling (`value.bind.to-view`) is `unknown-command`, and the message names the two-segment form *(2.3.0, D-27)*.
 
 The operations:
 
@@ -529,7 +529,7 @@ The one and only looping construct — no `while`, no `repeat-until`, no `forEac
 - **`<case if="…">` classification:** a quoted string / number / `true`/`false`/`null` or a **bare identifier-shaped word** (dashes allowed) is **equality** (`v === literal`; bare words are **string** equality); anything with operators/spaces/dots/parens is a **boolean expression** over component state. Consequence: a dotted path like `if="user.role"` is an **expression (truthiness)**, not equality. Expression cases **cannot see the on-value** (no `$value` alias).
 - **`<default>` must be the last child** (`switch-default-not-last`); at most one (`switch-multiple-default`).
 - **Full erasure:** all three elements are compile-time erased — no DOM container ships; a multi-root case body is built as one `DocumentFragment` and mounted and removed as a range (§5.4.4). Any attribute beyond `switch[on]` / `case[if]` is an error (the elements have no DOM target).
-- **Whitespace directly inside `<switch>`**, between cases, is syntax — ASCII whitespace, the class (a) and (c) use (§5.9); non-whitespace text there is `switch-bad-child`. ⚠ Shipped 2.3.0 tests it with JavaScript's `trim()`, so a non-ASCII space there is consumed too (§16 D-28).
+- **Whitespace directly inside `<switch>`**, between cases, is syntax — ASCII whitespace, the class (a) and (c) use (§5.9); any other text there, a non-breaking space included, is `switch-bad-child` *(2.3.0, D-28)*.
 
 **Lowering (runtime `DiamondCore.switch`, plus a compile-time fast path):** reactive `on=` lowers to `DiamondCore.switch(anchor, onGetter, cases, defaultMake?)`, mirroring `if()` (lazy `captureScope` builds; detached means disposed). The **static fast path** applies iff `on=` is a **pure literal** AND every case is equality-kind — then only the winning branch's DOM code is emitted, zero runtime cost. A statically-dead switch (static `on=` matching no case, no `<default>`) emits a **`switch-static-dead` warning** plus an inspectable DOM comment carrying the dead source — never silently dropped. Because stink-check routes on severity *(v2.1.1, D-8)*, that warning fails the stink-check merge gate; it does not stop a local build.
 
@@ -590,7 +590,7 @@ A standalone `.diamond.html` compiled to a module cannot import a named pipe tra
 Whitespace consumed as **syntax** is exactly:
 
 - **(a)** between an `if`/`else-if` and an `else-if` that follows it — only when one follows, and only ASCII whitespace (§5.4.1);
-- **(b)** directly inside `<switch>`, between cases — ASCII whitespace, as (a) and (c) (§5.4.3; ⚠ D-28);
+- **(b)** directly inside `<switch>`, between cases — ASCII whitespace, as (a) and (c); a non-breaking space there is an error, never consumed (§5.4.3);
 - **(c)** a whitespace-only text node that would be the first or the last root of a component template — the indentation around the markup. A component's template mounts inside its host (§4.4), so the whitespace around a component's tag belongs to the parent template and is kept there. Only a whole whitespace-only node is consumed: a text root with content keeps its own edges, a trailing line break included, and whitespace between roots is content;
 - **(d)** with composition (v2.3.1): whitespace-only content between a component tag's open and close tags (§4.5 C-9, proposed). In 2.3.0 a hyphenated tag is a plain element, and its content is content.
 
@@ -897,7 +897,7 @@ The compiler returns `diagnostics: Diagnostic[]` on `CompileResult`; each is `{ 
 | `case-outside-switch` / `default-outside-switch` *(built as `${tagName}-outside-switch`)* | `<case>`/`<default>` with no `<switch>` parent |
 | `switch-no-on` | `<switch>` missing/empty `on` |
 | `switch-extraneous-attr` | attribute other than `on` on `<switch>` / other than `if` on `<case>` / any on `<default>` |
-| `switch-bad-child` | non-whitespace text, or a non-`case`/`default` element, directly in `<switch>` |
+| `switch-bad-child` | text other than ASCII whitespace (a non-breaking space counts, D-28), or a non-`case`/`default` element, directly in `<switch>` |
 | `switch-default-not-last` | a `<case>` follows `<default>` |
 | `switch-multiple-default` | a second `<default>` |
 | `switch-empty` | zero cases and no default |
@@ -917,7 +917,7 @@ The compiler returns `diagnostics: Diagnostic[]` on `CompileResult`; each is `{ 
 | `attr-interpolation-unsupported` *(v2.1.1, D-3)* | a raw `${` in a plain static attribute value, read from the raw source (§5.2.1) — an entity-encoded `${` does not trigger it *(2.2.4)* |
 | `escaped-interpolation` — **info** *(2.2.4, #29)* | each `\${`; located at the backslash's line and column in text, at the attribute in an attribute value; the message suggests `\\${` for the Windows-path case. Never gated |
 | `retired-command` | a command in `{one-time, trigger, delegate}` (one code, three message variants) |
-| `unknown-command` | a command in neither the active nor retired map |
+| `unknown-command` | a command in neither the active nor retired map — the non-raw three-segment spelling `.bind.to-view` / `.bind.from-view` / `.bind.two-way` is one, and its message names the two-segment form *(2.3.0, D-27)* |
 | `ampersand-removed` | a lone `&` in a binding/spread/interpolation expression |
 
 ### 12.2 Generator diagnostics
@@ -969,6 +969,8 @@ Not `Diagnostic` objects but part of the same story. Warnings print through `Pri
 - **`@reactive` field repaired** (dev, once per class): a [[Define]]-emitted field was re-routed through its accessor (§7.1).
 - **Root mounted into a detached host** (dev `WARNING`, once): `mounted()` will never fire (§4.4).
 - **Lifecycle transitions** (§4.7): `FAILURE` for a failed transition, `CRITICAL` for a fault, `WARNING` for a stale callback, `STATE` for a successful one in dev builds only.
+- **Effect threw during flush** (`EXCEPTION`): the error as `String(error)`; the flush continues with the next effect *(2.3.0, D-26)*.
+- **Cleanup threw** (`FAILURE`): a cleanup inside `captureScope` or a structural branch, by index; the branch faults no instance (§4.6) *(2.3.0, D-26)*.
 - **Router narration** (§17): per-navigation `STATE`, guard decisions, `Pending` acquire/release, the dev startup route table, and the `basePath` mismatch `WARNING`.
 
 Runtime throws: `createTemplate()` not implemented; `Collection.byKey` without a `key` option; `mount()` on a `mounted`, `faulted` or `disposed` instance, before any transition (§4.4 — supersedes the v2.1.1 double-mount guard, D-6; the faulted message names the cleanup that threw); `unmount()` on an instance that is not mounted; a subclass overriding `mount()`/`unmount()`, at construction (§4.4).
@@ -1074,7 +1076,7 @@ Nine workspace packages, lockstep at **2.3.0**: `@diamondjs/primafacie`, `@diamo
 | `@diamondjs/dev` (toolchain) | 545 | 800 | 68.1% |
 | **Total (production)** | **5,645** | **9,500** | **59.4%** |
 
-Figures are measured at `07cf171`, the last code change of 2.3.0 (the 2.2.4 baseline at `82bb8bc` was 5,342 / 56.2%). The Lifecycle Contract accounts for the runtime's +281 (against its +300 ceiling) and preserved text (#15) for the compiler's +22. The suite is **956 tests across 64 files** on Node 20.18.1 (859 across 57 at 2.2.4), with the 64 lifecycle tests run a second time under the legacy toolchain shape (`npm run test:lifecycle`) and ten Playwright acceptance tests against Chromium (`npm run test:acceptance`). Composition (v2.3.1) is budgeted at ~200 runtime LOC plus its compiler share, which leaves the runtime about 270 lines under its ceiling. Warning thresholds in `check-loc-budget.ts`: runtime 2,250, compiler 4,500, parcel 250, converters 400, primafacie 350, dev 700. The dev-toolchain budget (800) entered with 2.2.2, raising the total from 8,700 to 9,500. `@diamondjs/guards` has a stated budget of 400 but no row in the budget tool yet.
+Figures are measured at `bc55a7e`, the last code change of 2.3.0 (the 2.2.4 baseline at `82bb8bc` was 5,342 / 56.2%). The Lifecycle Contract accounts for the runtime's +281 (against its +300 ceiling) and preserved text (#15) for the compiler's +22. The suite is **960 tests across 64 files** on Node 20.18.1 (859 across 57 at 2.2.4), with the 64 lifecycle tests run a second time under the legacy toolchain shape (`npm run test:lifecycle`) and ten Playwright acceptance tests against Chromium (`npm run test:acceptance`). Composition (v2.3.1) is budgeted at ~200 runtime LOC plus its compiler share, which leaves the runtime about 270 lines under its ceiling. Warning thresholds in `check-loc-budget.ts`: runtime 2,250, compiler 4,500, parcel 250, converters 400, primafacie 350, dev 700. The dev-toolchain budget (800) entered with 2.2.2, raising the total from 8,700 to 9,500. `@diamondjs/guards` has a stated budget of 400 but no row in the budget tool yet.
 
 The batteries (`@diamondjs/converters` — `CurrencyConverter`, `DateConverter`, `PhoneConverter`, `IntConverter`, `SlugConverter` — and `@diamondjs/guards` once it carries mid-classes) are kept separate from the runtime; `ParseResult` stays in the runtime so batteries and user converters import the same contract and it cannot drift.
 
@@ -1092,7 +1094,7 @@ The batteries (`@diamondjs/converters` — `CurrencyConverter`, `DateConverter`,
 
 What prints through it: the runtime warnings and lifecycle emissions of §12.5 and §4.7, and the router's narration (§17).
 
-> ⚠ Two reports still bypass `Print`: an effect that throws during a scheduler flush, and a cleanup failure inside `captureScope` or a structural branch — both `console.error` (§16 D-26).
+Nothing in the runtime writes to the console directly *(2.3.0, D-26)*: an effect that throws during a scheduler flush prints `EXCEPTION`, and a cleanup that throws inside `captureScope` or a structural branch prints `FAILURE`.
 
 ---
 
@@ -1105,12 +1107,6 @@ Shipped v2.3.0 meets the contracts above except for the items below. Each is dis
 - **D-24 — `fold` is a standalone exported function** *(recorded 2.3.0)*. §3.1 #6 requires runtime code to be class methods or static namespaces, never lone exported functions; `fold(history)` ships as one. Disposition deferred to v2.3.1: a static (`Component.fold`), a method on the record, or an accepted exception. The runtime index also exports the `reactive` decorator and the three security helpers (`canonicalizeSinkKey`, `isDataOrAriaKey`, `isInertMetadataKey`) as lone functions; the same disposition covers them (a static namespace, or an accepted exception for decorators and pure predicates).
 
 - **D-23 — `createTemplate()` and `element` are typed `HTMLElement`** *(recorded 2.2.4)*. A template with two or more roots returns a `DocumentFragment`, and the managed range (§5.4.4) may begin with a comment. §4.4 should type both as `Node`; it shows the shipped `HTMLElement` with this pointer. Fix: correct the declarations.
-
-- **D-26 — two reports bypass `Print`** *(recorded 2.3.0)*. §15 requires one logging vocabulary; an effect that throws during a scheduler flush, and a cleanup failure inside `captureScope` or a structural branch, are reported with `console.error`. Fix: route both through `Print` (`FAILURE`); the no-fault rule for branches (§4.6) stands.
-
-- **D-27 — undocumented three-segment synonyms** *(recorded 2.3.0)*. The parser accepts `property.bind.to-view`, `.bind.from-view` and `.bind.two-way` (non-raw) as synonyms of the two-segment commands; §5.1 defines the three-segment form only for `rawBind`. Disposition pending the author's ruling: remove them from the command map, or admit them in §5.1.
-
-- **D-28 — `<switch>` whitespace test is not ASCII-only** *(recorded 2.3.0)*. §5.9 (b) consumes ASCII whitespace between cases, the class (a) and (c) use; the shipped parser uses `trim()`, so a non-breaking space there is consumed too. Fix: the ASCII class.
 
 ### Accepted limitations (document, don't smooth over)
 
@@ -1178,6 +1174,9 @@ Shipped v2.3.0 meets the contracts above except for the items below. Each is dis
 | Lifecycle P-4 | `debounce`/`throttle` cancels survive remount (instance scope, §4.4) | 2.3.0 |
 | Lifecycle P-5 | router construction failures dispose already-constructed incoming components (§17.2) | 2.3.0 |
 | Lifecycle P-6 | children's teardown cascades from the parent's mount scope (§4.5) | 2.3.0 |
+| D-26 | effect-flush throws and cleanup failures print through `Print` — nothing in the runtime writes to the console directly (§12.5, §15) | 2.3.0 |
+| D-27 | the non-raw three-segment spellings (`.bind.to-view`, `.bind.from-view`, `.bind.two-way`) removed from the command map; `unknown-command` names the two-segment form (§5.1) | 2.3.0 |
+| D-28 | `<switch>` whitespace is the ASCII class; a non-breaking space between cases is `switch-bad-child` (§5.4.3) | 2.3.0 |
 
 ---
 
@@ -1588,8 +1587,8 @@ Each entry lists what this specification gained or changed in that release. The 
 - §4.5: template component composition, C-1…C-10, recorded as a proposal for v2.3.1; §12.3 lists its proposed codes.
 - §4: the Lifecycle Contract — six phases, one callback each; `mount`/`unmount`/`dispose` final with a construction-time override guard; `update()` removed; instance and mount scopes; `mounted` means connected; child-first delivery; rollback by inventory; generations; terminal `faulted`/`disposed`; the lifecycle record and its emissions; `DiamondCore.child` (§4.2, §4.4–§4.7, §17.2); `whileMounted`; public `Scope` operations. Closes lifecycle defects P-1…P-6 and #38; records D-24 (deferred to v2.3.1).
 - §5.4.4: a root-level structural is placed by the connection drain, before `mounted()` and before the router's hash scroll (#38, D-25). §7.2: `captureScope` disposes on throw; `effect()` registers into the current scope.
-- §11: `Scope`, `ScopeFailure`, `fold`, `Phase`, `Cause` and `LifecycleRecord` exported; the scope operations and `child` on `DiamondCore`; `trackRange` gains `nodes()`. §12.5: lifecycle emissions and the detached-root warning; the new runtime throws. §14: figures at `07cf171`.
-- §15: `Print` carries the lifecycle emissions. §16: D-23 kept open, D-24 recorded; the lifecycle defects and D-22 listed as closed; D-26, D-27 and D-28 recorded by the 2.3.0 audit of this document against the code. Appendix A: the lifecycle and whitespace rows. Appendices E/F: the rejected lifecycle alternatives and the record's out-of-scope list.
+- §11: `Scope`, `ScopeFailure`, `fold`, `Phase`, `Cause` and `LifecycleRecord` exported; the scope operations and `child` on `DiamondCore`; `trackRange` gains `nodes()`. §12.5: lifecycle emissions and the detached-root warning; the new runtime throws. §14: figures at `bc55a7e`.
+- §15: `Print` carries the lifecycle emissions. §16: D-23 kept open, D-24 recorded; the lifecycle defects and D-22 listed as closed; D-26, D-27 and D-28 found by the 2.3.0 audit of this document against the code and closed in 2.3.0. Appendix A: the lifecycle and whitespace rows. Appendices E/F: the rejected lifecycle alternatives and the record's out-of-scope list.
 
 **2.2.4**
 - §5.2: literal `${` (#29) and literal author text in compiled output (#19).
