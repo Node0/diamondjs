@@ -884,7 +884,7 @@ The 2.2.4 synopsis left two things open: #15, decided but not implemented, and a
 
 ### Verification
 - 960 tests across 64 files on Node 20.18.1 (four added with the D-26 and D-28 fixes) (859 across 57 at 2.2.4); `lint` 0 errors, `typecheck`, `stink:check`, `check-loc` green; the spec-fixture drift test passes against `docs/spec/v2.3.0/`.
-- Lifecycle: the 64 lifecycle tests pass under both toolchain shapes (TC39 decorators + `[[Define]]` fields, and legacy decorators + `[[Set]]`), and the ten Playwright acceptance tests pass against Chromium — A-9's leak census over 50 route cycles reads DOM nodes 163 → 163, listeners 66 → 66, live page instances 1, heap +5%.
+- Lifecycle: the 64 lifecycle tests pass under both toolchain shapes (TC39 decorators + `[[Define]]` fields, and legacy decorators + `[[Set]]`), and the eleven Playwright acceptance tests (A-1…A-10, A-6 also as a direct load) pass against Chromium — A-9's leak census over 50 route cycles reads DOM nodes 163 → 163, listeners 66 → 66, live page instances 1, heap +5%.
 - #15: the lossless property held over the hello-world example and Turbine's five templates, 207 of 207 text nodes equal to plain HTML.
 
 ### What is deliberately not in this release
@@ -896,8 +896,8 @@ The 2.2.4 synopsis left two things open: #15, decided but not implemented, and a
 
 ### Final state (at `bc55a7e`)
 ```
-Runtime:      2,027 / 2,500 LOC
-Compiler:     2,486 / 5,000 LOC
+Runtime:      2,028 / 2,500 LOC
+Compiler:     2,485 / 5,000 LOC
 Parcel:         164 /   300 LOC
 Converters:     123 /   500 LOC
 Primafacie:     300 /   400 LOC

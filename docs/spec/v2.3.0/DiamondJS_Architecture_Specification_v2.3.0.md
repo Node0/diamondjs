@@ -1068,15 +1068,15 @@ Nine workspace packages, lockstep at **2.3.0**: `@diamondjs/primafacie`, `@diamo
 
 | Package | Prod LOC | Budget | Usage |
 |---|---:|---:|---:|
-| `@diamondjs/runtime` | 2,027 | 2,500 | 81.1% |
-| `@diamondjs/compiler` | 2,486 | 5,000 | 49.7% |
+| `@diamondjs/runtime` | 2,028 | 2,500 | 81.1% |
+| `@diamondjs/compiler` | 2,485 | 5,000 | 49.7% |
 | `@diamondjs/parcel-transformer-diamond` | 164 | 300 | 54.7% |
 | `@diamondjs/converters` | 123 | 500 | 24.6% |
 | `@diamondjs/primafacie` | 300 | 400 | 75.0% |
 | `@diamondjs/dev` (toolchain) | 545 | 800 | 68.1% |
 | **Total (production)** | **5,645** | **9,500** | **59.4%** |
 
-Figures are measured at `bc55a7e`, the last code change of 2.3.0 (the 2.2.4 baseline at `82bb8bc` was 5,342 / 56.2%). The Lifecycle Contract accounts for the runtime's +281 (against its +300 ceiling) and preserved text (#15) for the compiler's +22. The suite is **960 tests across 64 files** on Node 20.18.1 (859 across 57 at 2.2.4), with the 64 lifecycle tests run a second time under the legacy toolchain shape (`npm run test:lifecycle`) and ten Playwright acceptance tests against Chromium (`npm run test:acceptance`). Composition (v2.3.1) is budgeted at ~200 runtime LOC plus its compiler share, which leaves the runtime about 270 lines under its ceiling. Warning thresholds in `check-loc-budget.ts`: runtime 2,250, compiler 4,500, parcel 250, converters 400, primafacie 350, dev 700. The dev-toolchain budget (800) entered with 2.2.2, raising the total from 8,700 to 9,500. `@diamondjs/guards` has a stated budget of 400 but no row in the budget tool yet.
+Figures are measured at `bc55a7e`, the last code change of 2.3.0 (the 2.2.4 baseline at `82bb8bc` was 5,342 / 56.2%). The Lifecycle Contract and D-26 account for the runtime's +282 (against the Contract's +300 ceiling); preserved text (#15) and D-27 for the compiler's +21. The suite is **960 tests across 64 files** on Node 20.18.1 (859 across 57 at 2.2.4), with the 64 lifecycle tests run a second time under the legacy toolchain shape (`npm run test:lifecycle`) and eleven Playwright acceptance tests against Chromium (A-1…A-10, A-6 also as a direct load) (`npm run test:acceptance`). Composition (v2.3.1) is budgeted at ~200 runtime LOC plus its compiler share, which leaves the runtime about 270 lines under its ceiling. Warning thresholds in `check-loc-budget.ts`: runtime 2,250, compiler 4,500, parcel 250, converters 400, primafacie 350, dev 700. The dev-toolchain budget (800) entered with 2.2.2, raising the total from 8,700 to 9,500. `@diamondjs/guards` has a stated budget of 400 but no row in the budget tool yet.
 
 The batteries (`@diamondjs/converters` — `CurrencyConverter`, `DateConverter`, `PhoneConverter`, `IntConverter`, `SlugConverter` — and `@diamondjs/guards` once it carries mid-classes) are kept separate from the runtime; `ParseResult` stays in the runtime so batteries and user converters import the same contract and it cannot drift.
 
