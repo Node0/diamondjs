@@ -33,6 +33,9 @@ import {
 import { serializeMappings } from './sourcemap'
 import { jsString, jsTemplatePart, jsCommentText } from './js-text'
 
+/** A child expression that is static text (a `jsString` literal), not a node variable. */
+const isStringLiteral = (child: string): boolean => child.startsWith("'")
+
 interface SourceMapping {
   generated: { line: number; column: number }
   original: { line: number; column: number }
@@ -451,21 +454,45 @@ export class CodeGenerator {
    */
   private combineRoots(nodes: NodeInfo[], hint: string, name?: string): string {
     this.attachFrames.push([])
-    const vars = this.generateNodes(nodes)
+    const children = this.generateNodes(nodes)
     let result: string
-    if (vars.length === 1) {
-      result = vars[0]
+    if (children.length === 1 && !isStringLiteral(children[0])) {
+      result = children[0]
     } else {
       result = name ?? this.nextVar(hint)
-      if (vars.length === 0) {
+      if (children.length === 0) {
         this.emitLine(`const ${result} = document.createComment('empty');`)
+      } else if (children.length === 1) {
+        // A text-only body is its own root node (#15).
+        this.emitLine(`const ${result} = document.createTextNode(${children[0]});`)
       } else {
         this.emitLine(`const ${result} = document.createDocumentFragment();`)
-        for (const child of vars) this.emitLine(`${result}.appendChild(${child});`)
+        this.emitAppend(result, children)
       }
     }
     this.closeFrame()
     return result
+  }
+
+  /**
+   * Append a parent's children in one call, in DOM order (#15). Static text
+   * rides along as string arguments — `append()` makes the text nodes — so
+   * the emitted code reads as the markup did. One argument per line once the
+   * call outgrows the width the bind() split uses (§13.4) — but a lone
+   * argument is a string that cannot break, so it stays on the one line.
+   */
+  private emitAppend(parent: string, children: string[]): void {
+    if (children.length === 0) return
+    const oneLine = `${parent}.append(${children.join(', ')});`
+    if (children.length === 1 || this.indent * 2 + oneLine.length <= 100) {
+      this.emitLine(oneLine)
+      return
+    }
+    this.emitLine(`${parent}.append(`)
+    this.indent++
+    for (const child of children) this.emitLine(`${child},`)
+    this.indent--
+    this.emitLine(`);`)
   }
 
   /**
@@ -557,10 +584,7 @@ export class CodeGenerator {
     // Generate children, append them, THEN wire any structural directives
     // among them (their anchors must be attached before the runtime call).
     this.attachFrames.push([])
-    const childVars = this.generateNodes(element.children)
-    for (const childVar of childVars) {
-      this.emitLine(`${varName}.appendChild(${childVar});`)
-    }
+    this.emitAppend(varName, this.generateNodes(element.children))
     this.closeFrame()
 
     if (wireAfterChildren && (element.bindings.length || element.events.length)) {
@@ -584,41 +608,32 @@ export class CodeGenerator {
   }
 
   /**
-   * Generate code for a text node
+   * Generate code for a text node. Static text is kept exactly as parsed
+   * (#15) and becomes a string literal for the parent's append() — no
+   * variable, no createTextNode. Only interpolated text needs a node of its
+   * own, for the textContent binding to write to.
    */
   private generateText(text: TextInfo): string | null {
-    const varName = this.nextVar('text')
     const parts = this.textParts(text)
 
     if (!parts.some((part) => part.kind === 'expression')) {
-      // Static text
-      const content = parts
-        .map((part) => (part.kind === 'text' ? part.value : ''))
-        .join('')
-        .trim()
-      if (!content) return null
-
-      this.emitLine(
-        `const ${varName} = document.createTextNode(${jsString(content)});`,
-        text.location
-      )
-    } else {
-      // Text with interpolations - create element and bind
-      this.emitLine(
-        `const ${varName} = document.createTextNode('');`,
-        text.location
-      )
-
-      // Build template string for interpolation
-      const templateExpr = this.buildInterpolationExpr(parts)
-      // Echo the source expression in the hint (parity with every other hint type)
-      const interpSrc = text.content.replace(/\s+/g, ' ').trim()
-      this.emitHint(`Text interpolation: ${interpSrc}`)
-      this.emitLine(
-        `DiamondCore.bind(${varName}, 'textContent', () => ${templateExpr});`,
-        text.interpolations[0]?.location
-      )
+      const content = parts.map((part) => (part.kind === 'text' ? part.value : '')).join('')
+      return content === '' ? null : jsString(content)
     }
+
+    // Text with interpolations: a node of its own, written by a textContent bind
+    const varName = this.nextVar('text')
+    this.emitLine(`const ${varName} = document.createTextNode('');`, text.location)
+
+    // Build template string for interpolation
+    const templateExpr = this.buildInterpolationExpr(parts)
+    // Echo the source expression in the hint (parity with every other hint type)
+    const interpSrc = text.content.replace(/\s+/g, ' ').trim()
+    this.emitHint(`Text interpolation: ${interpSrc}`)
+    this.emitLine(
+      `DiamondCore.bind(${varName}, 'textContent', () => ${templateExpr});`,
+      text.interpolations[0]?.location
+    )
 
     return varName
   }

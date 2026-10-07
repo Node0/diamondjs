@@ -116,7 +116,7 @@ describe('switch — codegen (Option B runtime lowering)', () => {
       </switch>
     `)
     expect(r.code).toContain('document.createDocumentFragment()')
-    expect(r.code).toMatch(/caseRoot_\d+\.appendChild\(el_div_\d+\)/)
+    expect(r.code).toMatch(/caseRoot_\d+\.append\(el_div_\d+, el_div_\d+\);/)
   })
 
   it('supports a nested switch inside a case (container walls off scope)', () => {

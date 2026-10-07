@@ -6,7 +6,7 @@ Each release's *why* lives in its design record under `docs/spec/vX.Y.Z/`; the n
 
 ## [Unreleased]
 
-The lifecycle names promised states and the code delivered actions: `mount()` meant "template built and appended", which is in the document only for a root or a route component, and nothing told a component when it actually reached the document. Every real app worked around it by hand. The lifecycle is now a contract (spec §4.2, §4.4, §4.6; the Lifecycle Contract design record).
+The lifecycle names promised states and the code delivered actions: `mount()` meant "template built and appended", which is in the document only for a root or a route component, and nothing told a component when it actually reached the document. Every real app worked around it by hand. The lifecycle is now a contract (spec §4.2, §4.4, §4.6; the Lifecycle Contract design record). The oldest open defect goes with it: template text is now preserved exactly (#15, spec §5.9).
 
 ### Breaking
 - **`mount()`, `unmount()` and the new `dispose()` are final.** A subclass that overrides `mount` or `unmount` throws at construction, naming the callback to use instead. Migration: `override mount(host) { super.mount(host); … }` becomes `override mounted() { … }`; `override unmount() { …; super.unmount() }` becomes `override unmounting() { … }`.
@@ -25,7 +25,12 @@ The lifecycle names promised states and the code delivered actions: `mount()` me
 - Transitions emit through `Print`: failures `FAILURE`, faults `CRITICAL`, stale callbacks `WARNING`, successes `STATE` in dev builds.
 - Lifecycle tests run under both toolchain shapes (TC39 decorators + `[[Define]]` fields, and legacy decorators + `[[Set]]`): `npm run test:lifecycle`.
 
+### Changed
+- **Template text is kept exactly as the HTML parser produces it** (#15, spec §5.9). Whitespace-only text nodes were dropped and static text was trimmed, so `press <em>Start job</em> on` rendered "pressStart jobon" and an NBSP-only node vanished. Nothing is collapsed, trimmed or dropped now, static and interpolated text alike; collapsing is CSS's job. The only whitespace the compiler consumes is syntax: between an `if` and the `else-if` that follows it, directly inside `<switch>` between cases, and a whitespace-only root before the first or after the last root of a template. There is no option. One rendering consequence: indented inline siblings — buttons, inputs, links on separate lines — now get the ordinary HTML gap between them, as plain HTML would, unless their parent is flex or grid (which does not render it). Tags written flush stay flush.
+- **Compiled output appends each parent's children in one `append(...)` call**, in DOM order, static text as string arguments — the generated code reads as the markup did. Only interpolated text keeps a `createTextNode` and a `text_N` variable, so a static-only template numbers nothing but its elements and anchors. A call past the usual width is written one argument per line. Interpolated text with line breaks is emitted on one line (`\n` escaped) so source-map lines stay right.
+
 ### Fixed
+- **Whitespace between text and inline elements was dropped** (#15) — see **Changed**.
 - **A throw inside `createTemplate()` left the component flagged as mounted and leaked everything acquired before the throw** — the router's rollback only unmounted components that had finished mounting. (`captureScope` lost its scope on a throw for the same reason.)
 - **A page whose template root is a structural did not scroll to its hash target** (#38): the root-level branch was placed on a microtask, after the router's scroll step. Placements now run in the connection drain, before `mounted()` and before the scroll.
 - **A remounted component had no `debounce` / `throttle` cancels** — the first `unmount()` emptied the flat cleanup list.

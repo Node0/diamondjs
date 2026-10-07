@@ -42,12 +42,10 @@ const SELECT = `<select value.two-way="choice" change.calls="pick()">
 describe('generator: <select> wiring follows its children', () => {
   it('emits the value binding after the option appends', () => {
     const { code } = compiler.compile(SELECT)
-    const lastAppend = Math.max(
-      idx(code, 'el_select_0.appendChild(el_option_1);'),
-      idx(code, 'el_select_0.appendChild(el_option_3);')
-    )
-    expect(idx(code, `DiamondCore.bind(el_select_0, 'value'`)).toBeGreaterThan(lastAppend)
-    expect(idx(code, `DiamondCore.on(el_select_0, 'change'`)).toBeGreaterThan(lastAppend)
+    // #15: one append per parent, children in DOM order, indentation included.
+    const append = idx(code, "el_select_0.append('\\n  ', el_option_1, '\\n  ', el_option_2, '\\n');")
+    expect(idx(code, `DiamondCore.bind(el_select_0, 'value'`)).toBeGreaterThan(append)
+    expect(idx(code, `DiamondCore.on(el_select_0, 'change'`)).toBeGreaterThan(append)
     expect(code).toContain('// [Diamond] <select> wiring follows its <option> children')
   })
 
@@ -57,14 +55,14 @@ describe('generator: <select> wiring follows its children', () => {
     )
     const anchor = /const (repeatAnchor_\d+) = document\.createComment\('repeat'\)/.exec(code)![1]
     const repeatCall = idx(code, `DiamondCore.repeat(${anchor}, `)
-    expect(idx(code, `el_select_0.appendChild(${anchor});`)).toBeLessThan(repeatCall)
+    expect(idx(code, `el_select_0.append(${anchor});`)).toBeLessThan(repeatCall)
     expect(idx(code, `DiamondCore.bind(el_select_0, 'value'`)).toBeGreaterThan(repeatCall)
   })
 
   it('leaves other elements unchanged: bindings still precede children', () => {
     const { code } = compiler.compile('<div classname.to-view="cls"><span>x</span></div>')
     expect(idx(code, `DiamondCore.bind(el_div_0, 'className'`)).toBeLessThan(
-      idx(code, 'el_div_0.appendChild(el_span_1);')
+      idx(code, 'el_div_0.append(el_span_1);')
     )
     expect(code).not.toContain('<select> wiring')
   })

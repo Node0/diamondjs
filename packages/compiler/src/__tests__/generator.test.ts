@@ -61,8 +61,7 @@ describe('CodeGenerator', () => {
       const result = generator.generate(nodes)
 
       expect(result.code).toContain('document.createDocumentFragment()')
-      expect(result.code).toContain('root.appendChild(el_div_0)')
-      expect(result.code).toContain('root.appendChild(el_span_1)')
+      expect(result.code).toContain('root.append(el_div_0, el_span_1);')
     })
 
     it('separates tag and counter in variable names (h2 at index 1 is el_h2_1, not h21)', () => {
@@ -369,7 +368,9 @@ describe('CodeGenerator', () => {
       ]
       const result = generator.generate(nodes)
 
-      expect(result.code).toContain("document.createTextNode('Hello World')")
+      // #15: static text rides along as a string argument of the parent's append().
+      expect(result.code).toContain("el_div_0.append('Hello World');")
+      expect(result.code).not.toContain('createTextNode')
     })
 
     it('generates text with interpolation', () => {
@@ -385,7 +386,7 @@ describe('CodeGenerator', () => {
       expect(result.code).toContain('// [Diamond] Text interpolation: Hello ${name}!')
     })
 
-    it('skips empty text nodes', () => {
+    it('keeps whitespace-only text (#15)', () => {
       const nodes: NodeInfo[] = [
         createElement('div', {
           children: [createText('   ')],
@@ -393,6 +394,7 @@ describe('CodeGenerator', () => {
       ]
       const result = generator.generate(nodes)
 
+      expect(result.code).toContain("el_div_0.append('   ');")
       expect(result.code).not.toContain('createTextNode')
     })
   })
@@ -412,8 +414,7 @@ describe('CodeGenerator', () => {
       expect(result.code).toContain("document.createElement('div')")
       expect(result.code).toContain("document.createElement('span')")
       expect(result.code).toContain("document.createElement('p')")
-      expect(result.code).toContain('el_div_0.appendChild(el_span_1)')
-      expect(result.code).toContain('el_div_0.appendChild(el_p_2)')
+      expect(result.code).toContain('el_div_0.append(el_span_1, el_p_2);')
     })
   })
 

@@ -22,6 +22,7 @@ import type {
   TextInfo,
   NodeInfo,
 } from './types'
+import { isTextInfo } from './types'
 
 type Element = DefaultTreeAdapterMap['element']
 type TextNode = DefaultTreeAdapterMap['textNode']
@@ -96,7 +97,25 @@ export class TemplateParser {
       sourceCodeLocationInfo: true,
     }) as DocumentFragment
 
-    return this.processChildren(fragment.childNodes)
+    return this.trimRootEdges(this.processChildren(fragment.childNodes))
+  }
+
+  /**
+   * #15 (c): a whitespace-only text node before the first root or after the
+   * last root is syntax — the indentation around a template, not content.
+   * A template mounts inside its host, so the whitespace around the host's
+   * tag belongs to the parent and is kept there. Only whole whitespace-only
+   * nodes go: a text root with content keeps its own edges, and whitespace
+   * between roots is content. ASCII whitespace only, as for `else-if` (#18).
+   */
+  private trimRootEdges(roots: NodeInfo[]): NodeInfo[] {
+    const isIndentation = (n: NodeInfo | undefined): boolean =>
+      n !== undefined && isTextInfo(n) && /^[ \t\n\f\r]*$/.test(n.content)
+    let start = 0
+    let end = roots.length
+    if (isIndentation(roots[start])) start++
+    if (end > start && isIndentation(roots[end - 1])) end--
+    return roots.slice(start, end)
   }
 
   /**
@@ -127,12 +146,27 @@ export class TemplateParser {
       } else if (this.isTextNode(node)) {
         const textInfo = this.processTextNode(node)
         if (textInfo) {
-          result.push(textInfo)
+          // An HTML comment is dropped, so the text on either side of it is
+          // one run (#15): what plain HTML would hold once the comment is gone.
+          const prev = result[result.length - 1]
+          if (prev && isTextInfo(prev)) result[result.length - 1] = this.mergeText(prev, textInfo)
+          else result.push(textInfo)
         }
       }
     }
 
     return result
+  }
+
+  /** Concatenate two adjacent text nodes; the first one's location stands for both. */
+  private mergeText(a: TextInfo, b: TextInfo): TextInfo {
+    const parts = a.parts && b.parts ? [...a.parts, ...b.parts] : undefined
+    return {
+      content: a.content + b.content,
+      interpolations: [...a.interpolations, ...b.interpolations],
+      ...(parts ? { parts } : {}),
+      location: a.location,
+    }
   }
 
   /**
@@ -704,10 +738,12 @@ export class TemplateParser {
   private processTextNode(node: TextNode): TextInfo | null {
     const content = node.value
 
-    // Skip whitespace-only nodes
-    if (!content.trim()) {
-      return null
-    }
+    // #15: text is kept exactly as the HTML parser produced it — whitespace-only
+    // nodes included (NBSP-only ones most of all). The only whitespace that is
+    // syntax is consumed at its own site: between `if` and `else-if`
+    // (generator, #18), directly inside <switch> (processSwitch), and at a
+    // template's root edges (trimRootEdges).
+    if (content === '') return null
 
     const location = this.getTextLocation(node)
     const span = rawTextSpan(this.source, node)

@@ -163,7 +163,7 @@ describe('only raw syntax is syntax; pieces are then decoded', () => {
 
   it('byte level: \\${x} is the text ${x}, and the emitted JS parses', () => {
     const { code } = compiler.compile('<p>\\${x}</p>')
-    expect(code).toContain("document.createTextNode('${x}')")
+    expect(code).toContain("el_p_0.append('${x}');")
     expect(mount('<p>\\${x}</p>').textContent).toBe('${x}')
 
     const mixed = compiler.compile('<p>\\${x} ${y}</p>').code
@@ -408,13 +408,39 @@ describe('zero-diff: the raw path reproduces the HTML parser', () => {
     for (const html of noSyntax) {
       const expectedText: string[] = []
       const expectedAttrs: string[] = []
-      walk(html, (node) => {
-        if (node.nodeName === '#text' && (node as P5Text).value.trim()) {
-          expectedText.push((node as P5Text).value)
-        } else if ('tagName' in node) {
-          for (const attr of (node as P5Element).attrs) expectedAttrs.push(attr.value)
+      // #15: every text node is kept, so the oracle is the HTML parser's own
+      // text with the two things the template parser does on top: text on
+      // both sides of a dropped comment merges (as Node.normalize() would),
+      // and a whitespace-only root at either end of the template is syntax.
+      const normalized = (nodes: P5Node[]): Array<string | P5Element> => {
+        const out: Array<string | P5Element> = []
+        for (const node of nodes) {
+          if (node.nodeName === '#text') {
+            const last = out[out.length - 1]
+            if (typeof last === 'string') out[out.length - 1] = last + (node as P5Text).value
+            else out.push((node as P5Text).value)
+          } else if ('tagName' in node) {
+            out.push(node as P5Element)
+          }
         }
-      })
+        return out
+      }
+      const expectFrom = (items: Array<string | P5Element>): void => {
+        for (const item of items) {
+          if (typeof item === 'string') {
+            expectedText.push(item)
+          } else {
+            for (const attr of item.attrs) expectedAttrs.push(attr.value)
+            expectFrom(normalized(item.childNodes))
+          }
+        }
+      }
+      const roots = normalized(parseFragment(html).childNodes)
+      const isIndentation = (r: string | P5Element | undefined): boolean =>
+        typeof r === 'string' && /^[ \t\n\f\r]*$/.test(r)
+      if (isIndentation(roots[0])) roots.shift()
+      if (isIndentation(roots[roots.length - 1])) roots.pop()
+      expectFrom(roots)
       const text: string[] = []
       const attrs: string[] = []
       const collect = (nodes: NodeInfo[]): void => {
