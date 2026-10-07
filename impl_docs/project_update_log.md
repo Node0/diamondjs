@@ -873,6 +873,9 @@ Dev toolchain:  545 /   800 LOC
 Total:        5,342 / 9,500 LOC   859 tests
 ```
 
+### The publication (2026-10-07)
+All nine packages published serially in dependency order from the tagged `main` (`v2.2.4` = `9477f50`, the merge of PR #36, so the tag includes the spec relocation) on Joe's word — under three minutes end to end, the shortest Diamond release so far; every `dist-tags.latest` verified at 2.2.4 once the batch was through (registry lag about four minutes, completion order not upload order). Clean-room check from a fresh directory: a single 2.2.4 constellation; `<p>\${x}</p>` renders a literal `${x}` with the `escaped-interpolation` diagnostic; the registry `stink-check` passes `<a href="/ingest">`; the registry `route-check` validates the #10 fixture on Node 20 and 22, ESM and CommonJS. The GitHub release `v2.2.4` was created later the same day, during the 2.3.0 release, with the changelog section.
+
 ## 2026-10-07 — v2.3.0: The Lifecycle Contract, the Consolidated Specification, and Preserved Text
 
 The 2.2.4 synopsis left two things open: #15, decided but not implemented, and a specification that had spread across three documents plus wording that lived only in pull-request descriptions. A third thing opened while those were being worked. Reviewing the composition design brief (D1–D10) against the shipped four-hook lifecycle turned a caveat into a redesign: `mount()` promised "on the DOM" and delivered "template built and appended", which is in the document only for a root or a route component, and every real app had worked around it by hand. A design record and work order was written (LC-1…LC-16; filed under `docs/spec/v2.3.0/`), one session implemented it, another wrote the consolidated specification, and the same one then closed #15. The release is a semver minor carrying a breaking change — all of DiamondJS's users were in the room and forgave it.
@@ -906,3 +909,11 @@ Primafacie:     300 /   400 LOC
 Dev toolchain:  545 /   800 LOC
 Total:        5,645 / 9,500 LOC   960 tests
 ```
+
+### The publication (2026-10-07, 14:53–15:01 PDT)
+All nine packages published serially in dependency order from the tagged `main` (`v2.3.0` = `05a5671`, the release commit), each accepted by the registry (`+ @diamondjs/<pkg>@2.3.0`) before the next — twelve seconds for the batch; visibility verified once at the end, every `dist-tags.latest` reading 2.3.0 about eight minutes after the last upload. Clean-room check from a directory that had never seen the monorepo: `npm i @diamondjs/app@2.3.0` + `npm i -D @diamondjs/dev@2.3.0` resolve to a single 2.3.0 constellation; the registry runtime carries the six callbacks, `dispose()`, `whileMounted()`, `history()`, `domPing()`, `DiamondCore.child` and `Scope`, has no `update()`, and a subclass that overrides `mount()` throws at construction with the §4.4 message; the registry compiler emits `el_p_0.append('press ', el_em_1, ' on')` for `<p>press <em>Start job</em> on</p>` and a literal `${x}` with the `escaped-interpolation` diagnostic for `\${x}`; the registry `stink-check` bin passes a navigation template with `<a href="/ingest">`. GitHub release `v2.3.0` carries the changelog section and is marked latest; the `v2.2.4` release, missed on its day, was created alongside it.
+
+Operational notes:
+- The gate chain on the release commit took thirty seconds on this machine, `npm ci` included; the acceptance run's A-9 census read heap +16.2% (bound 20%; +5% in isolation on the day the test was written). The bound is loose on purpose — the DOM-node, listener and live-instance counts are the exact signals, and they read 163 / 66 / 1 at cycle 1 and at cycle 50.
+- The publish script refuses to start unless every manifest reads the release version and `npm whoami` answers; the token is read from Joe's random-named dotfile into a `mktemp` npmrc for the duration of the batch, never printed, and the npmrc is removed on exit.
+- The tool shell is zsh: an unquoted `$LIST` is not word-split, so the first visibility poll looped over the whole package list as one name and saw nothing for seven minutes. Write the list literally.
