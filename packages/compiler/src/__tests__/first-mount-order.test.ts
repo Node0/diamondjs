@@ -7,6 +7,8 @@
  * parent appended the anchor; the runtime's first pass then found a detached
  * anchor and the branch appeared only on the next condition change. The
  * generator now emits: create anchor → append anchor → wire the directive.
+ * (Since #15 a parent appends all its children in one `append(...)` call, in
+ * DOM order; the structural call still follows that append.)
  * The end-to-end tests compile a template, evaluate the generated method on
  * a real Component and mount it — the first render must be SYNCHRONOUS for
  * every nested structural (no microtask needed).
@@ -36,45 +38,44 @@ const before = (code: string, a: string, b: string): boolean =>
   code.indexOf(a) !== -1 && code.indexOf(b) !== -1 && code.indexOf(a) < code.indexOf(b)
 
 describe('generator: anchors are appended before the structural call', () => {
-  it('if: appendChild(anchor) precedes DiamondCore.if(anchor', () => {
+  it('if: append(anchor) precedes DiamondCore.if(anchor', () => {
     const { code } = compiler.compile('<div><p if="ready">on</p></div>')
     const anchor = /const (ifAnchor_\d+) = document\.createComment\('if'\)/.exec(code)![1]
-    expect(before(code, `el_div_0.appendChild(${anchor});`, `DiamondCore.if(${anchor}, [`)).toBe(
+    expect(before(code, `el_div_0.append(${anchor});`, `DiamondCore.if(${anchor}, [`)).toBe(true)
+  })
+
+  it('repeat: append(anchor) precedes DiamondCore.repeat(anchor', () => {
+    const { code } = compiler.compile('<ul><li repeat.for="u of users">${u}</li></ul>')
+    const anchor = /const (repeatAnchor_\d+) = document\.createComment\('repeat'\)/.exec(code)![1]
+    expect(before(code, `el_ul_0.append(${anchor});`, `DiamondCore.repeat(${anchor}, `)).toBe(
       true
     )
   })
 
-  it('repeat: appendChild(anchor) precedes DiamondCore.repeat(anchor', () => {
-    const { code } = compiler.compile('<ul><li repeat.for="u of users">${u}</li></ul>')
-    const anchor = /const (repeatAnchor_\d+) = document\.createComment\('repeat'\)/.exec(code)![1]
-    expect(
-      before(code, `el_ul_0.appendChild(${anchor});`, `DiamondCore.repeat(${anchor}, `)
-    ).toBe(true)
-  })
-
-  it('switch: appendChild(anchor) precedes DiamondCore.switch(anchor', () => {
+  it('switch: append(anchor) precedes DiamondCore.switch(anchor', () => {
     const { code } = compiler.compile(
       '<div><switch on="status"><case if="\'a\'"><i>A</i></case><default><b>D</b></default></switch></div>'
     )
     const anchor = /const (switchAnchor_\d+) = document\.createComment\('switch'\)/.exec(code)![1]
     expect(
-      before(code, `el_div_0.appendChild(${anchor});`, `DiamondCore.switch(${anchor}, `)
+      before(code, `el_div_0.append(${anchor});`, `DiamondCore.switch(${anchor}, `)
     ).toBe(true)
   })
 
   it('multi-root template: the fragment appends the anchor before the call', () => {
     const { code } = compiler.compile('<p if="a">A</p><span>tail</span>')
     const anchor = /const (ifAnchor_\d+) = document\.createComment\('if'\)/.exec(code)![1]
-    expect(before(code, `root.appendChild(${anchor});`, `DiamondCore.if(${anchor}, [`)).toBe(true)
+    const spanVar = /const (el_span_\d+) = document\.createElement\('span'\)/.exec(code)![1]
+    expect(
+      before(code, `root.append(${anchor}, ${spanVar});`, `DiamondCore.if(${anchor}, [`)
+    ).toBe(true)
   })
 
   it('siblings following a structural are appended in source order', () => {
     const { code } = compiler.compile('<div><p if="a">A</p><span>after</span></div>')
     const anchor = /const (ifAnchor_\d+) = document\.createComment\('if'\)/.exec(code)![1]
     const spanVar = /const (el_span_\d+) = document\.createElement\('span'\)/.exec(code)![1]
-    expect(
-      before(code, `el_div_0.appendChild(${anchor});`, `el_div_0.appendChild(${spanVar});`)
-    ).toBe(true)
+    expect(code).toContain(`el_div_0.append(${anchor}, ${spanVar});`)
   })
 
   it('a loop variable stays in scope for structurals nested inside a repeat body', () => {

@@ -588,10 +588,10 @@ Whitespace consumed as **syntax** is exactly:
 
 - **(a)** between an `if`/`else-if` and an `else-if` that follows it — only when one follows, and only ASCII whitespace (§5.4.1);
 - **(b)** directly inside `<switch>`, between cases (§5.4.3);
-- **(c)** before the first root and after the last root of a component template. A component's template mounts inside its host (§4.4), so the whitespace around a component's tag belongs to the parent template and is kept there;
+- **(c)** a whitespace-only text node that would be the first or the last root of a component template — the indentation around the markup. A component's template mounts inside its host (§4.4), so the whitespace around a component's tag belongs to the parent template and is kept there. Only a whole whitespace-only node is consumed: a text root with content keeps its own edges, a trailing line break included, and whitespace between roots is content;
 - **(d)** with composition (v2.3.1): whitespace-only content between a component tag's open and close tags (§4.5 C-9, proposed). In 2.3.0 a hyphenated tag is a plain element, and its content is content.
 
-Everything inside an element is content — `<case>` and `<default>` bodies included. NBSP, narrow and thin spaces, tabs and line breaks are kept as written; parse5's own normalization (the single newline HTML drops after `<pre>` and `<textarea>`, CRLF → LF) is the only normalization. Punctuation adjacency and intentional word fragments are kept: `un<em>break</em>able` and `<strong>Stop</strong>!` acquire no space.
+Everything inside an element is content — `<case>` and `<default>` bodies included. NBSP, narrow and thin spaces, tabs and line breaks are kept as written; parse5's own normalization (the single newline HTML drops after `<pre>` and `<textarea>`, CRLF → LF) is the only normalization. Punctuation adjacency and intentional word fragments are kept: `un<em>break</em>able` and `<strong>Stop</strong>!` acquire no space. An HTML comment is not emitted, and the text on either side of one is a single run — what the markup holds once the comment is gone.
 
 **The lossless property (normative).** For every template, the text nodes of the compiled DOM equal, character for character, the text nodes of the same markup parsed as plain HTML with the directives removed and adjacent text nodes merged (§13.6).
 
@@ -969,7 +969,7 @@ The transparency contract, observed from actual `DiamondCompiler.compile()` outp
 
 ### 13.1 Variable naming
 
-`nextVar` emits `${hint}_${counter}`, and element hints are pre-prefixed `el_${tagName}`, giving `el_div_0`, `el_h2_3`, `el_input_0` — the `_` separator keeps tag and counter distinct so `h2` at index 1 never reads as a 21-level heading tag. Every character of a hint outside `[A-Za-z0-9_$]` becomes `_`, so a hyphenated tag yields `el_child_component_0` *(v2.1.1, D-21)*. The counter is a **single global monotonic counter across all node kinds** (elements, text nodes, anchors share it), so indices are not per-tag; a structural's branch bodies are numbered **after** the siblings that follow it in source *(2.2.3, #7)*. Other hint prefixes: `text_N`, `ifAnchor_N`, `switchAnchor_N`, `repeatAnchor_N`, `deadSwitch_N`, `caseRoot_N`, `defaultRoot_N`.
+`nextVar` emits `${hint}_${counter}`, and element hints are pre-prefixed `el_${tagName}`, giving `el_div_0`, `el_h2_3`, `el_input_0` — the `_` separator keeps tag and counter distinct so `h2` at index 1 never reads as a 21-level heading tag. Every character of a hint outside `[A-Za-z0-9_$]` becomes `_`, so a hyphenated tag yields `el_child_component_0` *(v2.1.1, D-21)*. The counter is a **single global monotonic counter across all node kinds** (elements, text nodes, anchors share it), so indices are not per-tag; a structural's branch bodies are numbered **after** the siblings that follow it in source *(2.2.3, #7)*. Other hint prefixes: `text_N`, `ifAnchor_N`, `switchAnchor_N`, `repeatAnchor_N`, `deadSwitch_N`, `caseRoot_N`, `defaultRoot_N`. Static text takes no variable *(2.3.0, #15)*: `text_N` is an interpolated text node only, so a static-only template numbers nothing but its elements and anchors.
 
 ### 13.2 `[Diamond]` hint comments
 
@@ -1026,7 +1026,7 @@ DiamondCore.bind(el_input_0, 'value',
 - A structural is emitted as: create its anchor → append the anchor to its parent → wire the directive (§5.4.4).
 - A `<select>`'s bindings and handlers follow its `<option>` children, behind the hint in §13.2.
 - Author text is encoded for the position it lands in (§5.2.2). A tab or other control character inside static text or an attribute value is emitted as an escape (`\t`) instead of the raw character; the value is the same.
-- **Static text is emitted as string arguments** *(2.3.0, #15)*. Each element's static children fold into one `el.append(...)` call, in DOM order; only interpolated text keeps a named `createTextNode`, and a text-only single root stays a `createTextNode`. Interpolated text is emitted on one line — a line feed is written as `\n` — so source-map line numbers stay correct.
+- **Static text is emitted as string arguments** *(2.3.0, #15)*. Each parent's children — elements, anchors and static text — are appended in one `append(...)` call, in DOM order; only interpolated text keeps a named `createTextNode`, and a text-only single root (a template or a case body) is a `createTextNode`. A call wider than the §13.4 width is written one argument per line, unless it has a single argument, which a string cannot break. A dropped HTML comment leaves one text run on its two sides, not two arguments. Interpolated text is emitted on one line — a line feed is written as `\n` — so source-map line numbers stay correct.
 
 ### 13.6 Mounted-output shape
 
@@ -1546,7 +1546,7 @@ Each entry lists what this specification gained or changed in that release. The 
 
 **2.3.0** *(this document)*
 - §5.9: template text kept exactly as the HTML parser produces it; whitespace consumed as syntax limited to (a)–(d); the lossless property; closes D-22 (#15).
-- §13.5 / §13.6: static text emitted as `append` arguments; mounted-output shape is markup plus the listed framework nodes.
+- §13.1 / §13.5 / §13.6: static text takes no variable and is emitted as `append` arguments, one call per parent; mounted-output shape is markup plus the listed framework nodes.
 - §4.5: template component composition, C-1…C-10, recorded as a proposal for v2.3.1; §12.3 lists its proposed codes.
 - §4: the Lifecycle Contract — six phases, one callback each; `mount`/`unmount`/`dispose` final with a construction-time override guard; `update()` removed; instance and mount scopes; `mounted` means connected; child-first delivery; rollback by inventory; generations; terminal `faulted`/`disposed`; the lifecycle record and its emissions; `DiamondCore.child` (§4.2, §4.4–§4.7, §17.2); `whileMounted`; public `Scope` operations. Closes lifecycle defects P-1…P-6 and #38; records D-24 (deferred to v2.3.1).
 

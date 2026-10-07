@@ -298,12 +298,20 @@ describe('TemplateParser', () => {
       }
     })
 
-    it('skips whitespace-only text nodes', () => {
+    it('keeps whitespace-only text nodes (#15)', () => {
       const nodes = parser.parse('<div>   </div>')
       expect(nodes).toHaveLength(1)
       if (isElementInfo(nodes[0])) {
-        expect(nodes[0].children).toHaveLength(0)
+        expect(nodes[0].children).toHaveLength(1)
+        const text = nodes[0].children[0]
+        if (isTextInfo(text)) expect(text.content).toBe('   ')
       }
+    })
+
+    it('drops a whitespace-only root at either end of the template; keeps one in the middle (#15)', () => {
+      const nodes = parser.parse('\n  <b>a</b>\n  <i>b</i>\n')
+      expect(nodes).toHaveLength(3)
+      expect(isTextInfo(nodes[1]) && nodes[1].content).toBe('\n  ')
     })
   })
 

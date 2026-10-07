@@ -79,6 +79,12 @@ Interpolation syntax is read from the raw template source, in text and in plain 
 
 An unescaped `${` in a plain attribute is still the `attr-interpolation-unsupported` error (use a binding). Every `\${` raises an `escaped-interpolation` diagnostic (severity `info`) at the backslash, because one case changes meaning: a Windows path directly before a value must be written `C:\Users\\${user}`. When a template is built from JavaScript, use `String.raw` so the backslash survives.
 
+### Text and whitespace
+
+Template text is kept exactly as the HTML parser produces it: nothing is collapsed, trimmed or dropped, static and interpolated text alike, and there is no option. Whitespace is consumed only where it is syntax — between an `if` and the `else-if` that follows it, directly inside `<switch>` between cases, and a whitespace-only root before the first or after the last root of a template. HTML comments are dropped, and the text on either side of one is a single run. The lossless property is tested: for every template, the compiled DOM's text equals the same markup parsed as plain HTML with the directives removed.
+
+In the output, each parent appends its children in one `append(...)` call, in DOM order, static text as string arguments; only interpolated text gets a `createTextNode` and a `text_N` variable.
+
 ## Diagnostics — the stink gate's fuel
 
 Every compile emits typed diagnostics routed by **severity, never by code prefix**:

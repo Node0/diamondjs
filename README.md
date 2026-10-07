@@ -231,6 +231,8 @@ Aurelia-inspired binding commands on standard HTML attributes:
 ```
 
 **A literal `${`.** In text and in plain attribute values, write `\${`: `<p>Use \${name}</p>` renders `${name}`. An entity works too (`&#36;{name}`) — an encoded character is never syntax. Only a backslash directly before `${` is special, so `C:\temp\notes` is ordinary text; `\\${name}` is one backslash followed by the value of `name`. When a template is built from JavaScript, use `String.raw` so the backslash survives: ``String.raw`<p>Use \${x}</p>` ``.
+
+**Whitespace.** Template text is kept exactly as written — line breaks, indentation, NBSP and all; collapsing it is CSS's job, as in plain HTML. The compiler consumes whitespace only where it is syntax: between an `if` and the `else-if` that follows it, directly inside `<switch>` between cases, and the indentation around the template's roots. Indented inline siblings therefore get the ordinary HTML gap between them; a flex or grid parent does not render it, and tags written flush have none.
  
 ---
  
@@ -622,9 +624,10 @@ The entire framework fits in an LLM context window. That's not an accident — i
 - A page whose template root is a structural scrolls to its hash target on navigation
 - A fresh clone builds with a single `npm run build`
 
-**Known issues (v2.2.4)** — details in [CHANGELOG.md](CHANGELOG.md)
+**Preserved template text (unreleased, next minor)**
 
-- Whitespace between text and inline elements is still dropped (`press <em>Start job</em> on` renders "pressStart jobon") — fixed in 2.3 (#15)
+- Template text is kept exactly as the HTML parser produces it (#15): `press <em>Start job</em> on` keeps its spaces; NBSP, thin spaces, tabs and line breaks stay as written
+- Compiled output appends each parent's children in one `append(...)` call, static text as string arguments — the generated code reads as the markup did
  
 > DiamondJS is in active development. The v2.x API surface is stabilizing; v2.2 marks the point where DiamondJS can single-handedly deliver multi-view SPAs — from presence sites to multi-user application frontends.
  

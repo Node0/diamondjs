@@ -28,7 +28,10 @@ export function jsString(text: string): string {
 /**
  * The static part of a template literal (no surrounding backticks) whose
  * cooked value is exactly `text`. Backslash goes first: every later escape
- * adds backslashes of its own. A raw CR would be cooked to LF.
+ * adds backslashes of its own. A raw CR would be cooked to LF; a raw LF is
+ * legal but is escaped too (#15), so an interpolated text node — whose
+ * preserved whitespace now routinely holds line breaks — emits on one line
+ * and the line-level source map stays right.
  */
 export function jsTemplatePart(text: string): string {
   return escapeLineSeparators(
@@ -37,6 +40,7 @@ export function jsTemplatePart(text: string): string {
       .replace(/`/g, '\\`')
       .replace(/\$\{/g, '\\${')
       .replace(/\r/g, '\\r')
+      .replace(/\n/g, '\\n')
   )
 }
 
