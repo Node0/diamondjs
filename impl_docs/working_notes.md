@@ -162,7 +162,7 @@ ParseResult stays in `@diamondjs/runtime` (the validation contract; batteries + 
 
 # v2.1 — Implementation working notes (2026-07-07)
 
-Ratified design decisions live in `impl_docs/plans/DiamondJS_v2.1_Amendment_A2_Design_Record.md`; these are the parser/tooling/runtime realities discovered while implementing them.
+Ratified design decisions live in `docs/spec/v2.1.0/DiamondJS_v2.1_Amendment_A2_Design_Record.md`; these are the parser/tooling/runtime realities discovered while implementing them.
 
 ## Compiler / parser
 - `<switch>`/`<case>`/`<default>` are consumed WHOLE by `processSwitch` in `processChildren` — `<case if>` never reaches `tryStructural`, so it cannot collide with the structural `if`. A `case`/`default` reached via the normal path has, by construction, no `<switch>` parent → `*-outside-switch` error.

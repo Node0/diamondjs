@@ -120,45 +120,25 @@ Configurable discovery (`diamond.config.js`) supports `flat` mode (`./components
 ### 4.2 Canonical component
 
 ```typescript
-import { Component, DiamondCore, reactive } from '@diamondjs/runtime'
+import { Component, reactive } from '@diamondjs/runtime';
+import { someService } from '../services/some-service';
 
 export class MyComponent extends Component {
-  @reactive name = ''                 // reactive → drives the UI
-  @reactive count = 0
-  private saved = 0                   // bare → inert bookkeeping
+  @reactive name: string = '';       // reactive → drives the UI
+  @reactive count: number = 0;
+  private service = someService;      // bare → inert bookkeeping
 
-  constructor() { super() }           // the object exists; acquire nothing here
+  constructor() { super(); }
 
-  override constructed() {            // @reactive is live under any toolchain; no element yet
-    this.count = 1
-  }
-  override mounting() {               // about to appear: generation assigned, no template yet
-    this.saved = Date.now()
-  }
-  override mounted() {                // in the document: measure, focus, observe
-    this.getElement()?.querySelector('input')?.focus()
-  }
-  override unmounting() {             // still in the document; the generation is already invalid
-    this.saved = 0
-  }
-  override unmounted() {              // detached, state preserved; may be mounted again
-    this.count++
-  }
+  mount(host: HTMLElement) { super.mount(host); /* post-render DOM work */ }
+  update(next: Partial<this>) { /* react to prop changes */ Object.assign(this, next); }
+  unmount() { super.unmount(); /* extra cleanup */ }
 
-  handleClick() { this.name = 'Updated' }   // `this` is always the component
-
-  // Compiler-generated from my-component.html; written out so the fixture mounts.
-  createTemplate(): HTMLElement {
-    const div = document.createElement('div')
-    const input = document.createElement('input')
-    DiamondCore.bind(input, 'value', () => this.name, (v) => (this.name = v as string))
-    div.appendChild(input)
-    return div
-  }
+  handleClick() { this.name = 'Updated'; }   // `this` is always the component
 }
 ```
 
-Key decisions: `@reactive` is the single reactivity declaration (decorated drives the UI; bare is inert — no class-level "YOLO mode"); explicit imports, no constructor injection; **six lifecycle phases, one callback each** — `constructing` (the constructor) → `constructed()` → `mounting()` → `mounted()` → `unmounting()` → `unmounted()`, plus the terminal `faulted` and `disposed` with no callback (§4.4); `extends Component`; `this` is `this` everywhere. The entry points `mount()`, `unmount()` and `dispose()` are final: a subclass that overrides `mount` or `unmount` throws at construction, naming the callback to use instead.
+Key decisions: `@reactive` is the single reactivity declaration (decorated drives the UI; bare is inert — no class-level "YOLO mode"); explicit imports, no constructor injection; **4 lifecycle hooks** (constructor, mount, update, unmount); `extends Component`; `this` is `this` everywhere.
 
 ### 4.3 The instance-template model
 
@@ -169,101 +149,28 @@ Key decisions: `@reactive` is the single reactivity declaration (decorated drive
 ```typescript
 export abstract class Component {
   protected element: HTMLElement | null;
-  readonly phase: Phase;                          // reactive snapshot — see the table below
-  readonly generation: number;                    // +1 at every mount(), +1 again at every unmount()
-  history(): readonly LifecycleRecord[];          // the last 32 transitions: seq, t, instance, generation, from, to, cause, outcome, error?, failures?
   createTemplate(): HTMLElement;                  // public; throws until compiler-injected
-  mount(host: HTMLElement): void;                 // final
-  unmount(): void;                                // final
-  dispose(): void;                                // final; terminal
-  ensureConstructed(): void;                      // first framework entry; idempotent (mount() and the router call it)
-  domPing(): { phase; generation; connected; consistent };   // dev verification: the snapshot against the DOM
-  getElement(): HTMLElement | null;
-  protected constructed(): void;                  // the five phase callbacks — override these
-  protected mounting(): void;
-  protected mounted(): void;
-  protected unmounting(): void;
-  protected unmounted(): void;
-  protected registerCleanup(fn: () => void): void;                         // into the mount scope while mounted, else the instance scope
-  protected whileMounted<A>(fn: (...a: A) => void): (...a: A) => void;     // bound to the current generation
-  protected debounce<A>(fn: (...a: A) => void, ms: number): (...a: A) => void;
-  protected throttle<A>(fn: (...a: A) => void, ms: number): (...a: A) => void;
+  mount(host: HTMLElement): void;                 // public
+  update(next: Partial<this>): void;              // public — body is Object.assign(this, next)
+  unmount(): void;                                // public
+  getElement(): HTMLElement | null;               // public
+  protected registerCleanup(fn: () => void): void;
+  protected debounce<A extends unknown[]>(fn: (...a: A) => void, ms: number): (...a: A) => void;
+  protected throttle<A extends unknown[]>(fn: (...a: A) => void, ms: number): (...a: A) => void;
 }
 ```
 
-**Phases.** The names promise states, and each callback runs only when its state holds:
+`mount()` wraps `createTemplate()` in `DiamondCore.captureScope()` and registers the returned disposer, which is what makes **root-level** `bind`/`on`/`if`/`repeat`/`switch` cleanups survive to `unmount()` (without the wrapper, `currentScope` is `null` at the root and `track()` silently discards). `debounce`/`throttle` are `protected` and **self-register** their `cancel` against the cleanup registry at creation time, so the class-field one-liner `handleInput = this.debounce(v => this.query = v, 500)` is leak-safe with no visible timer-cancel burden. This relies on JS field-init order: base fields (`cleanups = []`) initialize during `super()`, before any subclass field initializer runs.
 
-| Phase | Callback | Promise when the callback runs | DOM |
-|---|---|---|---|
-| `constructing` | constructor | The object exists. Nothing else: constructors acquire nothing and announce nothing. | none |
-| `constructed` | `constructed()` | `@reactive` fields operational under any toolchain emit ([[Define]] fields are repaired here, #11); instance scope current; `getElement()` is null. Exactly once per instance, at the first framework entry (`mount()`, or the router's construction site). | none |
-| `mounting` | `mounting()` | Mount scope current; `generation` assigned; no template and no children yet. | none |
-| `mounted` | `mounted()` | The managed range is in the document; bindings applied; root-level structurals placed; children's `mounted()` complete (child-first, construction order). | connected |
-| `unmounting` | `unmounting()` | Range still in the document; `generation` already invalidated; anything acquired here is disposed before `unmount()` returns. | connected |
-| `unmounted` | `unmounted()` | Range detached; mount inventory empty; instance state preserved; remount permitted. | detached |
-| `faulted` | — | A cleanup threw; the inventory cannot be certified empty. Terminal. | indeterminate |
-| `disposed` | — | Instance scope closed. Terminal. | detached |
-
-`mounted` means **connected**, not visible: a connected element under `display: none` has no box. A child built into a detached parent — a D8 child, a child inside an `if` branch or a `repeat` row — stays `mounting` until the parent's connection drain reaches it; the drain runs when a component mounts into a connected host and when a structural places a branch into the document. A root mounted into a detached host never reaches `mounted`, and dev builds say so once: root hosts must be connected.
-
-**Two scopes.** The instance scope opens at the first framework entry and closes at `dispose()`; it holds `debounce`/`throttle` cancels and anything acquired in `constructed()` or `unmounted()`. The mount scope opens per `mount()` and closes at `unmount()` or rollback; it holds the template, the children, the tracked range and anything acquired in `mounting()`, `mounted()` or `unmounting()`. Every framework-owned acquisition — `bind`, `on`, `effect`, `delegate`, `spread`, the structurals, `DiamondCore.child`, tracked ranges, `registerCleanup` — registers into the current scope at creation. Disposal is LIFO (the range leaves the document first, then the children, then the bindings), each cleanup in its own `try`; a branch a structural removes is disposed the same way, so a disposed branch is also a detached one. **The boundary:** the guarantee covers acquisitions made through framework APIs. A raw `addEventListener`, `setInterval` or fetch the author did not register is outside the inventory.
-
-**Generations.** `mount()` increments `generation`; `unmount()` increments it again on entry. `whileMounted(fn)` returns a wrapper bound to the generation it was created in: while that generation is current it runs `fn`; afterwards it declines and records `stale`. `debounce`/`throttle` cancels run at `unmount()` and stay registered, so the class-field one-liner survives a remount:
-
-```typescript
-import { Component, DiamondCore, reactive } from '@diamondjs/runtime'
-
-export class Ticker extends Component {
-  @reactive seconds = 0
-
-  // Self-registering: cancelled at unmount(), kept for a remount, released by dispose().
-  private bump = this.debounce(() => this.seconds++, 1000)
-
-  override mounted() {
-    // A callback the inventory cannot cancel is bound to this mount's generation:
-    // after unmount() it declines and records `stale` instead of running.
-    requestAnimationFrame(this.whileMounted(() => this.getElement()?.scrollIntoView()))
-  }
-
-  createTemplate(): HTMLElement {
-    const button = document.createElement('button')
-    DiamondCore.on(button, 'click', () => this.bump())
-    return button
-  }
-}
-```
-
-**Ring and snapshot.** Every transition is one write: a `LifecycleRecord` appended to the instance's ring of 32, and the reactive `phase` / `generation` updated from it (effects may read them; `fold(history())` equals the snapshot). Failed transitions emit `FAILURE` through `Print`, faults `CRITICAL`, stale callbacks `WARNING`; successful transitions emit `STATE` in dev builds only.
-
-`mount()` on a `mounted`, `faulted` or `disposed` instance throws before any transition (§16 D-6; the faulted message names the cleanup that threw). `unmount()` on an instance that is not mounted throws. `update()` is retired (§4.5).
+> **Re-mount caveat.** `unmount()` empties the cleanup registry. A component that is unmounted and re-mounted works, but `debounce`/`throttle` cancels registered at *construction* were dropped on the first unmount and are not re-registered. Calling `mount()` twice without an intervening `unmount()` throws (§16 D-6, guarded as of v2.1.1).
 
 ### 4.5 Parent–child communication — design intent, NOT shipped (§16 D-21)
 
-**This section describes design intent carried forward from v1.5.1 text, not shipped machinery.** No compiler support for template component composition exists in v2.x: a hyphenated tag never resolves to a component class, `name.bind` on one never becomes a write to the child, and no child lifecycle is driven by a parent template.
+**This section describes design intent carried forward from v1.5.1 text, not shipped machinery.** No compiler support for template component composition exists in v2.x: a hyphenated tag never resolves to a component class, `name.bind` on one never becomes `child.update(...)`, and no child lifecycle is driven by a parent template.
 
-The intended shape — recorded so v2.3 designs against it, not from scratch: **props down, explicit** (`<child-component name.bind="parentName">` compiling to `DiamondCore.effect(() => { child.name = this.parentName })` — a write to the child's `@reactive` field; the child's own reactivity is the notification, so there is no `update()` hook: it is retired); **events up, standard DOM** (children `dispatchEvent(new CustomEvent(...))`; parents handle via `event-name.calls="handler($event)"`); no implicit event bus. The runtime side of composition ships now: `DiamondCore.child(instance, host)` registers the child in the current scope (disposed with it, delivered child-first when the scope's tree connects) and mounts it into the detached host.
+The intended shape — recorded so v2.3 designs against it, not from scratch: **props down, explicit** (`<child-component name.bind="parentName">` compiling to `child.update({ name: this.parentName })` inside an effect); **events up, standard DOM** (children `dispatchEvent(new CustomEvent(...))`; parents handle via `event-name.calls="handler($event)"`); no implicit event bus.
 
-What ships today: children are mounted **imperatively** (`new Child().mount(host)` in the parent's `mounted()`, where the host is connected, or `DiamondCore.child(new Child(), el)` inside `createTemplate()`). As of v2.1.1 the compiler enforces the boundary: a hyphenated tag whose PascalCase form is imported by the component module errors with `component-composition-unsupported` (the author expects composition; pointing at v2.3 beats mounting an inert custom element). A hyphenated tag with no matching import is a valid plain custom element passthrough — existing sink gating applies. **Template component composition is scheduled for v2.3.0 (own DDR conversation).**
-
-### 4.6 Failure and recovery
-
-Rollback is by inventory, not by snapshot: whatever a failed transaction acquired is in a scope, and recovery is that scope's `dispose()`. There is no mutation journal and no value rollback.
-
-| Transaction fails during | Dispose removes | Destination |
-|---|---|---|
-| constructor (via the router or D8) | What the constructor registered (a scope of its own) | no instance |
-| `constructed()` | Everything in the instance scope | `faulted` |
-| `mounting()` | What the callback acquired | `constructed` / `unmounted` |
-| `createTemplate()` at acquisition N | Partial bindings, children, anchors; nothing was inserted | `constructed` / `unmounted` |
-| `appendChild` into the host | Bindings, children; range removal is a no-op | `constructed` / `unmounted` |
-| `mounted()` | The range out of the document; all effects and listeners | `constructed` / `unmounted` |
-| a child's `mounted()` under a structural | That branch — its range and inventory; the parent stays mounted and interactive | parent unchanged |
-| a child's `mounted()` directly under a parent | The parent's whole mount (the child has rolled itself back first) | parent: `constructed` / `unmounted` |
-| `unmounting()` | Nothing — recorded as `callback-failed`; teardown continues | `unmounted` |
-| a cleanup during dispose | The remaining cleanups still run | `faulted` |
-| `unmounted()` | Nothing — recorded | `unmounted` |
-
-A failed first mount returns to `constructed`; a failed remount returns to `unmounted`, state preserved. The error is rethrown unchanged to the caller. `faulted` and `disposed` are terminal: `mount()` on either throws before any transition, and recovery is a fresh instance, never a repair call. The router constructs every incoming component in a scope of its own and runs `constructed()` before any of them mounts; a throw anywhere in a commit disposes the attempt and remounts the previous occupants, and a departed occupant is `dispose()`d once the commit stands.
+What ships today: children are mounted **imperatively** (`new Child().mount(host)`). As of v2.1.1 the compiler enforces the boundary: a hyphenated tag whose PascalCase form is imported by the component module errors with `component-composition-unsupported` (the author expects composition; pointing at v2.3 beats mounting an inert custom element). A hyphenated tag with no matching import is a valid plain custom element passthrough — existing sink gating applies. **Template component composition is scheduled for v2.3.0 (own DDR conversation).**
 
 ---
 

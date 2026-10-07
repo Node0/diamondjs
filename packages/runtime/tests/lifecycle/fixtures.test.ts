@@ -15,27 +15,23 @@ import { Ticker } from './fixtures/deferred-work'
 const root = resolve(__dirname, '../../../..')
 const fixture = (name: string): string => readFileSync(resolve(__dirname, 'fixtures', name), 'utf-8').trim()
 
-/** The spec may live at either path (docs/spec/ after PR #36). */
-function doc(...candidates: string[]): string {
-  const found = candidates.map((c) => resolve(root, c)).find((p) => existsSync(p))
-  if (!found) throw new Error(`none of ${candidates.join(', ')} exists`)
+/** The lifecycle contract first ships in v2.3.0, so its spec is the one that must match. */
+const SPEC = 'docs/spec/v2.3.0/DiamondJS_Architecture_Specification_v2.3.0.md'
+
+function doc(path: string): string {
+  const found = resolve(root, path)
+  if (!existsSync(found)) throw new Error(`${path} does not exist`)
   return readFileSync(found, 'utf-8')
 }
 
 describe('fixtures are the docs', () => {
   it('the spec §4.2 canonical component is fixtures/canonical.ts verbatim', () => {
-    const spec = doc(
-      'docs/spec/v2.1.0/DiamondJS_Architecture_Specification_v2.1.md',
-      'impl_docs/spec/DiamondJS_Architecture_Specification_v2.1.md'
-    )
+    const spec = doc(SPEC)
     expect(spec).toContain(fixture('canonical.ts'))
   })
 
   it('the spec §4.4 deferred-work example is fixtures/deferred-work.ts verbatim', () => {
-    const spec = doc(
-      'docs/spec/v2.1.0/DiamondJS_Architecture_Specification_v2.1.md',
-      'impl_docs/spec/DiamondJS_Architecture_Specification_v2.1.md'
-    )
+    const spec = doc(SPEC)
     expect(spec).toContain(fixture('deferred-work.ts'))
   })
 
