@@ -1,10 +1,10 @@
 # DiamondJS — Architecture & Design Specification v2.2.4
 
-**Status:** Draft for ratification · describes shipped v2.2.4 (`main` @ `82bb8bc`, 2026-10-06) plus the Lifecycle Contract (LC-1…LC-16), which lands in 2.2.4 from branch `lifecycle-contract`. §4.2, §4.4, §4.6 and §4.7 follow that design record and are patched to the merged code before 2.2.4 is published.
+**Status:** Draft for ratification · describes v2.2.4 as tagged (`v2.2.4` @ `9477f50`, published 2026-10-07).
 **Author:** Joe Hacobian
 **Supersedes:** the v2.1 architecture spec (`docs/spec/v2.1.0/`), Amendment A3, the v2.2 Router Specification and the v2.2 Implementation Work Order (`docs/spec/v2.2.0/`), and the spec wording that lived only in pull requests and issues during 2.2.x (PRs #12, #16, #21–#24, #30–#35; issues #15, #28). Those remain the *rationale* archive; this document is the single authoritative *reference*.
 
-**Consolidation basis:** the v2.1 spec → Amendment A3 (v2.1.1 conformance patch, v2.2.0 logging/measurement rulings) → the v2.2 Router Specification (v2.2.0, with the v2.2.1 Destination record folded in) → the 2.2.2–2.2.4 fixes → the Lifecycle Contract design record. Section numbers §1–§16 keep their v2.1 meaning so that every `§n` citation in source comments and earlier records still resolves; the router becomes §17 and keeps the Router Specification's own numbering (Router Specification §9 is §17.9 here); the appendices move to §18. Appendix G is the version changelog.
+**Consolidation basis:** the v2.1 spec → Amendment A3 (v2.1.1 conformance patch, v2.2.0 logging/measurement rulings) → the v2.2 Router Specification (v2.2.0, with the v2.2.1 Destination record folded in) → the 2.2.2–2.2.4 fixes. Section numbers §1–§16 keep their v2.1 meaning so that every `§n` citation in source comments and earlier records still resolves; the router becomes §17 and keeps the Router Specification's own numbering (Router Specification §9 is §17.9 here); the appendices move to §18. Appendix G is the version changelog.
 
 ---
 
@@ -72,7 +72,6 @@ The design meta-rules these fall out of, carried from the v2.0 record and load-b
 - **Reactive-over-static is free.** A reactive binding referencing only static values never re-evaluates, so no construct needs a separate one-time variant.
 - **Language-first composition** *(v2.2.0)*. The framework provides **values**; the language provides **control flow**. Nouns for state (`Pending`, `Collection`), single verbs for platform gaps (`hold`, `bind`, `delegate`); JS provides grammar (`await`, `try/finally`, `Promise.all`). Combinators only where the language has no primitive (dependency tracking, `captureScope`). Corollaries (normative): **no fluent/builder chains in the public API**; **decorating functions are passthrough** — they return what they were given and act by registry side effect (`Pending.until(work, label)` returns `work` itself).
 - **Explicit discriminants** *(v2.2.1)*. Explicit discriminants in authored data; shape-inference only for uncontrolled input. When a field in a spec-governed structure grows a taxonomy, promote it to a tagged union. Canonical example: `Destination` (§17.5) — the string dual-form was designed, then rejected when `site-path` proved shape-indistinguishable from `route-path`.
-- **A lifecycle name promises a state, not an action** *(2.2.4, LC-1)*. A callback is named for the phase it runs in, and runs only when that phase's promise holds (§4.4). Entry points (`mount`, `unmount`, `dispose`) are actions and are not overridable.
 
 ---
 
@@ -88,7 +87,7 @@ The design meta-rules these fall out of, carried from the v2.0 record and load-b
 
 ### 2.2 What was eliminated relative to Aurelia 2.0
 
-The DI container, the runtime template compiler, the complex observer system, the 8-hook lifecycle, and the decorator-metadata system are all gone — replaced by ES-module imports, build-time compilation, Proxy reactivity + `@reactive`, a six-phase lifecycle with one callback per phase (§4.4; the Aurelia `binding`/`bound`/`attaching`/`attached` lineage, without the `on` prefix), and compiler transformation respectively. The runtime that remains is a small library of explicit functions (see §14 for actual LOC).
+The DI container, the runtime template compiler, the complex observer system, the 8-hook lifecycle, and the decorator-metadata system are all gone — replaced by ES-module imports, build-time compilation, Proxy reactivity + `@reactive`, a 4-hook lifecycle, and compiler transformation respectively. The runtime that remains is a small library of explicit functions (see §14 for actual LOC).
 
 ---
 
@@ -123,7 +122,7 @@ LOC budgets count **production LOC only** (`src` excluding `__tests__`); test LO
 
 Configurable discovery (`diamond.config.js`) supports `flat` mode (`./components/my-component.{ts,html,css}`) and `nested` mode (`./components/my-component/my-component.{ts,html,css}`). Nested mode uses `component-name.*`, **never** `index.*`, so every open editor tab names its own component (the v1.5.1 fix that eliminated multi-developer filename ambiguity). Scaffolded files carry a `[Diamond]` comment header stating the folder→basename convention.
 
-### 4.2 Canonical component *(rewritten 2.2.4, LC-1/LC-3/LC-4)*
+### 4.2 Canonical component
 
 ```typescript
 import { Component, reactive } from '@diamondjs/runtime';
@@ -133,21 +132,18 @@ export class MyComponent extends Component {
   @reactive name: string = '';       // reactive → drives the UI
   @reactive count: number = 0;
   private service = someService;      // bare → inert bookkeeping
-  handleInput = this.debounce((v: string) => (this.name = v), 500);  // instance scope (§4.4)
 
-  constructed() { /* @reactive is live; an effect created here tracks */ }
-  mounting()    { /* about to appear; acquisitions belong to this mount */ }
-  mounted()     { /* connected: measure, focus, observe */ }
-  unmounting()  { /* still connected: save position, flush */ }
-  unmounted()   { /* detached; state kept; may mount again */ }
+  constructor() { super(); }
+
+  mount(host: HTMLElement) { super.mount(host); /* post-render DOM work */ }
+  update(next: Partial<this>) { /* react to prop changes */ Object.assign(this, next); }
+  unmount() { super.unmount(); /* extra cleanup */ }
 
   handleClick() { this.name = 'Updated'; }   // `this` is always the component
 }
 ```
 
-Key decisions: `@reactive` is the single reactivity declaration (decorated drives the UI; bare is inert — no class-level "YOLO mode"); explicit imports, no constructor injection; **six lifecycle phases, one callback each** (§4.4) — the JS `constructor` is the first, and five overridable methods are named exactly as their phases; `mount`, `unmount` and `dispose` are entry points, not hooks, and cannot be overridden (LC-3); `update()` is **retired** (LC-4) — props arrive as writes to the component's `@reactive` fields and its own reactivity is the notification; `extends Component`; `this` is `this` everywhere.
-
-Constructors acquire nothing and announce nothing: the object exists, nothing else. Work that needs live reactivity goes in `constructed()`; work that announces the component goes in `mounting()`. Route components may accept a single params object in their constructor (§17.3); the no-arg form is the default, not a prohibition.
+Key decisions: `@reactive` is the single reactivity declaration (decorated drives the UI; bare is inert — no class-level "YOLO mode"); explicit imports, no constructor injection; **4 lifecycle hooks** (constructor, mount, update, unmount); `extends Component`; `this` is `this` everywhere.
 
 ### 4.3 The instance-template model
 
@@ -155,150 +151,37 @@ Constructors acquire nothing and announce nothing: the object exists, nothing el
 
 A standalone template module (§5.8) exports the same instance method as a function of `this`; the class assigns it (`createTemplate = T.createTemplate`). The referent is the same either way.
 
-### 4.4 The `Component` base class contract *(rewritten 2.2.4 — Lifecycle Contract LC-1…LC-16)*
+### 4.4 The `Component` base class contract
 
 ```typescript
-type Phase =
-  | 'constructing' | 'constructed' | 'mounting' | 'mounted'
-  | 'unmounting' | 'unmounted' | 'faulted' | 'disposed';
-
 export abstract class Component {
-  readonly phase: Phase;                         // reactive snapshot (LC-13)
-  readonly generation: number;                   // reactive (LC-9)
-  protected element: Node | null;
-  createTemplate(): Node;                        // public; throws until compiler-injected or assigned
-
-  // Entry points — final; overriding either of the first two throws at construction (LC-3)
-  mount(host: HTMLElement): void;
-  unmount(): void;
-  dispose(): void;
-
-  // Phase callbacks — overridable, nullary, empty by default (LC-1)
-  constructed(): void;
-  mounting(): void;
-  mounted(): void;
-  unmounting(): void;
-  unmounted(): void;
-
-  getElement(): Node | null;                     // public
-  history(): readonly LifecycleRecord[];         // public (§4.7)
+  protected element: HTMLElement | null;
+  createTemplate(): HTMLElement;                  // public; throws until compiler-injected or assigned
+  mount(host: HTMLElement): void;                 // public
+  update(next: Partial<this>): void;              // public — body is Object.assign(this, next)
+  unmount(): void;                                // public
+  getElement(): HTMLElement | null;               // public
   protected registerCleanup(fn: () => void): void;
   protected debounce<A extends unknown[]>(fn: (...a: A) => void, ms: number): (...a: A) => void;
   protected throttle<A extends unknown[]>(fn: (...a: A) => void, ms: number): (...a: A) => void;
 }
 ```
 
-> ⚠ Shipped declarations type `createTemplate()` and `element` as `HTMLElement`, but a template with two or more roots returns a `DocumentFragment` (§16 D-23).
+> ⚠ `createTemplate()` and `element` are typed `HTMLElement`, but a template with two or more roots returns a `DocumentFragment` (§16 D-23).
 
-**Phases (LC-1).** `constructing → constructed → mounting → mounted → unmounting → unmounted`. `faulted` and `disposed` are terminal and have no callback. The callbacks carry no `on` prefix: `DiamondCore.on(el, event, handler)` already means "event listener", and one concept gets one vocabulary (LC-2).
+`mount()` re-routes any `@reactive` field a [[Define]]-emitting toolchain left as an own data property (`adoptDefinedReactiveFields`, *2.2.3, #11*; dev builds report the repair once per class), then wraps `createTemplate()` in `DiamondCore.captureScope()` and registers the returned disposer, which is what makes **root-level** `bind`/`on`/`if`/`repeat`/`switch` cleanups survive to `unmount()` (without the wrapper, `currentScope` is `null` at the root and `track()` silently discards). It then tracks the template's node range and appends it to the host (§5.4.4, *2.2.4, #17*). `unmount()` runs the component's cleanups first, then removes the mounted range — the whole range, so a multi-root template or one whose root is a structural leaves nothing behind. `debounce`/`throttle` are `protected` and **self-register** their `cancel` against the cleanup registry at creation time, so the class-field one-liner `handleInput = this.debounce(v => this.query = v, 500)` is leak-safe with no visible timer-cancel burden. This relies on JS field-init order: base fields (`cleanups = []`) initialize during `super()`, before any subclass field initializer runs.
 
-| Phase | Callback | Promise when the callback runs | DOM | On throw in the callback |
-|---|---|---|---|---|
-| `constructing` | `constructor` | The object exists. Nothing else. Constructors acquire nothing and announce nothing. | none | Caller disposes the construction scope (§4.6); no instance registered |
-| `constructed` | `constructed()` | `@reactive` fields operational under any toolchain emit; instance scope open and current; `getElement()` is null. Runs exactly once per instance. | none | Instance scope disposed → `faulted` |
-| `mounting` | `mounting()` | Mount scope open and current; `generation` assigned; no template, no children exist yet. The honest home for "I am about to appear" side effects. | none | Mount scope disposed → `constructed` (or `unmounted` on remount) |
-| `mounted` | `mounted()` | Range connected to the document; bindings applied; root-level structurals placed; children's `mounted()` complete; mount scope current. | connected | Mount scope disposed (range removed) → `constructed`/`unmounted` |
-| `unmounting` | `unmounting()` | Range still connected; `generation` already invalidated; mount scope current; anything acquired here is disposed before `unmount()` returns. | connected | Recorded; teardown continues (LC-12) |
-| `unmounted` | `unmounted()` | Range detached; mount inventory empty; instance state preserved; instance scope current; remount permitted. | detached | Recorded (LC-12) |
-| `faulted` | — | A cleanup failed; inventory cannot be certified empty. Terminal. | indeterminate | — |
-| `disposed` | — | Instance scope closed. Terminal. | detached | — |
+> **Re-mount caveat.** `unmount()` empties the cleanup registry. A component that is unmounted and re-mounted works, but `debounce`/`throttle` cancels registered at *construction* were dropped on the first unmount and are not re-registered. Calling `mount()` twice without an intervening `unmount()` throws (§16 D-6, guarded as of v2.1.1).
 
-Visibility, paint and dimensions are **not** promised by `mounted`. A connected element under `display: none` has no box.
-
-**`mounted` means connected (LC-5).** `mounted()` runs only when the component's managed range is in the document, its root-level structurals are placed, and its children's `mounted()` have run. A component built into a detached parent waits for the parent's connection. A root component must be mounted into a connected host: mounted into a detached host with no framework parent, its `mounted()` never fires, and dev builds say so once with a `WARNING`.
-
-**Child-first delivery (LC-6).** For a parent with children, `mounted()` order is children (in construction order) then parent. The parent measures assembled children; the parent runs last so it wins any focus contention. Delivery happens at exactly three drain points: `mount()` after the range is appended to a connected host; and the immediate and deferred placement paths of a structural directive whose anchor is connected (§5.4.4), each delivering to the children of the placed branch.
-
-**Two scopes (LC-8).** Every framework-owned acquisition — `bind`, `on`, `effect`, structurals, child instances, tracked ranges, `registerCleanup` — registers into the scope current at the moment of acquisition (LC-7). A component owns two:
-
-- the **instance scope**, opened at the first framework entry and closed by `dispose()`, holds `debounce`/`throttle` cancels and anything acquired in `constructed()` or `unmounted()`;
-- the **mount scope**, opened per `mount()` and closed by `unmount()` or rollback, holds the template, its children, its range, and anything acquired in `mounting()`, `mounted()` or `unmounting()`.
-
-So the class-field one-liner `handleInput = this.debounce(v => this.query = v, 500)` stays leak-safe across unmount → remount → unmount: its cancel lives in the instance scope, which unmount does not touch. *(The v2.1 re-mount caveat — cancels dropped on the first unmount — is closed.)*
-
-**First framework entry (`ensureConstructed`).** The first time the framework touches an instance — `mount()`, or the construction site in the router (§17.2) or `DiamondCore.child` (§4.5) — it re-routes any `@reactive` field a [[Define]]-emitting toolchain left as an own data property (`adoptDefinedReactiveFields`, *2.2.3, #11*; dev builds report the repair once per class), opens the instance scope, transitions to `constructed` and calls `constructed()`. It is idempotent. A hand-constructed component (`new SourceViewer()` in a field initializer) is covered without a factory.
-
-**Generations (LC-9).** Each `mount()` increments `generation`; `unmount()` increments it again on entry. Framework-deferred work that captured generation *g* and runs in *g + 1* declines and is recorded as `stale`.
-
-**Entry points.**
-
-- `mount(host)` — permitted only from `constructed` or `unmounted`; from any other phase it throws **before** any transition. It runs `mounting()`, builds the template inside the mount scope, tracks the body's range (§5.4.4), appends it to `host`, and delivers `mounted()` if `host` is connected.
-- `unmount()` — permitted from `mounted` or `mounting`. It invalidates the generation, runs `unmounting()` (errors recorded, never thrown — LC-12), disposes the mount scope LIFO (the range leaves the document first, then children, then bindings), clears `element`, transitions to `unmounted` (or `faulted`), and runs `unmounted()`.
-- `dispose()` — unmounts if needed, closes the instance scope, and transitions to `disposed` (or `faulted`). The router disposes an occupant that leaves for good; structurals dispose a child instance when its branch or row is removed; app code disposes a root at teardown. Authors rarely call it.
-
-**The override guard (LC-3).** The `Component` constructor throws if the subclass overrides `mount` or `unmount`, naming the replacement callback:
-
-```
-[Diamond] <Class> overrides mount()/unmount(). These are final. Override mounted()/unmounting() instead (spec §4.4).
-```
-
-This is the migration's fail-loud point: every 2.2.3 component that wrote `override mount(host) { super.mount(host); … }` fails at construction, not silently at runtime.
+> **What `mount()` does not promise.** `mount()` builds the template and appends it to `host`. The template is in the document only if `host` is; nothing tells a component when it actually reaches the document. A child mounted into a host inside a parent's detached template is mounted while detached. 2.3.0 replaces these hooks with a lifecycle whose names promise states (the Lifecycle Contract).
 
 ### 4.5 Parent–child communication — design intent, NOT shipped (§16 D-21)
 
-**This section describes design intent, not shipped machinery.** No compiler support for template component composition exists in v2.2.x: a hyphenated tag never resolves to a component class, and no child lifecycle is driven by a parent template. Template component composition ships in **v2.3.0**.
+**This section describes design intent carried forward from v1.5.1 text, not shipped machinery.** No compiler support for template component composition exists in v2.2.x: a hyphenated tag never resolves to a component class, `name.bind` on one never becomes `child.update(...)`, and no child lifecycle is driven by a parent template.
 
-The intended shape — recorded so v2.3 designs against it, not from scratch: **props down, explicit** — as of 2.2.4 a prop is a write to the child's `@reactive` field inside an effect (`DiamondCore.effect(() => { child.name = this.parentName })`), not an `update()` call (LC-4); **events up, standard DOM** (children dispatch a `CustomEvent`; parents handle via `event-name.calls="handler($event)"`); no implicit event bus.
+The intended shape — recorded so v2.3 designs against it, not from scratch: **props down, explicit** (`<child-component name.bind="parentName">` compiling to `child.update({ name: this.parentName })` inside an effect); **events up, standard DOM** (children `dispatchEvent(new CustomEvent(...))`; parents handle via `event-name.calls="handler($event)"`); no implicit event bus.
 
-**The runtime seam ships in 2.2.4.** `DiamondCore.child(instance, hostEl)` is the call compiler-emitted composition will make, and hand-written code may make it today. It runs `ensureConstructed()` on the instance; pushes `() => instance.dispose()` onto the current scope; records the instance as a child of the current scope, for child-first delivery (§4.4); and calls `instance.mount(hostEl)`. The host is detached at that point, so the child stays in `mounting` until its parent's delivery reaches it. A parent's `unmount()` disposes its mount scope, and LIFO disposal reaches `child.dispose()` — teardown cascades with no hand wiring.
-
-What else ships today: children may still be mounted **imperatively** (`new Child().mount(host)` from the parent's `mounted()`, with `child.unmount()` from `unmounting()`). As of v2.1.1 the compiler enforces the boundary: a hyphenated tag whose PascalCase form is imported by the component module errors with `component-composition-unsupported` (the author expects composition; pointing at v2.3 beats mounting an inert custom element). A hyphenated tag with no matching import is a valid plain custom element passthrough — existing sink gating applies.
-
-### 4.6 Failure and recovery *(new 2.2.4, LC-7/LC-10/LC-11/LC-12/LC-15)*
-
-**Rollback by inventory, not by snapshot (LC-7).** Because every framework-owned acquisition registers into the current scope at creation, failure recovery is `dispose(scope)`. There is no mutation journal, no value rollback, and no verification walk beyond the two dev assertions in §4.7.
-
-**Dispose is total and LIFO (LC-10).** Each cleanup runs in its own `try`. Failures are collected, never thrown mid-dispose. If any cleanup threw, the instance becomes `faulted`.
-
-**`faulted` and `disposed` are terminal (LC-11).** `mount()` on either throws before any transition. A faulted instance exposes the cleanup failures on its last record. Recovery is a fresh instance, never a repair call.
-
-**Teardown never throws for callback failures (LC-12).** A throw in `unmounting()` or `unmounted()` is recorded; teardown continues to completion. Only cleanup failures (LC-10) fault the instance.
-
-| Transaction fails during | Inventory at that moment | Dispose removes | Destination |
-|---|---|---|---|
-| `constructor` (via router or `DiamondCore.child`) | Construction scope only | Whatever the constructor registered | No instance |
-| `constructed()` | Instance scope | Everything in it | `faulted` |
-| `mounting()` | Mount scope: only what the hook acquired | That | `constructed` / `unmounted` |
-| `createTemplate()` at acquisition N | Partial bindings, children, anchors | All; nothing was inserted | `constructed` / `unmounted` |
-| `appendChild` into host | Full template, range registered | Bindings, children; range remove is a no-op | `constructed` / `unmounted` |
-| `mounted()` | Template, range, callback's acquisitions | Range out of document; all effects and listeners | `constructed` / `unmounted` |
-| `unmounting()` | Full mount inventory | Teardown continues; failure recorded | `unmounted` |
-| A cleanup during dispose | Remainder | Remaining cleanups still run | `faulted` |
-| `unmounted()` | Instance scope only | Nothing (recorded) | `unmounted` |
-| `mount()` on `mounted`/`faulted`/`disposed` | — | Nothing; throws before transition | unchanged |
-
-A failed remount returns to `unmounted`, preserving instance state; a failed first mount returns to `constructed`. The error that caused a failed `mount()` is rethrown unchanged.
-
-**A child's failure is contained at the child.** When a child's `mounted()` throws under a live parent, the child rolls back, the structural branch that owns it is removed, and the parent remains `mounted` and interactive; the child's history records the failure.
-
-**The boundary (LC-15).** The guarantee covers acquisitions made through framework APIs; a raw `addEventListener`, `setInterval` or `fetch` the author did not register is outside the inventory.
-
-### 4.7 The lifecycle record *(new 2.2.4, LC-13/LC-14)*
-
-**Ring and snapshot are one write (LC-13).** The lifecycle coordinator commits a transition by appending one `LifecycleRecord` to the instance's ring and applying the same record to the reactive snapshot (`phase`, `generation`). The snapshot is `fold(ring)`. Effects may read `this.phase`.
-
-```typescript
-type Cause = 'construct' | 'mount' | 'connect' | 'unmount' | 'dispose' | 'stale' | 'callback-failed';
-
-interface LifecycleRecord {
-  seq: number;           // global monotonic
-  t: number;             // performance.now()
-  instance: number;      // runtime-assigned id
-  generation: number;
-  from: Phase;
-  to: Phase;
-  cause: Cause;
-  outcome: 'ok' | 'failed' | 'faulted' | 'stale';
-  error?: unknown;
-  failures?: Array<{ index: number; error: unknown }>;
-}
-```
-
-The ring is a fixed 32 records per instance. `history()` returns it, oldest first.
-
-**Dev-mode consistency check (`domPing`).** Two assertions, also run by the test harness after every test: after any dispose, the disposed scope is empty; and `phase === 'mounted'` holds exactly when every node of the managed range is connected, while `phase ∈ {constructed, unmounted, disposed}` holds exactly when `getElement()` is null.
-
-**Emission through `Print` (LC-14).** Failed transitions always emit (`FAILURE`); faults emit `CRITICAL`; stale callbacks emit `WARNING`; successful transitions emit `STATE` only when `__DIAMOND_DEV__`. The ring records regardless.
+What ships today: children are mounted **imperatively** (`new Child().mount(host)`, typically from the parent's `mount()` override after `super.mount(host)`, with `child.unmount()` from its `unmount()` override). As of v2.1.1 the compiler enforces the boundary: a hyphenated tag whose PascalCase form is imported by the component module errors with `component-composition-unsupported` (the author expects composition; pointing at v2.3 beats mounting an inert custom element). A hyphenated tag with no matching import is a valid plain custom element passthrough — existing sink gating applies. **Template component composition is scheduled for v2.3.0.**
 
 ---
 
@@ -489,13 +372,15 @@ The one and only looping construct — no `while`, no `repeat-until`, no `forEac
 
 **Lowering (Option B + Option A fast path):** reactive `on=` lowers to `DiamondCore.switch(anchor, onGetter, cases, defaultMake?)`, mirroring `if()` (lazy `captureScope` builds; detached means disposed). The **static fast path** applies iff `on=` is a **pure literal** AND every case is equality-kind — then only the winning branch's DOM code is emitted, zero runtime cost. A statically-dead switch (static `on=` matching no case, no `<default>`) emits a **`switch-static-dead` warning** plus an inspectable DOM comment carrying the dead source — never silently dropped. Because stink-check routes on severity *(v2.1.1, D-8)*, that warning fails the stink-check merge gate; it does not stop a local build.
 
-#### 5.4.4 Mounted ranges and placement *(2.2.3 #7; 2.2.4 #17 and the Lifecycle Contract)*
+#### 5.4.4 Mounted ranges and placement *(2.2.3 #7; 2.2.4 #17)*
 
-**A body is a range, not a node.** A component template, an `if` branch, and a `case`/`default` body may each have several roots, and a body whose root is itself a structural places its output *before* that structural's anchor. Each is therefore mounted and removed as a **range**: `DiamondCore.trackRange(body, stop?)` returns the node to insert and a `remove` that walks the siblings as they stand at removal time, from the range's first node up to its last node, the owning anchor, or the end of the parent. `if()` and `switch()` remove a branch's range and then dispose its scope; a component's mount scope disposes LIFO, so its range leaves the document first (§4.4).
+**A body is a range, not a node.** A component template, an `if` branch, and a `case`/`default` body may each have several roots, and a body whose root is itself a structural places its output *before* that structural's anchor. Each is therefore mounted and removed as a **range**: `DiamondCore.trackRange(body, stop?)` returns the node to insert and a `remove` that walks the siblings as they stand at removal time, from the range's first node up to its last node, the owning anchor, or the end of the parent. `if()` and `switch()` remove a branch's range and then dispose its scope; `Component.unmount()` disposes first and then removes its range (§4.4).
 
 **The start marker.** A body that **begins with** a structural directive (`if`, `repeat.for`, a reactive `<switch>`) mounts behind one empty comment, `<!---->`, that fixes the start of its range. Nothing else gains a node: single element/text roots, static multi-root bodies, empty-case and dead-switch placeholders mount without one.
 
-**First-mount placement.** The compiler appends a structural's anchor to its parent **before** it emits the `DiamondCore.if/switch/repeat` call, so every nested structural renders synchronously on the first pass. A structural whose anchor is still detached at its first pass — one at a template's root, or one in hand-written code — defers its placement. Inside a component the deferred placement registers in the current scope and is drained synchronously when `mounted()` is delivered (§4.4), so a page whose template root is an `if` has its branch in the document when `mounted()` runs and when the router looks for a hash target after commit (§17.9). With no scope (hand-written code outside any component) the placement runs on the next microtask.
+**First-mount placement.** The compiler appends a structural's anchor to its parent **before** it emits the `DiamondCore.if/switch/repeat` call, so every nested structural renders synchronously on the first pass. A structural whose anchor is still detached at its first pass — one at a template's root, or one in hand-written code — is placed on the next microtask by a runtime guard.
+
+> ⚠ A page whose template root is a structural therefore has no branch nodes when `mount()` returns, so the router's hash scroll after commit (§17.9) finds no target and scrolls to the top (§16 D-25, #38).
 
 ### 5.5 Events
 
@@ -640,7 +525,7 @@ The public reactivity surface is `DiamondCore.effect` / `.computed` / `.reactive
 
 Effects are batched onto a microtask queue with `Set` dedupe, so N synchronous mutations collapse into one flush (this is what makes `Collection`'s 10k-push case one render). The scheduler drops disposed effects at flush: effect cleanup sets a `disposed` flag on the effect record, and the flush skips and drops flagged effects *(v2.1.1, D-7)* — so a mutation in the same tick as `unmount()` can no longer re-arm a disposed effect and retain the unmounted tree.
 
-`DiamondCore.captureScope(fn)` runs `fn` while collecting every `bind`/`on`/`effect`/`if`/`switch`/`repeat`/`spread`/`delegate`/child cleanup created during it, returning `{ value, cleanup }`. If `fn` throws, everything registered before the throw is disposed before the error propagates *(2.2.4, Lifecycle Contract P-2)*. Underneath it is an explicit scope object, which the component lifecycle opens and closes directly (§4.4): scopes dispose LIFO, each cleanup in its own `try`, collecting failures (§4.6). **Root-level and nested** bindings all dispose with their scope, uniformly with structural-directive subtrees, and detached structural branches dispose eagerly (§5.4).
+`DiamondCore.captureScope(fn)` runs `fn` while collecting every `bind`/`on`/`if`/`switch`/`repeat`/`spread`/`delegate` cleanup created during it, returning `{ value, cleanup }`. `Component.mount` wraps `createTemplate()` in `captureScope` and registers the disposer, so **root-level and nested** bindings all dispose with their scope, uniformly with structural-directive subtrees, and detached structural branches dispose eagerly (§5.4).
 
 ---
 
@@ -780,16 +665,15 @@ static delegate<T = unknown>(
 static collection<T>(items?: Iterable<T>, options?: CollectionOptions<T>): Collection<T>;
 
 static trackRange(body: Node, stop?: Node): { node: Node; remove: () => void };   // 2.2.4, #17 — §5.4.4
-static child(instance: Component, host: HTMLElement): void;                         // 2.2.4 — §4.5
 ```
 
 `bind`'s third argument is a **required positional slot holding an optionally-`undefined` value** (typed `(() => unknown) | undefined`, no `?`), so callers must pass it; `from-view` passes the literal `undefined`. Anchors for `if`/`switch`/`repeat` are **trailing markers** — rendered content inserts immediately *before* the anchor.
 
-**Public for the framework's own use, not app-facing.** `trackRange` is public for the same reason `captureScope` is: `Component` calls it. The explicit scope operations the lifecycle uses (open, close, and `mounted()` delivery; §4.4, §7.2) are in the same position. `internal`: `currentScope`, `track`, `itemRegistry`, `getInputEventName` and the deferred-placement guard (§5.4.4) are `private static` and not on the contract.
+**Public for the framework's own use, not app-facing.** `trackRange` is public for the same reason `captureScope` is: `Component` calls it. `internal`: `currentScope`, `track`, `itemRegistry`, `getInputEventName` and the deferred-placement guard (§5.4.4) are `private static` and not on the contract.
 
 ### 11.2 `Component`, `Collection`, `ParseResult`
 
-See §4.4 (`Component`, its phases and `LifecycleRecord`), §8 (`Collection<T>` / `CollectionOptions<T>`), and §5.3.4 (`ParseResult<T>` interface + `ok`/`fail`). `registerCleanup`/`debounce`/`throttle` are `protected` (subclass-only); the rest of `Component` is public. `update()` is removed *(2.2.4, LC-4)*. `ParseResult` exports the value (the const); the interface is reachable through the same specifier.
+See §4.4 (`Component`), §8 (`Collection<T>` / `CollectionOptions<T>`), and §5.3.4 (`ParseResult<T>` interface + `ok`/`fail`). `registerCleanup`/`debounce`/`throttle` are `protected` (subclass-only); the rest of `Component` is public. `ParseResult` exports the value (the const); the interface is reachable through the same specifier.
 
 ### 11.3 `@diamondjs/compiler`
 
@@ -884,11 +768,9 @@ Not `Diagnostic` objects but part of the same story. Warnings print through `Pri
 - **Inbound corruption** (`WARNING`, warn-once): a display-formatted value leaking into the model — the §6.6 backstop, three reasons.
 - **Spread unsafe-key skipped** (`WARNING`, warn-once): a non-raw spread hit an off-list key.
 - **`@reactive` field repaired** (dev, once per class): a [[Define]]-emitted field was re-routed through its accessor (§7.1).
-- **Root mounted into a detached host** (dev `WARNING`, once): `mounted()` will never fire (§4.4).
-- **Lifecycle transitions** (§4.7): `FAILURE` for a failed transition, `CRITICAL` for a fault, `WARNING` for a stale callback, `STATE` for a successful one in dev builds only.
 - **Router narration** (§17): per-navigation `STATE`, guard decisions, `Pending` acquire/release, the dev startup route table, and the `basePath` mismatch `WARNING`.
 
-Runtime throws: `createTemplate()` not implemented; `Collection.byKey` without a `key` option; `mount()` from any phase other than `constructed`/`unmounted`, before any transition (§4.4 — supersedes the v2.1.1 double-mount guard, D-6); a subclass overriding `mount()`/`unmount()`, at construction (§4.4).
+Runtime throws: `createTemplate()` not implemented; `Collection.byKey` without a `key` option; a second `mount()` without an intervening `unmount()` (`[Diamond] <Class> is already mounted.`, D-6).
 
 ### 12.6 Catalog notes
 
@@ -984,7 +866,7 @@ Nine workspace packages, lockstep at **2.2.4**: `@diamondjs/primafacie`, `@diamo
 | `@diamondjs/dev` (toolchain) | 545 | 800 | 68.1% |
 | **Total (production)** | **5,342** | **9,500** | **56.2%** |
 
-Figures are at `82bb8bc`, before the Lifecycle Contract, which is budgeted at **≤ 300 net runtime LOC** (target ~170) and is re-measured at merge. Warning thresholds in `check-loc-budget.ts`: runtime 2,250, compiler 4,500, parcel 250, converters 400, primafacie 350, dev 700. The dev-toolchain budget (800) entered with 2.2.2, raising the total from 8,700 to 9,500. `@diamondjs/guards` has a stated budget of 400 but no row in the budget tool yet. The suite at `82bb8bc` is 859 tests across 57 files, passing on Node 20.18.1 and Node 22.
+Figures are at `82bb8bc`. Warning thresholds in `check-loc-budget.ts`: runtime 2,250, compiler 4,500, parcel 250, converters 400, primafacie 350, dev 700. The dev-toolchain budget (800) entered with 2.2.2, raising the total from 8,700 to 9,500. `@diamondjs/guards` has a stated budget of 400 but no row in the budget tool yet. The suite at `82bb8bc` is 859 tests across 57 files, passing on Node 20.18.1 and Node 22.
 
 The batteries (`@diamondjs/converters`, and `@diamondjs/guards` once it carries mid-classes) are kept separate from the runtime; `ParseResult` stays in the runtime so batteries and user converters import the same contract and it cannot drift.
 
@@ -1000,7 +882,7 @@ The batteries (`@diamondjs/converters`, and `@diamondjs/guards` once it carries 
 
 **v2.2 primafacie additions:** `WsLogMessage.plain` (the line is formatted exactly once, in the browser; `wsSink` sends it); `wsReceiver(sink)` on `./node` — framework-agnostic and **silent** (no server echo; the browser already printed); `fileSink(dir, { datestamped })` rolling `access-YYYY-MM-DD.log` by date-in-filename via per-append string compare, no rotation daemon, default off; the dead `enableDebug` initializer (`(A || B) || true`) fixed so the env vars actually gate (default remains on).
 
-What prints through it: the runtime warnings and lifecycle emissions of §12.5 and §4.7, and the router's narration (§17).
+What prints through it: the runtime warnings of §12.5 and the router's narration (§17).
 
 ---
 
@@ -1012,7 +894,9 @@ Shipped v2.2.4 meets the contracts above except for the items below. Each is dis
 
 - **D-22 — Content whitespace is trimmed** *(recorded 2.2.4, #15)*. The parser drops any text node whose `.trim()` is empty and the generator trims static text, so the space between a text run and an adjacent inline element, or between two inline elements, is lost (`pressStart jobon the Prompt tab`, `Instructions(system prompt)`). `.trim()` also treats NBSP as indentation, so `<td>&nbsp;</td>` emits no text node. Interpolated text keeps its edge whitespace, so the static and interpolated paths disagree. §5.9 states the contract: only the whitespace listed there is syntax. Fix: 2.3.0 keeps template text exactly as the HTML parser produces it.
 
-- **D-23 — `createTemplate()` and `element` are typed `HTMLElement`** *(recorded 2.2.4)*. A template with two or more roots returns a `DocumentFragment`, and the managed range (§5.4.4) may begin with a comment. §4.4 types both as `Node`. Fix: correct the declarations.
+- **D-25 — A template-root structural is placed after the router's hash scroll** *(recorded 2.2.4, #38)*. A structural whose anchor is detached at its first pass is placed on a microtask; for a page whose template root is a structural that is after `mount()` returns, so the router's post-commit scroll finds no hash target. Fix: 2.3.0's connection drain places it before `mounted()` and before the scroll.
+
+- **D-23 — `createTemplate()` and `element` are typed `HTMLElement`** *(recorded 2.2.4)*. A template with two or more roots returns a `DocumentFragment`, and the managed range (§5.4.4) may begin with a comment. Fix: type both as `Node`.
 
 ### Accepted limitations (document, don't smooth over)
 
@@ -1030,7 +914,7 @@ Shipped v2.2.4 meets the contracts above except for the items below. Each is dis
 
 - **D-19 — `generateNodes` re-accretion.** The complexity debt is closed, but the v2.1 switch guard restored the loop to depth 3 / CC 8–10; a fifth structural sibling clause reopens it. The proven remedy is the same extraction (fold the switch guard into `generateStructural`-style dispatch). *(No disposition recorded since v2.1.)*
 
-- **D-21 — Template component composition is not shipped.** §4.5 is design intent; the compiler errors `component-composition-unsupported` on an imported hyphenated tag. The runtime seam (`DiamondCore.child`) ships in 2.2.4; the compiler side ships in 2.3.0.
+- **D-21 — Template component composition is not shipped.** §4.5 is design intent; the compiler errors `component-composition-unsupported` on an imported hyphenated tag. Composition ships in 2.3.0.
 
 - **SPA Back is not intercepted by `Pending`** (§17.8). Departure with active holds through Back narrates a `WARNING`; the `canLeave` veto is deferred (Appendix F).
 
@@ -1039,7 +923,7 @@ Shipped v2.2.4 meets the contracts above except for the items below. Each is dis
 - Structured `ParseResult.error` `{code, message}` (i18n seam) — still bare `string | null`.
 - Plugin `asset.setMap` source-map offset wiring (see D-11).
 - The §11.2 empirical allowlist probe — **NetPad** remains the designated stress test (hardest XSS surface: cross-user real-time content flow); 2.1a/2.1b now exist to build it on. This probe is also the refinement D-14 records as not-yet-done.
-- ~~Double-`mount()` guard~~ — closed in v2.1.1 (D-6) and superseded in 2.2.4 by the phase rule of §4.4.
+- ~~Double-`mount()` guard~~ — closed in v2.1.1 (D-6).
 
 ### Closed since v2.1
 
@@ -1049,7 +933,7 @@ Shipped v2.2.4 meets the contracts above except for the items below. Each is dis
 | D-2 | primitive `repeat` keys: typeof-prefixed value + occurrence index | 2.1.1 |
 | D-3 | attribute interpolation diagnosed (`attr-interpolation-unsupported`); read from the raw source in 2.2.4 | 2.1.1 / 2.2.4 |
 | D-5 | `TemplateImport` exported | 2.1.1 |
-| D-6 | double-mount guarded (adopted "DOM-node leak"); superseded by §4.4's phase rule | 2.1.1 / 2.2.4 |
+| D-6 | double-mount guarded (adopted "DOM-node leak") | 2.1.1 |
 | D-7 | disposed effects dropped at flush | 2.1.1 |
 | D-8 | stink-check routes on severity | 2.1.1 |
 | D-9 | budget tool counts production LOC and fails closed | 2.1.1 |
@@ -1072,12 +956,6 @@ Shipped v2.2.4 meets the contracts above except for the items below. Each is dis
 | #27 | `route-check` on Node 22; tsx ≥ 4.23.15 (§17.11) | 2.2.4 |
 | #28 | `navigate(url)`; `href="#"` passes through; scroll after commit (§17.9) | 2.2.4 |
 | #29 | literal `${` (§5.2.1) | 2.2.4 |
-| Lifecycle P-1 | a throw in `createTemplate()` no longer leaves the component marked mounted with live effects (§4.6) | 2.2.4 |
-| Lifecycle P-2 | `captureScope` disposes on throw (§7.2) | 2.2.4 |
-| Lifecycle P-3 | a page whose template root is a structural is placed before `mounted()` and before the router's hash scroll (§5.4.4) | 2.2.4 |
-| Lifecycle P-4 | `debounce`/`throttle` cancels survive remount (instance scope, §4.4) | 2.2.4 |
-| Lifecycle P-5 | router construction failures dispose already-constructed incoming components (§17.2) | 2.2.4 |
-| Lifecycle P-6 | children's teardown cascades from the parent's mount scope (§4.5) | 2.2.4 |
 
 ---
 
@@ -1103,8 +981,6 @@ Every navigation, on **every** vector (pushState nav, initial load, popstate), r
 8. **Settle** — per-nav `Print('STATE', 'nav → <path> [outlets]')`, on by default; `configure()` quiets. Scroll settles here (§17.9).
 
 **Transaction model:** the plan commits atomically or not at all. Any guard denial anywhere in a multi-outlet plan means **zero DOM mutation anywhere**. Construction precedes unmounting (a constructor throw aborts with the old route untouched); a mount throw rolls the DOM back and restores the URL. `pushState` never fires for a rejected navigation.
-
-**Commit under the lifecycle contract** *(2.2.4)*. Each incoming component is constructed inside a construction scope and then passed through its first framework entry (`ensureConstructed`, §4.4), so `constructed()` runs before any `mount()`; a constructor throw disposes that scope, and every incoming component already constructed is disposed. A failed commit disposes each newly mounted component — each has already rolled itself back (§4.6) — and remounts the previous occupants. A departing occupant leaves for good, so the router calls `dispose()`, not `unmount()`. A commit that fails on the last of several incoming components leaves occupancy, outlets and DOM identical to before the navigation.
 
 The Router is the **sole history writer**. Transports and app code request navigation via `router.navigate()`, never touch `history`.
 
@@ -1260,7 +1136,7 @@ The browser's `history.scrollRestoration` setting is left alone. Because `naviga
 
 **Startup route table:** `__DIAMOND_DEV__`-gated, one `Print('STATE', …)` **per route row** — line-oriented (greppable; survives wsSink). Columns: id, resolved full path, outlet, params, guard classes, redirect target. Tree flattened with indentation. Absent in prod. Format: Appendix D.
 
-**Socket lifetime idiom (example, not feature):** open in `mounted()` and `registerCleanup(() => socket.close())` — the cleanup lands in the mount scope (§4.4); deferred-close via `Pending.until(flush).then(() => socket.close())` inside a cleanup. Transports request navigation through `router.navigate()` only (sole-history-writer). Boundary events beyond navigation are reserved v3 vocabulary (§17.7).
+**Socket lifetime idiom (example, not feature):** open in `mount()`, `registerCleanup(() => socket.close())`; deferred-close via `Pending.until(flush).then(() => socket.close())` inside a cleanup. Transports request navigation through `router.navigate()` only (sole-history-writer). Boundary events beyond navigation are reserved v3 vocabulary (§17.7).
 
 ### 17.10 Exports and instance API (spec §11)
 
@@ -1429,18 +1305,17 @@ Normative rules:
 | Validation-error surface | — | `property.error-into="targetProp"` |
 | Standalone provenance | (convention folder) | `<!-- @import { … } from './module' -->` |
 | Literal `${` in text | — | `\${` or an entity (`&#36;{`) (2.2.4) |
-| Lifecycle | constructor, `mount`, `update`, `unmount` (overridable) | constructor, `constructed`, `mounting`, `mounted`, `unmounting`, `unmounted`; `mount`/`unmount`/`dispose` final; `update` removed (2.2.4) |
 | In-app navigation | — | static `href` + interceptor; `router.navigate(url)` (v2.2.0; URL form 2.2.4) |
 
 ### Appendix B — Framework positioning
 
-Against Aurelia 2.0: same template syntax lineage, but no DI (explicit imports), Proxy + `@reactive` instead of the observer system, `this` everywhere instead of `vm`/`self`/scope, `Collection` for large data, six named phases with one callback each instead of 8 hooks, and self-documenting compiled output. Against React: HTML templates instead of JSX, classes instead of hooks, `this.count` instead of `state`/`setState`, `Collection` instead of `useMemo`/`useCallback`. Against Vue 3: similar template syntax, `@reactive` instead of `ref()`/`reactive()`, no `.value` unwrapping. The unique value: the only framework explicitly designed for human-LLM collaborative development, with compiler-emitted semantic hints, universal `this`, and hybrid reactivity tuned for both small UI state and large datasets.
+Against Aurelia 2.0: same template syntax lineage, but no DI (explicit imports), Proxy + `@reactive` instead of the observer system, `this` everywhere instead of `vm`/`self`/scope, `Collection` for large data, 4 hooks instead of 8, and self-documenting compiled output. Against React: HTML templates instead of JSX, classes instead of hooks, `this.count` instead of `state`/`setState`, `Collection` instead of `useMemo`/`useCallback`. Against Vue 3: similar template syntax, `@reactive` instead of `ref()`/`reactive()`, no `.value` unwrapping. The unique value: the only framework explicitly designed for human-LLM collaborative development, with compiler-emitted semantic hints, universal `this`, and hybrid reactivity tuned for both small UI state and large datasets.
 
 ### Appendix C — Versioning posture
 
 DiamondJS is the SemVer canary for the project fleet: the substrate everything else (Crystallizer, NetPad, the neuron tooling) builds on gets the honest compatibility contract first, and downstream expresses its dependency precisely (`@diamondjs/*@^2.2.0`). The v2.0 major captured the wholesale binding-language and security-model break; v2.1 was additive (switch, spread, collection/delegate, error-into, @import, source maps, primafacie, root cleanup); v2.2 added the router. Because the raw-path architecture means post-stability security hardening turns new raw call sites into audited escape hatches rather than breaking changes, the eventual clean stable line can hold — which is the argument for doing the foundational churn now, pre-stability, where it costs almost nothing.
 
-**The 2.2.4 exception, recorded.** The Lifecycle Contract is a breaking change shipped in a patch release: `mount()`/`unmount()` become final (overriding them throws at construction), `update()` is removed, and `mounted()` requires a connected host. It ships in 2.2.4 by the author's decision, because the only consumer at the time was the author's own application, and its migration is mechanical and fails loud (§4.4). The spec version tracks the published package version, release for release.
+2.2.4 is a patch release: no API is removed, and its behaviour changes are listed in the changelog under **Changed**. The spec version tracks the published package version, release for release.
 
 ### Appendix D — Route-table line format
 
@@ -1458,8 +1333,6 @@ STATE: <ts> - <caller> - ~~~ legacy-home | /old | → redirect 'home' ~~~
 
 **Structural directives:** the branch cache, and the keep-node/dispose-effects hybrid (§5.4).
 
-**Lifecycle (2.2.4):** `on`-prefixed callback names (LC-2); overridable `mount()`/`unmount()` (LC-3); `update()` as a prop-change hook (LC-4 — the child's own reactivity is the notification); rollback by snapshot or mutation journal (LC-7 — rollback is by inventory).
-
 **Text:** a whitespace-sensitive escape for `${` (it would break exactly where docs need it: `` `\${x}` ``, `"\${x}"`, `(\${x})`).
 
 ### Appendix F — Deferred (recorded)
@@ -1468,8 +1341,6 @@ STATE: <ts> - <caller> - ~~~ legacy-home | /old | → redirect 'home' ~~~
 
 **Components:** template component composition — **v2.3.0** (§4.5, D-21).
 
-**Lifecycle (out of scope for the 2.2.4 record, LC-16):** a mutation journal / value rollback; a `Request` async-operation battery (beside `Pending`, separate package); retained delivery of writes to not-yet-connected targets; a `visible` / has-a-box phase; compiler site ids; a persistence exporter for the lifecycle ring (that is `wsSink`); any prop-batch callback.
-
 **Elsewhere:** attribute-interpolation support (diagnosed since 2.1.1); `Print` caller-name compiler memoization; the mount-outside-`captureScope` leak heuristic (dev warning, primafacie backlog); structured `ParseResult.error`; `asset.setMap`.
 
 ### Appendix G — Version changelog
@@ -1477,13 +1348,12 @@ STATE: <ts> - <caller> - ~~~ legacy-home | /old | → redirect 'home' ~~~
 Each entry lists what this specification gained or changed in that release. The narrative account of how each was built is `impl_docs/project_update_log.md`; package-level notes are `CHANGELOG.md`.
 
 **2.2.4** *(this document)*
-- §4: the Lifecycle Contract — six phases, one callback each; `mount`/`unmount`/`dispose` final with a construction-time override guard; `update()` removed; instance and mount scopes; `mounted` means connected; child-first delivery; rollback by inventory; generations; terminal `faulted`/`disposed`; the lifecycle record and its emissions; `DiamondCore.child` (§4.4–§4.7). Closes lifecycle defects P-1…P-6 (§16).
 - §5.2: literal `${` (#29) and literal author text in compiled output (#19).
-- §5.4: `if`/`else-if` chain whitespace (#18); mounted ranges, the `<!---->` start marker and scoped deferred placement (#17, P-3) — §5.4.4.
-- §5.9: the whitespace-as-syntax list; content trimming recorded as D-22 (#15).
+- §5.4: `if`/`else-if` chain whitespace (#18); mounted ranges and the `<!---->` start marker (#17) — §5.4.4.
+- §5.9: the whitespace-as-syntax list; content trimming recorded as D-22 (#15). §16: D-23 (`HTMLElement` typing), D-25 (template-root structural and the hash scroll, #38).
 - §7.1: arrays reactive in place (#26).
 - §10.4: build order (#25).
-- §12: `escaped-interpolation` (info); `attr-interpolation-unsupported` reads the raw source; lifecycle throws and emissions in §12.5.
+- §12: `escaped-interpolation` (info); `attr-interpolation-unsupported` reads the raw source.
 - §13: hint comments fold line breaks; control characters emitted as escapes (#19); mounted-output shape (§13.6).
 - §17.9: link pass-throughs (#14), URLs behave as in HTML, fragments and scroll (#20, #28); §17.11 Node 22 / tsx ≥ 4.23.15 (#27).
 - Consolidation: the v2.1 spec, A3 and the Router Specification become this one document; the router is §17; the specs move to `docs/spec/vX.Y.Z/`.
