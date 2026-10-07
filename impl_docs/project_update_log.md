@@ -872,3 +872,35 @@ Primafacie:     300 /   400 LOC
 Dev toolchain:  545 /   800 LOC
 Total:        5,342 / 9,500 LOC   859 tests
 ```
+
+## 2026-10-07 — v2.3.0: The Lifecycle Contract, the Consolidated Specification, and Preserved Text
+
+The 2.2.4 synopsis left two things open: #15, decided but not implemented, and a specification that had spread across three documents plus wording that lived only in pull-request descriptions. A third thing opened while those were being worked. Reviewing the composition design brief (D1–D10) against the shipped four-hook lifecycle turned a caveat into a redesign: `mount()` promised "on the DOM" and delivered "template built and appended", which is in the document only for a root or a route component, and every real app had worked around it by hand. A design record and work order was written (LC-1…LC-16; filed under `docs/spec/v2.3.0/`), one session implemented it, another wrote the consolidated specification, and the same one then closed #15. The release is a semver minor carrying a breaking change — all of DiamondJS's users were in the room and forgave it.
+
+### The three pieces
+- **The Lifecycle Contract (PR #39, merged 2026-10-07 08:31Z).** Six phases, one callback each: `constructed`, `mounting`, `mounted`, `unmounting`, `unmounted`, plus the terminal `faulted` and `disposed`. `mount()`, `unmount()` and the new `dispose()` are final — a subclass that overrides `mount` or `unmount` throws at construction, naming the callback to use instead; `update()` is removed. `mounted` means connected: a child built into a detached parent stays `mounting` until the parent's connection drain reaches it, child-first. Rollback is by inventory — every framework acquisition registers into the current scope, a throw anywhere in a mount disposes that scope LIFO, and a cleanup that throws faults the instance. Two scopes (instance and mount) make `debounce`/`throttle` cancels survive a remount; `whileMounted(fn)` declines a stale callback; `DiamondCore.child` is the seam compiled composition will use; `Scope` and its operations are public for the same reason `captureScope` is. Fixed along the way: a throw inside `createTemplate()` leaked everything acquired before it; a page whose template root is a structural did not scroll to its hash target (#38); a constructor throw during a route commit dropped already-constructed components. Found in implementation and recorded in the working notes: `effect()` did not register into the current scope; the drain needs a third list for branches placed while detached; departed route occupants must be disposed only once the commit stands, because a disposed instance cannot be remounted by a rollback. +281 runtime LOC against a +300 ceiling.
+- **The consolidated specification (PRs #36 and #37, merged 2026-10-07).** Specifications now live one folder per version under `docs/spec/vX.Y.Z/`, each with its related records; `impl_docs/` is the chronological log only. Two documents were written: v2.2.4, describing the published release as tagged, and v2.3.0, a copy of v2.2.4 plus the release's delta, so that `diff` shows exactly what 2.3.0 changes. §1–§16 keep the v2.1 numbering so every `§n` citation in source comments still resolves; the router is §17 with the Router Specification's own numbering; the appendices are §18, and Appendix G is the version changelog back to 2.0.0. The §4.2 and §4.4 code blocks are the lifecycle test fixtures verbatim, and a test fails if the two drift. New defect ids: D-22 (#15), D-23 (`createTemplate()` typed `HTMLElement`), D-24 (`fold` is a standalone function), D-25 (#38). Joe's rulings: composition (C-1…C-10) and `fold` are deferred to v2.3.1; Appendix C says only that the lifecycle hooks shipped in 2.3.0.
+- **Preserved template text, #15 (PR #40, merged 2026-10-07 17:12Z).** The decision was Preserve: template text is kept exactly as the HTML parser produces it, static and interpolated alike, no option; whitespace is syntax only between an `if` and the `else-if` that follows it, directly inside `<switch>`, and as a whitespace-only root at either end of a template. The `${` work had not touched the two sites that lost text — the parser's whitespace-only skip and the generator's `trim()` — so the issue was verified still open before the fix. Implemented behind a checkpoint (failing tests first, then compiled before/after for the hello-world Tasks template and Turbine's largest): static text became string arguments of one `append(...)` per parent, interpolated text alone keeps a `createTextNode`, adjacent text merges across a dropped comment, and a line feed inside interpolated text is escaped so the source map stays line-true. Two rulings at the checkpoint: the root-edge rule stays at the node level ("if the user puts a new line somewhere we can't go arbitrarily removing them"), and an `append` wraps one argument per line only when it has two or more. Fifteen old assertions that pinned the previous shape were rewritten, none deleted; 33 new tests include the lossless property against parse5. Turbine was audited, not changed: of 83 whitespace runs between inline siblings, 80 sit in flex or grid parents, and two of the remaining three are the fix itself.
+
+### Verification
+- 956 tests across 64 files on Node 20.18.1 (859 across 57 at 2.2.4); `lint` 0 errors, `typecheck`, `stink:check`, `check-loc` green; the spec-fixture drift test passes against `docs/spec/v2.3.0/`.
+- Lifecycle: the 64 lifecycle tests pass under both toolchain shapes (TC39 decorators + `[[Define]]` fields, and legacy decorators + `[[Set]]`), and the ten Playwright acceptance tests pass against Chromium — A-9's leak census over 50 route cycles reads DOM nodes 163 → 163, listeners 66 → 66, live page instances 1, heap +5%.
+- #15: the lossless property held over the hello-world example and Turbine's five templates, 207 of 207 text nodes equal to plain HTML.
+
+### What is deliberately not in this release
+- Template component composition (C-1…C-10) and `fold` as a static (D-24) — v2.3.1.
+- Turbine's migration to the new callbacks — a prepared patch in a separate repo, not applied.
+
+### Release mechanics
+- Pending at the time of this entry: the lockstep bump 2.2.4 → 2.3.0, `CHANGELOG.md` `[Unreleased]` → `[2.3.0]`, the spec's Status line ("as tagged"), the annotated tag, serial publication, the GitHub release.
+
+### Final state (at `07cf171`)
+```
+Runtime:      2,027 / 2,500 LOC
+Compiler:     2,486 / 5,000 LOC
+Parcel:         164 /   300 LOC
+Converters:     123 /   500 LOC
+Primafacie:     300 /   400 LOC
+Dev toolchain:  545 /   800 LOC
+Total:        5,645 / 9,500 LOC   956 tests
+```

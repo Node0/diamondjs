@@ -6,7 +6,7 @@ Each release's *why* lives in its design record under `docs/spec/vX.Y.Z/`; the n
 
 ## [Unreleased]
 
-The lifecycle names promised states and the code delivered actions: `mount()` meant "template built and appended", which is in the document only for a root or a route component, and nothing told a component when it actually reached the document. Every real app worked around it by hand. The lifecycle is now a contract (spec §4.2, §4.4, §4.6; the Lifecycle Contract design record). The oldest open defect goes with it: template text is now preserved exactly (#15, spec §5.9).
+The lifecycle names promised states and the code delivered actions: `mount()` meant "template built and appended", which is in the document only for a root or a route component, and nothing told a component when it actually reached the document. Every real app worked around it by hand. The lifecycle is now a contract (spec §4.2, §4.4, §4.6; the Lifecycle Contract design record, filed under `docs/spec/v2.3.0/`). The oldest open defect goes with it: template text is now preserved exactly (#15, spec §5.9).
 
 ### Breaking
 - **`mount()`, `unmount()` and the new `dispose()` are final.** A subclass that overrides `mount` or `unmount` throws at construction, naming the callback to use instead. Migration: `override mount(host) { super.mount(host); … }` becomes `override mounted() { … }`; `override unmount() { …; super.unmount() }` becomes `override unmounting() { … }`.

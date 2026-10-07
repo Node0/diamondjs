@@ -1,10 +1,10 @@
 # DiamondJS — Architecture & Design Specification v2.3.0
 
-**Status:** Draft · the contract for v2.3.0: v2.2.4 plus the Lifecycle Contract (PR #39) and preserved template text (#15). §4.5 records the template component composition proposal, deferred to v2.3.1.
+**Status:** Complete, for ratification · describes `main` at `07cf171` — the content of v2.3.0: v2.2.4 plus the Lifecycle Contract (PR #39) and preserved template text (#15, PR #40). The `v2.3.0` tag and publication are pending; nothing in this document waits on them. §4.5 records the template component composition proposal, deferred to v2.3.1.
 **Author:** Joe Hacobian
 **Supersedes:** the v2.2.4 specification (`docs/spec/v2.2.4/`), and through it the v2.1 spec, Amendment A3, the v2.2 Router Specification and Work Order. Those remain the *rationale* archive; this document is the single authoritative *reference*. `diff` against the v2.2.4 file shows exactly what 2.3.0 changes.
 
-**Consolidation basis:** the v2.1 spec → Amendment A3 (v2.1.1 conformance patch, v2.2.0 logging/measurement rulings) → the v2.2 Router Specification (v2.2.0, with the v2.2.1 Destination record folded in) → the 2.2.2–2.2.4 fixes → the 2.3.0 changes: the Lifecycle Contract design record (LC-1…LC-16) as implemented in PR #39, and preserved text (#15). Section numbers §1–§16 keep their v2.1 meaning so that every `§n` citation in source comments and earlier records still resolves; the router becomes §17 and keeps the Router Specification's own numbering (Router Specification §9 is §17.9 here); the appendices move to §18. Appendix G is the version changelog.
+**Consolidation basis:** the v2.1 spec → Amendment A3 (v2.1.1 conformance patch, v2.2.0 logging/measurement rulings) → the v2.2 Router Specification (v2.2.0, with the v2.2.1 Destination record folded in) → the 2.2.2–2.2.4 fixes → the 2.3.0 changes: the Lifecycle Contract design record (LC-1…LC-16, filed beside this document as `DiamondJS_v2.3.0_Lifecycle_Contract_Design_Record_and_Work_Order.md`) as implemented in PR #39, and preserved text (#15). This document is self-contained: the earlier records are rationale, and nothing normative is stated only there. Section numbers §1–§16 keep their v2.1 meaning so that every `§n` citation in source comments and earlier records still resolves; the router becomes §17 and keeps the Router Specification's own numbering (Router Specification §9 is §17.9 here); the appendices move to §18. Appendix G is the version changelog.
 
 ---
 
@@ -15,7 +15,7 @@ This is a **specification**, and under the project's standing rule the spec is a
 - The **body** states the intended, authoritative contract — what a conforming DiamondJS must do.
 - Where shipped v2.3.0 does **not** currently meet that contract, an inline **⚠ Defect D-n** pointer marks the spot, and the full mechanism, severity, and disposition (fix-the-code vs. accept-as-limitation vs. correct-the-record) live in **§16 (Conformance & Known Limitations)**. Nothing the recon surfaced is smoothed over.
 
-Version tags in parentheses — *(v2.2.1)*, *(2.2.4, #29)* — mark text that entered after v2.1, with the release and the issue that carried it. Appendix G lists every such change by release.
+Version tags in parentheses — *(v2.2.1)*, *(2.2.4, #29)* — mark text that entered after v2.1, with the release and the issue that carried it. Appendix G lists every such change by release. Tags such as *LC-n* and *P-n* (the decisions and defects of the Lifecycle Contract record filed beside this document), *C-n* (the composition proposal, §4.5) and *D-n* (§16) are provenance labels: every rule they tag is stated here, and nothing normative lives only in an earlier record.
 
 The throughline under every naming and grammar decision: **a token must predict its own behavior to a ~32B model, not merely describe it to a human.** Names are optimized against the small model's failure mode — a confident wrong completion drawn from a training prior — not against the dictionary. A technically-correct name that reliably triggers a wrong prior is worse than a plainer name with no competing prior.
 
@@ -82,7 +82,7 @@ The design meta-rules these fall out of, carried from the v2.0 record and load-b
 
 **Layer 1 — Write-time (human + LLM friendly).** ES2022+ TypeScript; Aurelia-descended template syntax; `@reactive` decorators; explicit imports; component triplets (`.ts` + `.html`/`.diamond.html` + `.css`).
 
-**Layer 2 — Build-time (compiler).** A Parcel 2 transformer compiles templates into an instance `createTemplate()` method — injected into the component class, or exported from a standalone template module (§5.8) that the class assigns; `@reactive` lowers to `DiamondCore.makeReactive()`; `[Diamond]` semantic-hint comments are injected; a compile-time security gate audits every statically-known sink write; VLQ source maps are generated (see §16, D-11, for their reachability).
+**Layer 2 — Build-time (compiler).** A Parcel 2 transformer compiles templates into an instance `createTemplate()` method — injected into the component class, or exported from a standalone template module (§5.8) that the class assigns; `@reactive` is a runtime decorator (§7.1) the compiler leaves alone; `[Diamond]` semantic-hint comments are injected; a compile-time security gate audits every statically-known sink write; VLQ source maps are generated (see §16, D-11, for their reachability).
 
 **Layer 3 — Debug-time (LLM comprehensible).** Explicit `DiamondCore` method calls; `this` refers to the component instance everywhere; no hidden state, no DI container; every transformation carries a `[Diamond]` hint.
 
@@ -185,9 +185,9 @@ type Phase =
 
 export abstract class Component {
   protected element: HTMLElement | null;
-  readonly phase: Phase;                          // reactive snapshot — see the table below
-  readonly generation: number;                    // +1 at every mount(), +1 again at every unmount()
-  history(): readonly LifecycleRecord[];          // the last 32 transitions (§4.7)
+  readonly phase: Phase;                          // reactive snapshot (accessor) — see the table below
+  readonly generation: number;                    // +1 at every mount(), +1 again at every unmount(); a failed mount keeps its increment
+  history(): readonly LifecycleRecord[];          // the ring's last 32 records, live (§4.7)
   createTemplate(): HTMLElement;                  // public; throws until compiler-injected or assigned
   mount(host: HTMLElement): void;                 // final
   unmount(): void;                                // final
@@ -200,14 +200,14 @@ export abstract class Component {
   protected mounted(): void;
   protected unmounting(): void;
   protected unmounted(): void;
-  protected registerCleanup(fn: () => void): void;                         // into the mount scope while mounted, else the instance scope
-  protected whileMounted<A>(fn: (...a: A) => void): (...a: A) => void;     // bound to the current generation
-  protected debounce<A>(fn: (...a: A) => void, ms: number): (...a: A) => void;
-  protected throttle<A>(fn: (...a: A) => void, ms: number): (...a: A) => void;
+  protected registerCleanup(fn: () => void): void;                         // into the mount scope while a mount is open (mounting … unmounting), else the instance scope
+  protected whileMounted<A extends unknown[]>(fn: (...a: A) => void): (...a: A) => void;   // bound to the current generation
+  protected debounce<A extends unknown[]>(fn: (...a: A) => void, ms: number): (...a: A) => void;
+  protected throttle<A extends unknown[]>(fn: (...a: A) => void, ms: number): (...a: A) => void;
 }
 ```
 
-> ⚠ `createTemplate()` and `element` are typed `HTMLElement`, but a template with two or more roots returns a `DocumentFragment` (§16 D-23). `adopt(scope)` and `deliver()` are also public on the class: the router and `DiamondCore` call them, and they are not app-facing.
+> ⚠ `createTemplate()` and `element` are typed `HTMLElement`, but a template with two or more roots returns a `DocumentFragment` (§16 D-23). `adopt(scope)` and `deliver()` are also public on the class, tagged `@internal`: the router and `DiamondCore` call them, and they are not app-facing. `dispose()` is final by contract; the construction-time guard checks `mount` and `unmount`.
 
 **Phases (LC-1).** The names promise states, and each callback runs only when its state holds. The callbacks carry no `on` prefix: `DiamondCore.on(el, event, handler)` already means "event listener", and one concept gets one vocabulary (LC-2).
 
@@ -217,16 +217,16 @@ export abstract class Component {
 | `constructed` | `constructed()` | `@reactive` fields operational under any toolchain emit ([[Define]] fields are repaired here, #11); instance scope current; `getElement()` is null. Exactly once per instance, at the first framework entry (`mount()`, or the router's construction site). | none |
 | `mounting` | `mounting()` | Mount scope current; `generation` assigned; no template and no children yet. | none |
 | `mounted` | `mounted()` | The managed range is in the document; bindings applied; root-level structurals placed; children's `mounted()` complete (child-first, construction order). | connected |
-| `unmounting` | `unmounting()` | Range still in the document; `generation` already invalidated; anything acquired here is disposed before `unmount()` returns. | connected |
+| `unmounting` | `unmounting()` | Range still in the document when the mount was delivered (an `unmount()` from `mounting` finds it detached); `generation` already invalidated; anything acquired here is disposed before `unmount()` returns. | connected |
 | `unmounted` | `unmounted()` | Range detached; mount inventory empty; instance state preserved; remount permitted. | detached |
-| `faulted` | — | A cleanup threw; the inventory cannot be certified empty. Terminal. | indeterminate |
+| `faulted` | — | A cleanup threw, or `constructed()` threw; the inventory cannot be certified empty. Terminal. | indeterminate |
 | `disposed` | — | Instance scope closed. Terminal. | detached |
 
-**`mounted` means connected, not visible (LC-5).** A connected element under `display: none` has no box. A child built into a detached parent — a child mounted with `DiamondCore.child`, a child inside an `if` branch or a `repeat` row — stays `mounting` until the parent's **connection drain** reaches it; the drain runs when a component mounts into a connected host and when a structural places a branch into the document. It delivers child components first, in construction order (LC-6), then branches that were placed while the tree was detached, then root-level structural placements that waited for a parent (§5.4.4). A root mounted into a detached host never reaches `mounted`, and dev builds say so once: root hosts must be connected.
+**`mounted` means connected, not visible (LC-5).** A connected element under `display: none` has no box. A child built into a detached parent — a child mounted with `DiamondCore.child`, a child inside an `if` branch or a `repeat` row — stays `mounting` until the parent's **connection drain** reaches it; the drain runs when a component mounts into a connected host and when a structural places a branch into the document. It delivers child components first, in the order `DiamondCore.child` registered them — construction order when children are built in sequence (LC-6) — then branches that were placed while the tree was detached, then root-level structural placements that waited for a parent (§5.4.4). A root mounted into a detached host never reaches `mounted`, and dev builds say so once per class (for a mount outside any scope): root hosts must be connected.
 
-**Two scopes (LC-7/LC-8).** The instance scope opens at the first framework entry and closes at `dispose()`; it holds `debounce`/`throttle` cancels and anything acquired in `constructed()` or `unmounted()`. The mount scope opens per `mount()` and closes at `unmount()` or rollback; it holds the template, the children, the tracked range and anything acquired in `mounting()`, `mounted()` or `unmounting()`. Every framework-owned acquisition — `bind`, `on`, `effect`, `delegate`, `spread`, the structurals, `DiamondCore.child`, tracked ranges, `registerCleanup` — registers into the current scope at creation. Disposal is LIFO (the range leaves the document first, then the children, then the bindings), each cleanup in its own `try`; a branch a structural removes is disposed the same way, so a disposed branch is also a detached one. **The boundary (LC-15):** the guarantee covers acquisitions made through framework APIs. A raw `addEventListener`, `setInterval` or fetch the author did not register is outside the inventory.
+**Two scopes (LC-7/LC-8).** The instance scope exists from construction — a class-field `debounce`/`throttle` registers into it before any framework entry — becomes current at the first framework entry and closes at `dispose()`; it holds those cancels and anything acquired in `constructed()` or `unmounted()`. The mount scope opens per `mount()` and closes at `unmount()` or rollback; it holds the template, the children, the tracked range and anything acquired in `mounting()`, `mounted()` or `unmounting()`. Every framework-owned acquisition — `bind`, `on`, `effect`, `delegate`, `spread`, the structurals, `DiamondCore.child`, tracked ranges, `registerCleanup` — registers into the current scope at creation. Disposal is LIFO, each cleanup in its own `try`: what `mounted()` and `unmounting()` acquired is released first, then the range leaves the document, then everything `createTemplate()` acquired — children, bindings, listeners — in reverse template order; a branch a structural removes is disposed the same way, so a disposed branch is also a detached one. **The boundary (LC-15):** the guarantee covers acquisitions made through framework APIs. A raw `addEventListener`, `setInterval` or fetch the author did not register is outside the inventory.
 
-**Generations (LC-9).** `mount()` increments `generation`; `unmount()` increments it again on entry. `whileMounted(fn)` returns a wrapper bound to the generation it was created in: while that generation is current it runs `fn`; afterwards it declines and records `stale`. `debounce`/`throttle` cancels run at `unmount()` and stay registered, so the class-field one-liner survives a remount:
+**Generations (LC-9).** `mount()` increments `generation`; `unmount()` increments it again on entry; a mount that fails and rolls back keeps the increment the attempt used. `whileMounted(fn)` returns a wrapper bound to the generation it was created in: while that generation is current it runs `fn`; afterwards it declines and records `stale`. `debounce`/`throttle` cancels run at `unmount()`; one created in a field initializer or in `constructed()` stays registered in the instance scope, so the class-field one-liner survives a remount, while one created in `mounting()` or `mounted()` lives and dies with that mount:
 
 ```typescript
 import { Component, DiamondCore, reactive } from '@diamondjs/runtime'
@@ -253,13 +253,13 @@ export class Ticker extends Component {
 
 **First framework entry (`ensureConstructed`).** The first time the framework touches an instance — `mount()`, the router's construction site (§17.2), or `DiamondCore.child` (§4.5) — it re-routes any `@reactive` field a [[Define]]-emitting toolchain left as an own data property (`adoptDefinedReactiveFields`, *2.2.3, #11*; dev builds report the repair once per class), opens the instance scope, transitions to `constructed` and calls `constructed()`. It is idempotent, so a hand-constructed component (`new SourceViewer()` in a field initializer) is covered without a factory.
 
-**Entry-point rules.** `mount()` on a `mounted`, `faulted` or `disposed` instance throws before any transition (supersedes the v2.1.1 double-mount guard, D-6; the faulted message names the cleanup that threw). `unmount()` on an instance that is not mounted throws (it used to be a silent no-op). `dispose()` unmounts if needed and closes the instance scope: the router disposes an occupant that leaves for good, structurals dispose a child instance when its branch or row is removed, and app code disposes a root at teardown.
+**Entry-point rules.** `mount()` on an instance that is `mounting`, `mounted`, `unmounting`, `faulted` or `disposed` throws before any transition (supersedes the v2.1.1 double-mount guard, D-6; the faulted message names the cleanup that threw when the fault is the ring's latest record). `unmount()` on an instance that is neither `mounted` nor `mounting` throws (it used to be a silent no-op); an `unmount()` from `mounting` — a root in a detached host, an undelivered child — runs `unmounting()` with the range detached. `dispose()` unmounts if needed and closes the instance scope; it is idempotent, and on a `faulted` instance it releases the instance scope without leaving `faulted`. The router disposes an occupant that leaves for good, structurals dispose a child instance when its branch or row is removed, and app code disposes a root at teardown.
 
 **The override guard (LC-3).** The `Component` constructor throws if the subclass overrides `mount` or `unmount`, naming the replacement callback. This is the migration's fail-loud point: every 2.2.x component that wrote `override mount(host) { super.mount(host); … }` fails at construction, not silently at runtime. Migration: `override mount(host) { super.mount(host); … }` becomes `override mounted() { … }`, and `override unmount() { …; super.unmount() }` becomes `override unmounting() { … }`.
 
 ### 4.5 Template component composition *(D-21)* — **proposed for v2.3.1, not shipped**
 
-> **Deferred to v2.3.1.** This section records the composition design brief (decisions C-1…C-10) as revised against the Lifecycle Contract. Each decision is the recommendation, not a ruling; the author rules on them in v2.3.1. In 2.3.0 the 2.2.4 boundary stands: the compiler errors `component-composition-unsupported` on an imported hyphenated tag, and children are mounted imperatively or with `DiamondCore.child` (§4.4).
+> **Deferred to v2.3.1 — non-normative.** This section records the composition design brief (decisions C-1…C-10) as revised against the Lifecycle Contract. Each decision is the recommendation, not a ruling; the author rules on them in v2.3.1. In 2.3.0 the 2.2.4 boundary stands: the compiler errors `component-composition-unsupported` on an imported hyphenated tag, and children are mounted imperatively or with `DiamondCore.child` (§4.4).
 
 A parent template instantiates a child component by writing its tag. **Props flow down as one-way writes to the child's `@reactive` fields; events flow up as standard DOM events on the host; there is no implicit event bus.** The runtime seam is `DiamondCore.child` (§4.4, shipped with the Lifecycle Contract); the compiler emits the calls.
 
@@ -294,11 +294,12 @@ Imperative mounting remains available for children a template cannot describe: c
 
 ### 4.6 Failure and recovery *(new 2.3.0, LC-7/LC-10/LC-11/LC-12)*
 
-Rollback is by inventory, not by snapshot: whatever a failed transaction acquired is in a scope, and recovery is that scope's `dispose()`. There is no mutation journal and no value rollback. Disposal is total and LIFO — each cleanup in its own `try`, failures collected and never thrown mid-dispose; if any cleanup threw, the instance becomes `faulted` (LC-10). A throw in `unmounting()` or `unmounted()` is recorded as `callback-failed` and teardown continues; only cleanup failures fault an instance (LC-12).
+Rollback is by inventory, not by snapshot: whatever a failed transaction acquired is in a scope, and recovery is that scope's `dispose()`. There is no mutation journal and no value rollback. Disposal is total and LIFO — each cleanup in its own `try`, failures collected and never thrown mid-dispose; if any cleanup threw, the instance becomes `faulted` (LC-10). A throw in `unmounting()` or `unmounted()` is recorded as `callback-failed` and teardown continues (LC-12); what faults an instance is a cleanup failure during a dispose, or a throw in `constructed()` (the instance scope is disposed; cause `construct`). When a cleanup throws during `unmount()`, `unmounted()` is not called. A cleanup failure inside a structural branch is reported (⚠ §16 D-26) and faults no instance: the branch has none, and the enclosing component stays mounted.
 
 | Transaction fails during | Dispose removes | Destination |
 |---|---|---|
-| constructor (via the router or `DiamondCore.child`) | What the constructor registered (a scope of its own) | no instance |
+| constructor, via the router | What the constructor registered (a construction scope of its own) | no instance |
+| constructor of a child built inside a parent's `createTemplate()` (then `DiamondCore.child`) | The parent's whole mount — the child was constructed under the parent's mount scope | parent: `constructed` / `unmounted` |
 | `constructed()` | Everything in the instance scope | `faulted` |
 | `mounting()` | What the callback acquired | `constructed` / `unmounted` |
 | `createTemplate()` at acquisition N | Partial bindings, children, anchors; nothing was inserted | `constructed` / `unmounted` |
@@ -310,11 +311,11 @@ Rollback is by inventory, not by snapshot: whatever a failed transaction acquire
 | a cleanup during dispose | The remaining cleanups still run | `faulted` |
 | `unmounted()` | Nothing — recorded | `unmounted` |
 
-A failed first mount returns to `constructed`; a failed remount returns to `unmounted`, state preserved. The error is rethrown unchanged to the caller. `faulted` and `disposed` are terminal (LC-11): `mount()` on either throws before any transition, and recovery is a fresh instance, never a repair call. The router's part is in §17.2.
+A failed first mount returns to `constructed`; a failed remount returns to `unmounted`, state preserved and `generation` keeping the attempt's increment. The error is rethrown unchanged to the caller. `faulted` and `disposed` are terminal (LC-11): `mount()` on either throws before any transition, and recovery is a fresh instance, never a repair call. The router's part is in §17.2.
 
 ### 4.7 The lifecycle record *(new 2.3.0, LC-13/LC-14)*
 
-**Ring and snapshot are one write (LC-13).** Every transition appends one `LifecycleRecord` to the instance's ring of 32 and updates the reactive `phase` / `generation` from the same record, so effects may read them and `fold(history())` equals the snapshot.
+**Ring and snapshot are one write (LC-13).** Every transition appends one `LifecycleRecord` to the instance's ring of 32 and writes the reactive `phase` from that record (`generation` is incremented on entry to `mount()` and `unmount()` and copied into the record), so effects may read them and `fold(history())` equals the snapshot.
 
 ```typescript
 type Cause = 'construct' | 'mount' | 'connect' | 'unmount' | 'dispose' | 'stale' | 'callback-failed';
@@ -333,11 +334,11 @@ interface LifecycleRecord {
 }
 ```
 
-`fold(history)` returns `{ phase, generation }` — the last record's destination, or `{ phase: 'constructing', generation: 0 }` for an empty ring.
+`fold(history)` returns `{ phase, generation }` — the last record's destination, or `{ phase: 'constructing', generation: 0 }` for an empty ring. A `stale` wrapper call and a `callback-failed` teardown throw are self-records — `from` and `to` are the current phase — and take ring slots like any transition; `callback-failed` carries outcome `failed`. `history()` returns the live ring, so a caller that wants a snapshot copies it.
 
 > ⚠ `fold` ships as a standalone exported function, which §3.1 #6 forbids in runtime code (§16 D-24).
 
-**`domPing()`** (dev verification) returns `{ phase, generation, connected, consistent }`: `mounted` holds exactly when every node of the managed range is in the document, `mounting` when it is not yet, and a detached phase exactly when there is no element and no mount scope. The test harness runs it after every test.
+**`domPing()`** (dev verification) returns `{ phase, generation, connected, consistent }`: `mounted` holds exactly when every node of the managed range is in the document, `mounting` when it is not yet, and a detached phase exactly when there is no element and no mount scope; `unmounting` and `faulted` are not checked (`consistent` is true). The test harness runs it after every test.
 
 **Emission through `Print` (LC-14).** Failed transitions emit `FAILURE`, faults `CRITICAL`, stale callbacks `WARNING`; successful transitions emit `STATE` in dev builds only. The ring records regardless.
 
@@ -354,7 +355,9 @@ Bindings are **attribute-based and element-scoped**, not statement-based. An att
 - **2-segment** `property.command` — e.g. `value.set`, `value.bind`, `value.to-view`, `value.from-view`, `value.two-way`, `value.rawSet`, `click.calls`, `panel.capture`.
 - **3-segment** `property.command.qualifier` — the raw *directional* escape hatch: `innerHTML.rawBind.to-view`, `innerHTML.rawBind.from-view`, `innerHTML.rawBind.two-way`.
 
-> **parse5 lowercases attribute names.** `innerHTML.rawBind.to-view` reaches the compiler as `innerhtml.rawbind.to-view`. The camelCase legibility of `rawBind`/`rawSet` is a **source-only affordance**; the property segment is canonicalized through `PROPERTY_NAME_MAP` and command matching is lowercase-keyed. Internally a binding is `{ type, raw }` where `type` is the operation and `raw` is a boolean — the source surface stays three-segment; flattened tokens like `rawTo-view` never exist.
+> **parse5 lowercases attribute names.** `innerHTML.rawBind.to-view` reaches the compiler as `innerhtml.rawbind.to-view`. The camelCase legibility of `rawBind`/`rawSet` is a **source-only affordance**; the property segment is restored to its camelCase DOM name through the runtime's `PROPERTY_NAME_MAP` (§6.3: lowercased author input maps to the canonical property name; for the gate alone a static `class` reads as `className` and `for` as `htmlFor`) and command matching is lowercase-keyed. Internally a binding is `{ type, raw }` where `type` is the operation and `raw` is a boolean — the source surface stays three-segment; flattened tokens like `rawTo-view` never exist.
+
+> ⚠ The shipped parser also accepts the non-raw three-segment spellings `property.bind.to-view`, `.bind.from-view` and `.bind.two-way` as synonyms of the two-segment commands; this grammar does not define them (§16 D-27).
 
 The operations:
 
@@ -431,7 +434,7 @@ class CurrencyConverter {
 
 The `transform_functions/` convention folder is **deleted**: the import graph is the registry. A converter lives wherever it is imported from; the compiler follows that import to verify the method pair.
 
-#### 5.3.3 Contextual parse obligation (§5.6)
+#### 5.3.3 Contextual parse obligation
 
 Enforcement is contextual, not universal:
 
@@ -459,7 +462,7 @@ const ParseResult = {
 };
 ```
 
-From-view runtime semantics: `valid: true` → write `value` to the model; `valid: false` → **do not write** (model keeps its last good value), **keep `raw` in the input** (never clobber mid-type text), expose `valid`/`error` to the validation surface. Parse owns **type/format** validity only ("is this a valid currency string"), not business rules ("amount < $10,000") — those live in the component, or the battery stops being reusable.
+From-view runtime semantics: `valid: true` → write `value` to the model; `valid: false` → **do not write** (model keeps its last good value), **keep `raw` in the input** (never clobber mid-type text), expose `valid`/`error` to the validation surface. Parse owns **type/format** validity only ("is this a valid currency string"), not business rules ("amount < $10,000") — those live in the component, or the battery stops being reusable. A plain camelCase function on the `from-view` leg is legal and is the unvalidated path: the setter writes `fn(v)` to the model directly. Validation needs a converter.
 
 #### 5.3.5 Multi-segment two-way inversion
 
@@ -498,7 +501,7 @@ Template control flow is **attribute-based and element-scoped**: the element's o
 
 **Chain whitespace** *(2.2.4, #18)*. Whitespace between an `if` (or `else-if`) and the `else-if` after it is syntax, consumed only when an `else-if` actually follows; whitespace after the last branch of a chain is content. Only ASCII whitespace separates branches: a non-breaking space between an `if` and an `else-if` is content, so the `else-if` is orphaned (`orphan-else-if`).
 
-Lowering: `DiamondCore.if(anchor, branches)`, where each branch is `{ when, make }`; a residual bare-`else` equivalent is a final branch with `when: () => true`.
+Lowering: `DiamondCore.if(anchor, branches)`, where each branch is `{ when, make }` in source order and the first true `when` wins. The compiler emits only authored branches; hand-written code may end the array with `when: () => true` as a catch-all.
 
 #### 5.4.2 `repeat.for`
 
@@ -526,9 +529,9 @@ The one and only looping construct — no `while`, no `repeat-until`, no `forEac
 - **`<case if="…">` classification:** a quoted string / number / `true`/`false`/`null` or a **bare identifier-shaped word** (dashes allowed) is **equality** (`v === literal`; bare words are **string** equality); anything with operators/spaces/dots/parens is a **boolean expression** over component state. Consequence: a dotted path like `if="user.role"` is an **expression (truthiness)**, not equality. Expression cases **cannot see the on-value** (no `$value` alias).
 - **`<default>` must be the last child** (`switch-default-not-last`); at most one (`switch-multiple-default`).
 - **Full erasure:** all three elements are compile-time erased — no DOM container ships; a multi-root case body is built as one `DocumentFragment` and mounted and removed as a range (§5.4.4). Any attribute beyond `switch[on]` / `case[if]` is an error (the elements have no DOM target).
-- **Whitespace directly inside `<switch>`**, between cases, is syntax; non-whitespace text there is `switch-bad-child`.
+- **Whitespace directly inside `<switch>`**, between cases, is syntax — ASCII whitespace, the class (a) and (c) use (§5.9); non-whitespace text there is `switch-bad-child`. ⚠ Shipped 2.3.0 tests it with JavaScript's `trim()`, so a non-ASCII space there is consumed too (§16 D-28).
 
-**Lowering (Option B + Option A fast path):** reactive `on=` lowers to `DiamondCore.switch(anchor, onGetter, cases, defaultMake?)`, mirroring `if()` (lazy `captureScope` builds; detached means disposed). The **static fast path** applies iff `on=` is a **pure literal** AND every case is equality-kind — then only the winning branch's DOM code is emitted, zero runtime cost. A statically-dead switch (static `on=` matching no case, no `<default>`) emits a **`switch-static-dead` warning** plus an inspectable DOM comment carrying the dead source — never silently dropped. Because stink-check routes on severity *(v2.1.1, D-8)*, that warning fails the stink-check merge gate; it does not stop a local build.
+**Lowering (runtime `DiamondCore.switch`, plus a compile-time fast path):** reactive `on=` lowers to `DiamondCore.switch(anchor, onGetter, cases, defaultMake?)`, mirroring `if()` (lazy `captureScope` builds; detached means disposed). The **static fast path** applies iff `on=` is a **pure literal** AND every case is equality-kind — then only the winning branch's DOM code is emitted, zero runtime cost. A statically-dead switch (static `on=` matching no case, no `<default>`) emits a **`switch-static-dead` warning** plus an inspectable DOM comment carrying the dead source — never silently dropped. Because stink-check routes on severity *(v2.1.1, D-8)*, that warning fails the stink-check merge gate; it does not stop a local build.
 
 #### 5.4.4 Mounted ranges and placement *(2.2.3 #7; 2.2.4 #17; 2.3.0 Lifecycle Contract, #38)*
 
@@ -547,7 +550,7 @@ Two commands, both naming what they do without a misleading actor:
 <div panel.capture="intercept()">  <!-- capture phase -->
 ```
 
-`.calls` (not `.trigger`): "click **calls** save" reads left-to-right subject-verb-object with the event as grammatical subject — the correct causation direction. `.trigger` implied framework-as-actor; `.triggers` collides with jQuery's *dispatch* sense (a model with jQuery in weights hallucinates a conflict); `.on` is correct but reads as idiom rather than prose. `.capture` is its own command (not a modifier) — the event capture phase is a real DOM primitive with no other access path, semantically distinct enough from default-phase to warrant explicitness. Both lower to `DiamondCore.on(el, event, handler, capture?)` (`addEventListener`); neither is sink-gated (no sink write). Event hints are the one family that prints the `this.` prefix (`click → this.save()`).
+`.calls` (not `.trigger`): "click **calls** save" reads left-to-right subject-verb-object with the event as grammatical subject — the correct causation direction. `.trigger` implied framework-as-actor; `.triggers` collides with jQuery's *dispatch* sense (a model with jQuery in weights hallucinates a conflict); `.on` is correct but reads as idiom rather than prose. `.capture` is its own command (not a modifier) — the event capture phase is a real DOM primitive with no other access path, semantically distinct enough from default-phase to warrant explicitness. Both lower to `DiamondCore.on(el, event, handler, capture?)` (`addEventListener`); neither is sink-gated (no sink write). The handler expression is a method call whose arguments are expressions over the component; `$event` names the DOM event, so `change.calls="pick($event)"` lowers to `(e) => this.pick(e)`, and an expression that is not a call lowers to a zero-argument arrow over it. Event hints are the one family that prints the `this.` prefix (`click → this.save()`).
 
 The Aurelia `.delegate` event-command is **removed** (`delegate` is a hard parse error suggesting a per-node `.calls`). Note the name is simultaneously *retired template grammar* and a *live runtime API* — see §9.
 
@@ -587,7 +590,7 @@ A standalone `.diamond.html` compiled to a module cannot import a named pipe tra
 Whitespace consumed as **syntax** is exactly:
 
 - **(a)** between an `if`/`else-if` and an `else-if` that follows it — only when one follows, and only ASCII whitespace (§5.4.1);
-- **(b)** directly inside `<switch>`, between cases (§5.4.3);
+- **(b)** directly inside `<switch>`, between cases — ASCII whitespace, as (a) and (c) (§5.4.3; ⚠ D-28);
 - **(c)** a whitespace-only text node that would be the first or the last root of a component template — the indentation around the markup. A component's template mounts inside its host (§4.4), so the whitespace around a component's tag belongs to the parent template and is kept there. Only a whole whitespace-only node is consumed: a text root with content keeps its own edges, a trailing line break included, and whitespace between roots is content;
 - **(d)** with composition (v2.3.1): whitespace-only content between a component tag's open and close tags (§4.5 C-9, proposed). In 2.3.0 a hyphenated tag is a plain element, and its content is content.
 
@@ -631,7 +634,7 @@ text descriptors:  placeholder, title, alt, label, htmlFor
 constrained tokens: type, name, accept, autocomplete, inputMode, step, min, max, pattern, id
 ```
 
-> **This list is design-derived and unrefined, not empirically hardened.** It is byte-for-byte the Phase-1 starter set; the "refine empirically" step (the §11.2 NetPad probe) has **not** happened (§16 D-14). Describe it accordingly. Four candidates surfaced by the first application — `rows`, `cols`, `list`, `for` — are recorded for ratification and not on the list.
+> **This list is design-derived and unrefined, not empirically hardened.** It is byte-for-byte the Phase-1 starter set; the "refine empirically" step (the allowlist probe against NetPad, recorded under D-14) has **not** happened (§16 D-14). Describe it accordingly. Four candidates surfaced by the first application — `rows`, `cols`, `list`, `for` — are recorded for ratification and not on the list.
 
 **Off-list** (require `raw`, fail closed): `innerHTML`, `outerHTML`, `srcdoc`, `href`, `src`, `srcset`, `action`/`formAction`, `style`/`cssText`, all `on*`, and everything unenumerated. `srcset`, `action`, `formAction` and `cssText` carry dedicated fail-closed regression locks *(v2.1.1, D-20)*. `href` is deliberately off-list — SPA links use a static `href` attribute plus the router's click interceptor (§17.9), never a dynamic `href` bind.
 
@@ -639,7 +642,7 @@ constrained tokens: type, name, accept, autocomplete, inputMode, step, min, max,
 
 `PROPERTY_NAME_MAP` is a **canonicalizer, not an allowlist**: it maps lowercase author input to canonical property names (`innerhtml → innerHTML`), and it deliberately contains *dangerous* names so a lowercase-authored `innerhtml` canonicalizes to the exact name the gate rejects and the diagnostic names correctly. Map membership is not blessing. Any safe sink whose camelCase differs from lowercase must appear in the map or it fails closed as a false positive; the invariant `map[lowercase(sink)] === sink` is tested, normatively, in both the runtime and the compiler suites *(v2.1.1, D-15)*.
 
-**Inert metadata** — `data-*`, `aria-*` and `role` *(role: 2.2.3, #8)* — passes the gate **through the attribute branch**: never parsed as HTML/script/URL, applied consistently at both the runtime spread gate and compile-time `gateSink` (`isInertMetadataKey`; `isDataOrAriaKey` is unchanged and excludes `role`). Inbound ops on dashed names error (`attr-binding-outbound-only`): there is no DOM property to sample. Other dashed names still fail closed.
+**Inert metadata** — `data-*`, `aria-*` and `role` *(role: 2.2.3, #8)* — passes the gate as inert at both the runtime spread gate and compile-time `gateSink` (`isInertMetadataKey`; `isDataOrAriaKey` is unchanged and excludes `role`): never parsed as HTML/script/URL. Spread writes all three through the attribute branch; a `set`/`bind` on `role` — no dash, so a DOM property — writes the `role` property, which reflects the attribute. Inbound ops on dashed names error (`attr-binding-outbound-only`): there is no DOM property to sample. Other dashed names still fail closed.
 
 ### 6.4 Coverage map — three threats, three mechanisms
 
@@ -653,8 +656,8 @@ The compile-time gate is a **permission/audit decision, not a transformation**: 
 
 ### 6.5 Two-tier stink biscuit
 
-- **`stink:warn`** (unresolved unsafe-sink write; nobody declared it) → **hard gate.** A latent bug by definition; the stink-check tool counts these and `process.exit(1)` on any count > 0 (wired into `prepublishOnly`).
-- **`stink:declared`** (intentional raw) → **don't gate; baseline it.** A snapshot of the declared-raw set is checked into `stink-baseline.json`. A *new* raw not in the baseline doesn't block the build but **changes the baseline file, and that diff lands in code review.** The tripwire is not "block raw" — it is **"raw cannot be added invisibly."**
+- **`stink:warn`** (unresolved unsafe-sink write; nobody declared it) → **hard gate.** A latent bug by definition; the stink-check tool counts these — and every `error`-severity diagnostic — and exits 1 on any count > 0 (wired into `prepublishOnly`).
+- **`stink:declared`** (intentional raw) → **don't gate; baseline it.** A snapshot of the declared-raw set is checked into `stink-baseline.json`. A *new* raw not in the baseline doesn't block the build: the check reports the drift, and `stink-check --update` **rewrites the baseline file, so that diff lands in code review.** The tripwire is not "block raw" — it is **"raw cannot be added invisibly."**
 
 stink-check routes on the diagnostic's `severity` field, never on its code prefix *(v2.1.1, D-8)*: every `warn`-severity diagnostic, `switch-static-dead` included, is a hard-gate count, and `info` is never gated. Static attributes pass `gateSink` (`on*` and off-list names → `stink:warn`) *(v2.1.1, D-10)*, so the "raw cannot be added invisibly" claim holds for every authoring syntax.
 
@@ -678,7 +681,7 @@ That single expression says: you're doing `innerHTML` (off-list → forced to `r
 
 ### 7.1 The model
 
-`@reactive` on a property declares "this drives the UI"; it lowers to `DiamondCore.makeReactive()`. Reactive objects are Proxy-wrapped by a single internal `ReactivityEngine`; reads inside an effect register a dependency, writes retrigger dependents. `DiamondCore.effect(fn)` runs `fn`, tracks its reads, and re-runs on change, returning a disposer. `DiamondCore.reactive(obj)` wraps an object; `DiamondCore.computed(getter)` returns a memoized getter. A `WeakMap` proxy cache preserves referential identity for deep reactivity.
+`@reactive` on a property declares "this drives the UI": the decorator installs an accessor pair backed by the engine's proxy — nothing is compiler-emitted for it — and `DiamondCore.makeReactive(target, property)` is the public helper that wraps an object-valued property by hand. Reactive objects are Proxy-wrapped by a single internal `ReactivityEngine`; reads inside an effect register a dependency, writes retrigger dependents. `DiamondCore.effect(fn)` runs `fn`, tracks its reads, and re-runs on change, returning a disposer. `DiamondCore.reactive(obj)` wraps an object; `DiamondCore.computed(getter)` returns a memoized getter. A `WeakMap` proxy cache preserves referential identity for deep reactivity.
 
 Arrays are reactive in place: adding or removing an element (`push`, `pop`, `shift`, `unshift`, `splice`, assignment past the end, a `length` write) re-runs every effect that iterated the array or read its `length`, exactly as reassigning the array does. Mutations within one tick batch into one flush (§7.2). `Collection` remains the tool for large lists. *(2.2.4, #26)*
 
@@ -692,13 +695,13 @@ The public reactivity surface is `DiamondCore.effect` / `.computed` / `.reactive
 
 Effects are batched onto a microtask queue with `Set` dedupe, so N synchronous mutations collapse into one flush (this is what makes `Collection`'s 10k-push case one render). The scheduler drops disposed effects at flush: effect cleanup sets a `disposed` flag on the effect record, and the flush skips and drops flagged effects *(v2.1.1, D-7)* — so a mutation in the same tick as `unmount()` can no longer re-arm a disposed effect and retain the unmounted tree.
 
-`DiamondCore.captureScope(fn)` runs `fn` while collecting every `bind`/`on`/`effect`/`if`/`switch`/`repeat`/`spread`/`delegate`/child cleanup created during it, returning `{ value, cleanup, scope }`. If `fn` throws, everything registered before the throw is disposed before the error propagates *(2.3.0, Lifecycle Contract P-2)*. `DiamondCore.effect()` registers its disposer into the current scope like every other acquisition; the structurals create their own internal effects untracked, so each acquisition is counted once *(2.3.0)*. Underneath it is an explicit scope object, which the component lifecycle opens and closes directly (§4.4): scopes dispose LIFO, each cleanup in its own `try`, collecting failures (§4.6). **Root-level and nested** bindings all dispose with their scope, uniformly with structural-directive subtrees, and detached structural branches dispose eagerly (§5.4).
+`DiamondCore.captureScope(fn)` runs `fn` while collecting every `bind`/`on`/`effect`/`if`/`switch`/`repeat`/`spread`/`delegate`/child cleanup created during it, returning `{ value, cleanup, scope }`. If `fn` throws, everything registered before the throw is disposed before the error propagates *(2.3.0, Lifecycle Contract P-2)*. `DiamondCore.effect()` registers its disposer into the current scope like every other acquisition; each structural creates its master effect through the engine directly and registers its own disposer, so the acquisition appears in the inventory once *(2.3.0)*. Underneath it is an explicit scope object, which the component lifecycle opens and closes directly (§4.4): scopes dispose LIFO, each cleanup in its own `try`, collecting failures (§4.6). **Root-level and nested** bindings all dispose with their scope, uniformly with structural-directive subtrees, and detached structural branches dispose eagerly (§5.4).
 
 ---
 
 ## 8. Collections
 
-`Collection<T>` is the 2.1a collection-at-scale primitive: tens of thousands of items, sorted/searched/accessed efficiently, O(1) amortized append, **no per-item proxy overhead**. Factory `DiamondCore.collection(items?, { key? })` or `new Collection(...)`.
+`Collection<T>` is the collection-at-scale primitive (v2.1's phase "2.1a"): tens of thousands of items, sorted/searched/accessed efficiently, O(1) amortized append, **no per-item proxy overhead**. Factory `DiamondCore.collection(items?, { key? })` or `new Collection(...)`.
 
 ```typescript
 class Collection<T> implements Iterable<T> {
@@ -726,7 +729,7 @@ The data structure meets the O(1) bar (10k synchronous pushes → exactly one fl
 
 ## 9. Data delegation
 
-`DiamondCore.delegate` is the 2.1b homogenized event-delegation surface — a clean-slate design, **not** a salvage of Aurelia's removed `.delegate` stub:
+`DiamondCore.delegate` is the homogenized event-delegation surface (v2.1's phase "2.1b") — a clean-slate design, **not** a salvage of Aurelia's removed `.delegate` stub:
 
 ```typescript
 static delegate<T = unknown>(
@@ -739,7 +742,7 @@ static delegate<T = unknown>(
 
 One container listener; `event.target.closest(selector)` + containment check; upward walk to the first node registered in `repeat`'s node→item `WeakMap` (populated at row build, deleted at row disposal); the handler receives the **data item** identically for reactive-array and `Collection` sources (that uniformity *is* the "homogenized" requirement). `container` is `Element` (SVG works); `matchedNode` is the selector match, not the registered row node; a selector match with no registered item is a **silent no-op**; the listener is non-capturing; the cleanup self-registers.
 
-**Runtime-API-only** — there is no template grammar for delegation (unspecified by the DDR; also protects the parcel-plugin LOC ceiling). The registry is populated exclusively by `repeat`, so `delegate` resolves items only for `repeat`-produced nodes. Note the naming split: `click.delegate="f()"` in a template is a hard parse error; `DiamondCore.delegate(...)` in TypeScript is the supported API.
+**Runtime-API-only** — there is no template grammar for delegation (none was specified, and the omission protects the parcel-plugin LOC ceiling). The registry is populated exclusively by `repeat`, so `delegate` resolves items only for `repeat`-produced nodes. Note the naming split: `click.delegate="f()"` in a template is a hard parse error; `DiamondCore.delegate(...)` in TypeScript is the supported API.
 
 ---
 
@@ -751,7 +754,7 @@ One container listener; `event.target.closest(selector)` + containment check; up
 
 ### 10.2 Parcel transformer
 
-`@diamondjs/parcel-transformer-diamond` detects Diamond templates via `isDiamondTemplate`, compiles, and maps diagnostic severities onto `@diamondjs/primafacie` log types. It **throws on `severity: 'error'`** (retired/unknown commands = broken source) and logs `warn`, `declared` and `info` through `Print` without failing the build — enforcement is the out-of-band stink-check merge gate, not local dev. It reads the build's run mode and injects `__DIAMOND_DEV__` (§17.13).
+`@diamondjs/parcel-transformer-diamond` detects Diamond templates via `isDiamondTemplate`, compiles, and maps diagnostic severities onto `@diamondjs/primafacie` log types. It **throws on `severity: 'error'`** (retired/unknown commands = broken source) and logs `warn`, `declared` and `info` through `Print` without failing the build — enforcement is the out-of-band stink-check merge gate, not local dev. It reads the build's run mode and injects `__DIAMOND_DEV__` (§17.13). It also exports `compileTemplate`, `readRunMode`, `resetRunModeCache` and the `RunMode` type for its tests; those are not on the contract.
 
 `isDiamondTemplate` detects the v2.0 command surface (`calls`, `set`, `rawset`, `rawbind`, `capture`, `bind`, `to-view`, `from-view`, `two-way`) plus `<switch`, `repeat.for=` and `<outlet` *(v2.2.0)*, **and retains the retired tokens** (`trigger`, `delegate`, `one-time`) so a stale `.trigger` file is still detected, compiled, and served the helpful rename diagnostic rather than silently shipped as raw HTML. Bare `if=` is deliberately excluded (false-positive claims on non-Diamond HTML would break builds loudly); an `if=`-only template with zero bindings, interpolations, switches, repeats and outlets is a documented blind spot — which also covers `else-if`-only and `case`/`default`-only fragments (§16 D-18).
 
@@ -842,13 +845,27 @@ static inScope(): boolean;
 static drain(scope: Scope): void;                                     // the connection drain
 ```
 
+```typescript
+export class Scope {                 // the inventory of one lifetime (§4.4, §7.2)
+  list: Array<() => void>;           // cleanups, disposed LIFO
+  children: Component[];             // child instances awaiting the connection drain
+  scopes: Scope[];                   // branches placed while this tree was detached
+  pending: Array<() => void>;        // root-level structural placements awaiting a parent
+  nodes: (() => Node[]) | null;      // the managed range (set by mount(); read by domPing())
+  prev: Scope | null;                // the scope that was current when this one opened
+  add(fn: () => void): void;
+  dispose(): ScopeFailure[];         // LIFO, each cleanup in its own try; every list emptied after
+}
+export interface ScopeFailure { index: number; error: unknown }
+```
+
 `bind`'s third argument is a **required positional slot holding an optionally-`undefined` value** (typed `(() => unknown) | undefined`, no `?`), so callers must pass it; `from-view` passes the literal `undefined`. Anchors for `if`/`switch`/`repeat` are **trailing markers** — rendered content inserts immediately *before* the anchor.
 
-**Public for the framework's own use, not app-facing.** `trackRange` is public for the same reason `captureScope` is: `Component` calls it. The scope operations (`Scope`, `openScope`, `closeScope`, `withScope`, `inScope`, `drain`) and `Component.adopt` / `deliver` are in the same position: public because the lifecycle, the router and compiled composition call them, not app-facing. A dev/test-only live-effect counter (`__liveEffects`) is not on the contract. `internal`: `currentScope`, `track`, `itemRegistry`, `getInputEventName` and the deferred-placement guard (§5.4.4) are `private static` and not on the contract.
+**Public for the framework's own use, not app-facing.** `trackRange` is public for the same reason `captureScope` is: `Component` calls it. The scope operations (`Scope`, `openScope`, `closeScope`, `withScope`, `inScope`, `drain`) and `Component.adopt` / `deliver` are in the same position: public because the lifecycle, the router and compiled composition call them, not app-facing. `child` called outside any scope is a plain `instance.mount(host)`: no disposal registration and no drain. A dev/test-only live-effect counter (`__liveEffects`) is not on the contract. `currentScope`, `track`, `itemRegistry`, `getInputEventName`, `unstable` (the start-marker guard, §5.4.4), `placeBefore`, `settle`, `deliverBranch` and `report` are `private static` and not on the contract.
 
 ### 11.2 `Component`, `Collection`, `ParseResult`
 
-See §4.4 (`Component`, its phases and `LifecycleRecord`), §8 (`Collection<T>` / `CollectionOptions<T>`), and §5.3.4 (`ParseResult<T>` interface + `ok`/`fail`). `registerCleanup`/`debounce`/`throttle` are `protected` (subclass-only); the rest of `Component` is public. `update()` is removed *(2.3.0, LC-4)*. `fold`, `Phase`, `Cause` and `LifecycleRecord` are exported for tooling that reads `history()` (§4.7). `ParseResult` exports the value (the const); the interface is reachable through the same specifier.
+See §4.4 (`Component`, its phases and `LifecycleRecord`), §8 (`Collection<T>` / `CollectionOptions<T>`), and §5.3.4 (`ParseResult<T>` interface + `ok`/`fail`). The five phase callbacks, `element`, `registerCleanup`, `whileMounted`, `debounce` and `throttle` are `protected` (subclass-only); `adopt` and `deliver` are public but `@internal`; the rest of `Component` is public. `update()` is removed *(2.3.0, LC-4)*. `fold`, `Phase`, `Cause` and `LifecycleRecord` are exported for tooling that reads `history()` (§4.7). `ParseResult` exports the value (the const); the interface is reachable through the same specifier.
 
 ### 11.3 `@diamondjs/compiler`
 
@@ -871,7 +888,7 @@ export { isElementInfo, isTextInfo } from './types'
 
 ## 12. Diagnostics catalog
 
-The compiler returns `diagnostics: Diagnostic[]` on `CompileResult`; each is `{ code, severity, message, location? }`. Severity is `error` | `warn` | `declared` | `info`, surfaced by the stink tool as `error` / `stink:warn` / `stink:declared` / `info`. **Message text is authoritative in source**; this table is the contract of *which codes exist, at what severity, on what trigger*. (A handful of codes are constructed dynamically — noted inline.)
+The compiler returns `diagnostics: Diagnostic[]` on `CompileResult`; each is `{ code, severity, message, location }` with `location: SourceLocation | null`, plus `property`, `op`, `raw` and `expression` where the gate, the spread site or a converter code sets them. Severity is `error` | `warn` | `declared` | `info`, surfaced by the stink tool as `error` / `stink:warn` / `stink:declared` / `info`. **Message text is authoritative in source**; this table is the contract of *which codes exist, at what severity, on what trigger*. (A handful of codes are constructed dynamically — noted inline.)
 
 ### 12.1 Parser diagnostics (all `error` unless noted)
 
@@ -908,7 +925,7 @@ The compiler returns `diagnostics: Diagnostic[]` on `CompileResult`; each is `{ 
 | Code | Severity | Trigger |
 |---|---|---|
 | `orphan-else-if` | error | `else-if` not absorbed by a preceding `if`/`else-if` chain (including one separated by non-ASCII whitespace, §5.4.1) |
-| `attr-binding-outbound-only` | error | a dashed property bound `bind`/`two-way`/`from-view` (fires *in addition to* a prior `stink:warn` from the gate) |
+| `attr-binding-outbound-only` | error | a dashed property bound `bind`/`two-way`/`from-view` (may follow a `stink:warn` from the gate; a `data-*`/`aria-*` name or a `from-view` leg reaches it alone) |
 | `malformed-pipe` | error | a pipe segment fails the segment regex (binding site carries a location; interpolation site has `location: null`) |
 | `error-into-no-converter` | error | `error-into` set but the binding has no converter to read a `ParseResult` from |
 | `pipe-fromview-multi` | error | a `from-view` binding with ≥2 transforms |
@@ -925,13 +942,15 @@ The compiler returns `diagnostics: Diagnostic[]` on `CompileResult`; each is `{ 
 | `import-directive-unused` | info | an `@import` name matches no pipe transform |
 | `converter-unresolved` | info | an import cannot be followed to a readable module (10 detail variants: no import, package specifier, unreadable, circular, >3 hops, package re-export, …) |
 | `converter-missing-parse` | error | a converter used on an inbound leg resolves but has no `static parse` within 3 hops |
-| `pipe-transform-standalone` | error | a standalone module has pipe heads uncovered by `@import` (`location: null`) |
+| `pipe-transform-standalone` | error | a standalone module has pipe heads uncovered by `@import` (`location: null`; added by the Parcel transformer's standalone path, not by `compile()`) |
 | `component-composition-unsupported` *(v2.1.1, D-21)* | error | a hyphenated tag whose PascalCase form is imported by the component module — **retired** when §4.5 is ratified |
 | `component-self-closing` *(proposed for v2.3.1, §4.5 C-10)* | error | a self-closing component tag |
 | `component-children-unsupported` *(proposed for v2.3.1, C-9)* | error | non-whitespace content between a component tag's open and close tags |
 | `component-prop-two-way` *(proposed for v2.3.1, C-4)* | error | `.bind` / `.two-way` / `.from-view` on a component tag |
 | `component-ref-in-repeat` *(proposed for v2.3.1, C-7)* | error | `ref` inside `repeat.for` |
 | `component-prop-reserved` *(proposed for v2.3.1, C-5)* | error | a prop named for a base-class member |
+
+The five `component-*` codes after `component-composition-unsupported` belong to the §4.5 proposal and have no emission site in 2.3.0.
 
 ### 12.4 Security-gate diagnostics (compile-time `gateSink`)
 
@@ -957,7 +976,7 @@ Runtime throws: `createTemplate()` not implemented; `Collection.byKey` without a
 ### 12.6 Catalog notes
 
 - `pipe-two-way-multi` is **retired** — it exists only as a negative test assertion; do not treat it as emittable.
-- The `*-outside-switch` and `retired-command` codes are dynamic/shared as noted; a literal grep for `case-outside-switch` returns nothing.
+- The `*-outside-switch` and `retired-command` codes are dynamic/shared as noted; a literal grep for `case-outside-switch` returns nothing in the compiler source.
 - Two `stink:declared` emission sites (compiler gate and generator spread) share one baseline record shape (`file:line:property:op`); the spread site records `property: '...attrs'`, `op: 'spread'`.
 - `route-check` findings are a separate channel — build errors from a standalone bin, not `Diagnostic` objects. The sixteen rules are listed in §17.11.
 
@@ -969,11 +988,12 @@ The transparency contract, observed from actual `DiamondCompiler.compile()` outp
 
 ### 13.1 Variable naming
 
-`nextVar` emits `${hint}_${counter}`, and element hints are pre-prefixed `el_${tagName}`, giving `el_div_0`, `el_h2_3`, `el_input_0` — the `_` separator keeps tag and counter distinct so `h2` at index 1 never reads as a 21-level heading tag. Every character of a hint outside `[A-Za-z0-9_$]` becomes `_`, so a hyphenated tag yields `el_child_component_0` *(v2.1.1, D-21)*. The counter is a **single global monotonic counter across all node kinds** (elements, text nodes, anchors share it), so indices are not per-tag; a structural's branch bodies are numbered **after** the siblings that follow it in source *(2.2.3, #7)*. Other hint prefixes: `text_N`, `ifAnchor_N`, `switchAnchor_N`, `repeatAnchor_N`, `deadSwitch_N`, `caseRoot_N`, `defaultRoot_N`. Static text takes no variable *(2.3.0, #15)*: `text_N` is an interpolated text node only, so a static-only template numbers nothing but its elements and anchors.
+`nextVar` emits `${hint}_${counter}`, and element hints are pre-prefixed `el_${tagName}`, giving `el_div_0`, `el_h2_3`, `el_input_0` — the `_` separator keeps tag and counter distinct so `h2` at index 1 never reads as a 21-level heading tag. Every character of a hint outside `[A-Za-z0-9_$]` becomes `_`, so a hyphenated tag yields `el_child_component_0` *(v2.1.1, D-21)*. The counter is a **single global monotonic counter across all node kinds** (elements, text nodes, anchors share it), so indices are not per-tag; a structural's branch bodies are numbered **after** the siblings that follow it in source *(2.2.3, #7)*. Other hint prefixes: `text_N`, `ifAnchor_N`, `switchAnchor_N`, `repeatAnchor_N`, `deadSwitch_N`, `caseRoot_N`, `defaultRoot_N`. Static text takes no variable *(2.3.0, #15)*: `text_N` is an interpolated text node only, so a static-only template numbers nothing but its elements and anchors. `root` is the fixed, uncounted name of a template's combined root (zero or two-plus roots).
 
 ### 13.2 `[Diamond]` hint comments
 
 ```js
+// [Diamond] Compiler-generated instance template method
 // [Diamond] Two-way binding: value ↔ name
 // [Diamond] Two-way binding: value ↔ amount | Currency | Trim [update-on: blur]
 // [Diamond] One-way binding: title ← tooltip
@@ -983,14 +1003,20 @@ The transparency contract, observed from actual `DiamondCompiler.compile()` outp
 // [Diamond] Capture event: click → this.onCapture()
 // [Diamond] Conditional: if="loading" (+1 else-if)
 // [Diamond] Switch: on="status" (2 cases + default)
+// [Diamond] case if="'a'" → v === 'a'
+// [Diamond] case if="progress > 0.5" → this.progress > 0.5 (boolean expression)
+// [Diamond] default — renders when no case matches
 // [Diamond] Switch on="'ready'" resolved at compile time → case if="ready" (zero runtime cost)
+// [Diamond] Switch on="'other'" resolved at compile time → default (no case matched)
+// [Diamond] DEAD switch (switch-static-dead): unused code, emitted as an inspectable comment node
 // [Diamond] Repeat: repeat.for="item of items"
 // [Diamond] Text interpolation: Hello ${name}!
 // [Diamond] Attribute spread: ...attrs.bind="myGuts" — runtime-gated: gate FIRST …
+// [Diamond] RAW attribute spread: ...attrs.rawBind="x" — allowlist bypassed; developer owns every key (incl. innerHTML/on*)
 // [Diamond] <select> wiring follows its <option> children: value needs the options to exist
 ```
 
-Two conventions worth pinning for a reader/model: **binding hints echo the expression unprefixed** (`value ↔ name`), while **event hints hardcode `this.`** (`click → this.save()`); the from-view hint inverts the arrow (points at the expression, property trails after the colon); the static-switch hint `JSON.stringify`s its `on=` value while the reactive form interpolates bare; `else-if` branches get no comment of their own (they fold into the chain head's `(+N else-if)` counter). A line break inside an echoed expression — a multi-line `if="a &&⏎ b"` — folds, with its surrounding indentation, to one space, so a hint is always one comment line *(2.2.4, #19)*.
+Two conventions worth pinning for a reader/model: **binding hints echo the expression unprefixed** (`value ↔ name`), while **event hints hardcode `this.`** (`click → this.save()`); the from-view hint inverts the arrow (points at the expression, property trails after the colon); the static-switch hint `JSON.stringify`s its `on=` value while the reactive form interpolates bare; `else-if` branches get no comment of their own (they fold into the chain head's `(+N else-if)` counter). A line break inside an echoed expression — a multi-line `if="a &&⏎ b"` — folds, with its surrounding indentation, to one space, so a hint is always one comment line *(2.2.4, #19)*. The text-interpolation hint folds every whitespace run to one space and trims, and echoes the source with its `\${` escapes in place.
 
 ### 13.3 The RAW audit comment
 
@@ -1002,7 +1028,7 @@ A raw sink emits **two lines** — a fixed banner plus the ordinary op hint with
 DiamondCore.bind(el_div_0, 'innerHTML', () => this.userHtml);
 ```
 
-The banner describes the mechanism, not a completed audit *(v2.1.1, D-12)*.
+The banner describes the mechanism, not a completed audit *(v2.1.1, D-12)*. The raw spread's second line is its own hint (`RAW attribute spread: … — allowlist bypassed; developer owns every key`, §13.2) rather than the non-raw spread hint with an infix.
 
 > ⚠ `rawBind.from-view` emits the `RAW ` tag but **no banner and no `stink:declared`** — a raw usage invisible to the audit trail (§16 D-13).
 
@@ -1030,7 +1056,7 @@ DiamondCore.bind(el_input_0, 'value',
 
 ### 13.6 Mounted-output shape
 
-The DOM a template produces equals its markup with directives erased, plus exactly these framework nodes: one trailing comment anchor per structural directive; the inspectable comment of a statically-dead switch; and the `<!---->` start marker in front of a body that begins with a structural (§5.4.4). A composed component's host element is ordinary markup — the tag the author wrote (§4.5, proposed for v2.3.1). Text is not a framework node: it is exactly the parser's (§5.9).
+The DOM a template produces equals its markup with directives erased, plus exactly these framework nodes: one trailing comment anchor per reactive structural directive — `<!--if-->`, `<!--switch-->`, `<!--repeat-->` (a compile-time-resolved `<switch>` leaves no node); an `<!--empty-->` placeholder where a body has no roots (an empty template, `<case>` or `<default>`); the inspectable comment of a statically-dead switch; and the `<!---->` start marker in front of a body that begins with a structural (§5.4.4). A composed component's host element is ordinary markup — the tag the author wrote (§4.5, proposed for v2.3.1). Text is not a framework node: it is exactly the parser's (§5.9).
 
 ---
 
@@ -1040,23 +1066,23 @@ Nine workspace packages, lockstep at **2.3.0**: `@diamondjs/primafacie`, `@diamo
 
 | Package | Prod LOC | Budget | Usage |
 |---|---:|---:|---:|
-| `@diamondjs/runtime` | 1,746 | 2,500 | 69.8% |
-| `@diamondjs/compiler` | 2,464 | 5,000 | 49.3% |
+| `@diamondjs/runtime` | 2,027 | 2,500 | 81.1% |
+| `@diamondjs/compiler` | 2,486 | 5,000 | 49.7% |
 | `@diamondjs/parcel-transformer-diamond` | 164 | 300 | 54.7% |
 | `@diamondjs/converters` | 123 | 500 | 24.6% |
 | `@diamondjs/primafacie` | 300 | 400 | 75.0% |
 | `@diamondjs/dev` (toolchain) | 545 | 800 | 68.1% |
-| **Total (production)** | **5,342** | **9,500** | **56.2%** |
+| **Total (production)** | **5,645** | **9,500** | **59.4%** |
 
-Figures are the 2.2.4 baseline at `82bb8bc`. The Lifecycle Contract brings the runtime to **2,027** production LOC (+281 against its +300 ceiling; 81.1% of budget) and the suite to 922 tests across 63 files, with the lifecycle tests run under both toolchain shapes (`npm run test:lifecycle`) and ten Playwright acceptance tests against Chromium. Composition (v2.3.1) is budgeted at ~200 runtime LOC plus its compiler share, which leaves the runtime about 270 lines under its ceiling; 2.3.0 figures are measured at release. Warning thresholds in `check-loc-budget.ts`: runtime 2,250, compiler 4,500, parcel 250, converters 400, primafacie 350, dev 700. The dev-toolchain budget (800) entered with 2.2.2, raising the total from 8,700 to 9,500. `@diamondjs/guards` has a stated budget of 400 but no row in the budget tool yet. The suite at `82bb8bc` is 859 tests across 57 files, passing on Node 20.18.1 and Node 22.
+Figures are measured at `07cf171`, the last code change of 2.3.0 (the 2.2.4 baseline at `82bb8bc` was 5,342 / 56.2%). The Lifecycle Contract accounts for the runtime's +281 (against its +300 ceiling) and preserved text (#15) for the compiler's +22. The suite is **956 tests across 64 files** on Node 20.18.1 (859 across 57 at 2.2.4), with the 64 lifecycle tests run a second time under the legacy toolchain shape (`npm run test:lifecycle`) and ten Playwright acceptance tests against Chromium (`npm run test:acceptance`). Composition (v2.3.1) is budgeted at ~200 runtime LOC plus its compiler share, which leaves the runtime about 270 lines under its ceiling. Warning thresholds in `check-loc-budget.ts`: runtime 2,250, compiler 4,500, parcel 250, converters 400, primafacie 350, dev 700. The dev-toolchain budget (800) entered with 2.2.2, raising the total from 8,700 to 9,500. `@diamondjs/guards` has a stated budget of 400 but no row in the budget tool yet.
 
-The batteries (`@diamondjs/converters`, and `@diamondjs/guards` once it carries mid-classes) are kept separate from the runtime; `ParseResult` stays in the runtime so batteries and user converters import the same contract and it cannot drift.
+The batteries (`@diamondjs/converters` — `CurrencyConverter`, `DateConverter`, `PhoneConverter`, `IntConverter`, `SlugConverter` — and `@diamondjs/guards` once it carries mid-classes) are kept separate from the runtime; `ParseResult` stays in the runtime so batteries and user converters import the same contract and it cannot drift.
 
 ---
 
 ## 15. Logging (`@diamondjs/primafacie`)
 
-`@diamondjs/primafacie` is the isomorphic logging package (named by the author): the `Print(logType, message)` paradigm carried from Stargate — 15 log types, symbol pairs, caller extraction, a padded line format — with a console transport (Node ANSI / browser `%c`) and pluggable sinks (`addSink`; a lazy self-healing `wsSink` browser→server transport; a Node-only `fileSink` under the `./node` subpath so browser bundles never touch `fs`). The tools' summary lines and the Parcel transformer's non-throwing diagnostics print through it; the compiler stays pure (returns diagnostics, prints nothing).
+`@diamondjs/primafacie` is the isomorphic logging package (named by the author): the `Print(logType, message)` paradigm carried from Stargate — 15 log types, symbol pairs, caller extraction, a padded line format — with a console transport (Node ANSI / browser `%c`) and pluggable sinks (`addSink`; a lazy self-healing `wsSink` browser→server transport; a Node-only `fileSink` under the `./node` subpath so browser bundles never touch `fs`). The tools' summary lines and the Parcel transformer's non-throwing diagnostics print through it; the compiler stays pure (returns diagnostics, prints nothing). The package's public surface is `Print`, `configure`, `addSink`, `LOG_TYPE_SYMBOLS`, `wsSink` and the types `LogType`, `LogRecord`, `LogSink` and `WsLogMessage`; `wsReceiver` and `fileSink` live on `./node`.
 
 **One vocabulary through `Print`** *(v2.2.0, A3 §3)*. `packages/runtime/src/dev-log.ts` is **deleted**. The runtime imports `Print` from `@diamondjs/primafacie` (browser-safe core only; Node transports stay behind `./node`). Build order: primafacie → runtime; acyclic (§10.4). This overturns the v2.1 "runtime adopts only the line format, no dependency" rule: that rule assumed primafacie was tooling, and its reclassification as **production infrastructure** — it ships in `@diamondjs/app`, and stink tagging must be visible in normal operation — removed the premise. The three-channel taxonomy is preserved: compiler `Diagnostic[]` remains pure data; runtime warnings are `Print` calls, not Diagnostics.
 
@@ -1066,6 +1092,8 @@ The batteries (`@diamondjs/converters`, and `@diamondjs/guards` once it carries 
 
 What prints through it: the runtime warnings and lifecycle emissions of §12.5 and §4.7, and the router's narration (§17).
 
+> ⚠ Two reports still bypass `Print`: an effect that throws during a scheduler flush, and a cleanup failure inside `captureScope` or a structural branch — both `console.error` (§16 D-26).
+
 ---
 
 ## 16. Conformance & known limitations
@@ -1074,9 +1102,15 @@ Shipped v2.3.0 meets the contracts above except for the items below. Each is dis
 
 ### Open defects (fix-the-code)
 
-- **D-24 — `fold` is a standalone exported function** *(recorded 2.3.0)*. §3.1 #6 requires runtime code to be class methods or static namespaces, never lone exported functions; `fold(history)` ships as one. Disposition deferred to v2.3.1: a static (`Component.fold`), a method on the record, or an accepted exception.
+- **D-24 — `fold` is a standalone exported function** *(recorded 2.3.0)*. §3.1 #6 requires runtime code to be class methods or static namespaces, never lone exported functions; `fold(history)` ships as one. Disposition deferred to v2.3.1: a static (`Component.fold`), a method on the record, or an accepted exception. The runtime index also exports the `reactive` decorator and the three security helpers (`canonicalizeSinkKey`, `isDataOrAriaKey`, `isInertMetadataKey`) as lone functions; the same disposition covers them (a static namespace, or an accepted exception for decorators and pure predicates).
 
-- **D-23 — `createTemplate()` and `element` are typed `HTMLElement`** *(recorded 2.2.4)*. A template with two or more roots returns a `DocumentFragment`, and the managed range (§5.4.4) may begin with a comment. §4.4 types both as `Node`. Fix: correct the declarations.
+- **D-23 — `createTemplate()` and `element` are typed `HTMLElement`** *(recorded 2.2.4)*. A template with two or more roots returns a `DocumentFragment`, and the managed range (§5.4.4) may begin with a comment. §4.4 should type both as `Node`; it shows the shipped `HTMLElement` with this pointer. Fix: correct the declarations.
+
+- **D-26 — two reports bypass `Print`** *(recorded 2.3.0)*. §15 requires one logging vocabulary; an effect that throws during a scheduler flush, and a cleanup failure inside `captureScope` or a structural branch, are reported with `console.error`. Fix: route both through `Print` (`FAILURE`); the no-fault rule for branches (§4.6) stands.
+
+- **D-27 — undocumented three-segment synonyms** *(recorded 2.3.0)*. The parser accepts `property.bind.to-view`, `.bind.from-view` and `.bind.two-way` (non-raw) as synonyms of the two-segment commands; §5.1 defines the three-segment form only for `rawBind`. Disposition pending the author's ruling: remove them from the command map, or admit them in §5.1.
+
+- **D-28 — `<switch>` whitespace test is not ASCII-only** *(recorded 2.3.0)*. §5.9 (b) consumes ASCII whitespace between cases, the class (a) and (c) use; the shipped parser uses `trim()`, so a non-breaking space there is consumed too. Fix: the ASCII class.
 
 ### Accepted limitations (document, don't smooth over)
 
@@ -1084,11 +1118,11 @@ Shipped v2.3.0 meets the contracts above except for the items below. Each is dis
 
 - **D-11 — VLQ source maps are unreachable on the default toolchain.** The compiler generates real maps, but the Parcel transformer passes `sourceMap = false` and has no `setMap` call (stale "Phase 0/1" comments remain). The seam exists; the wiring does not.
 
-- **D-13 — `rawBind.from-view` is invisible to the audit trail, and `from-view` is gate-exempt.** The inbound raw form emits the `RAW ` tag but no banner and no `stink:declared` (deliberate — inbound is a different contract), and `from-view` is exempt from the compile-time gate (sound: no sink write). DDR §6.4-row-1 / §3.3's "uniform" coverage language should be read with this documented exemption.
+- **D-13 — `rawBind.from-view` is invisible to the audit trail, and `from-view` is gate-exempt.** The inbound raw form emits the `RAW ` tag but no banner and no `stink:declared` (deliberate — inbound is a different contract), and `from-view` is exempt from the compile-time gate (sound: no sink write). §6.4 row 1's coverage claim is read with this documented exemption.
 
-- **D-14 — `SAFE_SINKS` is design-derived, not empirically hardened.** Byte-for-byte the Phase-1 starter set; the §11.2 NetPad empirical probe has not run. Describe the list as unrefined. The first application surfaced four candidates (`rows`, `cols`, `list`, `for`), recorded for ratification and not added.
+- **D-14 — `SAFE_SINKS` is design-derived, not empirically hardened.** Byte-for-byte the Phase-1 starter set; the empirical probe against NetPad (below, under "Open by design") has not run. Describe the list as unrefined. The first application surfaced four candidates (`rows`, `cols`, `list`, `for`), recorded for ratification and not added.
 
-- **D-16 — `computed` is dead public surface.** Public but not compiler-emitted, and its caching is defeated (re-runs on every dependency change). **D-17 —** nested-effect `activeEffect` nulling (rather than save/restore) silently untracks any read *after* a nested effect is created; no current codegen reads-after-building, so nothing triggers it today — a trap for future primitives. *(No disposition recorded since v2.1.)*
+- **D-16 — `computed` is dead public surface.** Public but not compiler-emitted, and its caching is defeated: the getter re-runs on every dependency change and again on read, and its tracking effect is never disposed. **D-17 —** nested-effect `activeEffect` nulling (rather than save/restore) silently untracks any read *after* a nested effect is created; no current codegen reads-after-building, so nothing triggers it today — a trap for future primitives. *(No disposition recorded since v2.1.)*
 
 - **D-18 — `isDiamondTemplate` blind spot.** Narrowed in v2.2.0 by the `<outlet` token: an `if=`-only template with zero bindings, interpolations, switches, repeats and outlets stays undetected, which also covers `else-if`-only and `case`/`default`-only fragments. Rationale unchanged: bare `if=` is a false-positive risk on non-Diamond HTML.
 
@@ -1098,11 +1132,11 @@ Shipped v2.3.0 meets the contracts above except for the items below. Each is dis
 
 - **SPA Back is not intercepted by `Pending`** (§17.8). Departure with active holds through Back narrates a `WARNING`; the `canLeave` veto is deferred (Appendix F).
 
-### Open by design (A2 §17 — three of four still open)
+### Open by design (carried from v2.1 — three of four still open)
 
 - Structured `ParseResult.error` `{code, message}` (i18n seam) — still bare `string | null`.
 - Plugin `asset.setMap` source-map offset wiring (see D-11).
-- The §11.2 empirical allowlist probe — **NetPad** remains the designated stress test (hardest XSS surface: cross-user real-time content flow); 2.1a/2.1b now exist to build it on. This probe is also the refinement D-14 records as not-yet-done.
+- The empirical allowlist probe — **NetPad** remains the designated stress test (hardest XSS surface: cross-user real-time content flow); `Collection` and `delegate` (§8, §9) now exist to build it on. This probe is also the refinement D-14 records as not-yet-done.
 - ~~Double-`mount()` guard~~ — closed in v2.1.1 (D-6) and superseded in 2.3.0 by the phase rule of §4.4.
 
 ### Closed since v2.1
@@ -1166,9 +1200,11 @@ Every navigation, on **every** vector (pushState nav, initial load, popstate), r
 5. **Race check** — nav ID still current, else discard silently.
 6. **History write** — `pushState`, stamped `{ diamondNavId, index }` (also stamped on `replaceState`) — canLeave forward-compatibility.
 7. **Commit** — diff vs. occupancy; unmount outgoing **deepest-first**, mount incoming **parent-first**, synchronous. Mount failure (constructor or mount throw) leaves the previous route intact — defined behavior, tested.
-8. **Settle** — per-nav `Print('STATE', 'nav → <path> [outlets]')`, on by default; `configure()` quiets. Scroll settles here (§17.9).
+8. **Settle** — scroll (§17.9), then the per-nav `Print('STATE', 'nav → <path> [outlets]')`, on by default; `router.configure({ narrate: false })` quiets it.
 
-**Transaction model:** the plan commits atomically or not at all. Any guard denial anywhere in a multi-outlet plan means **zero DOM mutation anywhere**. Construction precedes unmounting (a constructor throw aborts with the old route untouched); a mount throw rolls the DOM back and restores the URL. `pushState` never fires for a rejected navigation.
+**Transaction model:** the plan commits atomically or not at all. Any guard denial anywhere in a multi-outlet plan means **zero DOM mutation anywhere**. Construction precedes unmounting (a constructor throw aborts with the old route untouched); a mount throw rolls the DOM back and restores the URL — on a push the entry was already written, so it is rewritten in place to the previous URL (`replaceState`), and Back then lands on the same page once. `pushState` never fires for a rejected navigation.
+
+**Narration and limits.** No match and no `*` route: a `WARNING`, and the navigation stops with no history write. A Destination chain is capped at 10 hops (`CRITICAL`); an unknown route id, or a `route-path` whose `:param` has no value, is a `FAILURE` and aborts rather than writing a partial URL; a Destination whose path is the current path is dropped. A navigation declined by `Pending` holds narrates `STATE`; a failed commit narrates `EXCEPTION` ("previous route preserved"); an `<outlet>` without a `name` is ignored with a `WARNING`.
 
 **Commit under the lifecycle contract** *(2.3.0)*. Each incoming component is constructed inside a scope of its own and passed through its first framework entry (`ensureConstructed`, §4.4), so `constructed()` runs before any of them mounts; a constructor throw disposes the attempt. Outgoing occupants are unmounted in the commit step; once the commit stands, each departed occupant is `dispose()`d — not before, because a disposed instance cannot be remounted by a rollback. A throw anywhere in a commit disposes the attempt and remounts the previous occupants, leaving occupancy, outlets and DOM identical to before the navigation. A navigation back to a route whose previous occupant faulted builds a fresh instance; the router never reuses a departed instance.
 
@@ -1185,7 +1221,7 @@ type RouteDefinition =
 // children is recursively a RouteMap
 ```
 
-**Route IDs** are quoted lowercase kebab-case string-literal keys with a leading letter — `^[a-z][a-z0-9]*(-[a-z0-9]+)*$`. Integer-like keys are structurally excluded so object order never lies. Enforcement: `satisfies RouteMap` in-editor; `route-check` enforces the full grammar with the canonical message:
+**Route IDs** are quoted lowercase kebab-case string-literal keys with a leading letter — `^[a-z][a-z0-9]*(-[a-z0-9]+)*$`. Integer-like keys are excluded — by route-check; `RouteId` is `string`, so `satisfies RouteMap` alone does not reject them — so object order never lies. Enforcement: `satisfies RouteMap` in-editor; `route-check` enforces the full grammar with the canonical message:
 
 ```
 Invalid route ID `querySettings`.
@@ -1196,7 +1232,7 @@ Use:
 
 **Rejected key forms (negative cases):** unquoted keys, computed `[expr]` keys, uppercase, snake_case.
 
-**`params`:** `{ paramName: ConverterClass }` — required for every `:segment` (by type where expressible, by route-check always). Same `ParseResult` contract as `from-view`. **Divergent policy, stated:** forms keep-last-good; the router **fails the match**.
+**`params`:** `{ paramName: ConverterClass }` — required for every `:segment` (by type where expressible, by route-check always). Same `ParseResult` contract as `from-view`. **Divergent policy, stated:** forms keep-last-good; the router **fails the match**. Declared `query` converters (§17.4) deliver their parsed values into the same `params` object — the constructor argument, `GuardContext.params` and the occupancy key; a declared query param that is absent is skipped, so declared query params are optional.
 
 **Params are constructor constants:** `new RouteComponent(params)`. A param change is unmount + remount, always. Conformance note: route components may accept a single params object in their constructor (§4.2's no-arg form is the default, not a prohibition).
 
@@ -1204,7 +1240,7 @@ Use:
 
 Segment-wise, left-to-right: **static > `:param` > pattern-exhausted > `*`**. `*` matches last regardless of its declaration position and must be terminal (route-check `wildcard-not-terminal`). Equal specificity over the same URL shape is a **build error** (`ambiguous-routes`), never a positional tiebreak — reordering route blocks never changes behavior.
 
-URL normalization: matching is **path-only**; trailing-slash-insensitive; static segments **case-sensitive**; query params never participate in matching. An optional per-route `query` converter map parses declared query params through `ParseResult` (invalid fails the match); undeclared query params pass through raw as an app concern.
+URL normalization: matching is **path-only**; trailing-slash-insensitive; static segments **case-sensitive**; query params never participate in matching. An optional per-route `query` converter map parses declared query params through `ParseResult` (invalid fails the match); undeclared query params stay in the URL and are passed to nothing.
 
 Path strings are position-relative; a leading slash is cosmetic (`'/corpora'` ≡ `'corpora'` at any nesting level) — pinned by test.
 
@@ -1289,9 +1325,9 @@ Outlet names are a **statically-declared closed set**. No public dynamic registr
 
 **The envelope** is a private static on `Router` (not an overridable class method — JS cannot seal statics): fail-closed on `check()` throw (`Print('EXCEPTION')` → deny); fail-closed on timeout (`Print('FAILURE')` → deny); **one structured narration line per decision** (guard class, route id, outcome, reason, duration); result normalization (`false` → `this.deny(ctx)`).
 
-`GuardContext` v2.2: `{ to, from, params, routeId }` — flat, everything real. Capability namespaces (`ctx.policy`, `ctx.security`, `ctx.tenant`, …) are the named v3 growth path; **no stubs ship** (D-16 lesson).
+`GuardContext` v2.2: `{ to, from, params, routeId }` — flat, everything real; `to` and `from` are normalized paths without query or hash, and `params` carries parsed query values too (§17.3). Capability namespaces (`ctx.policy`, `ctx.security`, `ctx.tenant`, …) are the named v3 growth path; **no stubs ship** (D-16 lesson).
 
-**Composition:** `guard: GuardClass | GuardClass[]`, chain order, first non-true wins; parent guards cover subtrees, evaluated once per navigation into the subtree.
+**Composition:** `guard: typeof Guard | Array<typeof Guard>`, chain order, first non-true wins; parent guards cover subtrees and run once per navigation whose chain contains them (moving between siblings under the same parent runs the parent guard again).
 
 **Denial semantics by vector:** pushState nav → clean abort (nothing happened; the denied URL never enters history; the deny target is then resolved as its own navigation). Initial load / popstate → resolve the deny as a redirect via `replaceState` (no lingering denied entry). Guidance: auth/permission guards return a route-arm `Destination` (with `query: { returnTo }` where appropriate), not bare `false`.
 
@@ -1299,7 +1335,7 @@ Outlet names are a **statically-declared closed set**. No public dynamic registr
 
 **Reserved v3 vocabulary (specified, not shipped):** a `challenge` decision (v2.2 idiom: redirect to a challenge surface with `returnTo`); structured deny reasons (slot into narration now as strings); envelope boundary events beyond navigation (`kind: 'navigation' | 'message'` — socket-borne authorization through the same machinery); fingerprint-as-evidence-never-identity.
 
-**Batteries (tier 2, `@diamondjs/guards`):** converters are the data batteries; guards are the policy batteries. Abstract mid-classes configured at the app tier via static fields (`class ExampleSSO extends OAuthGuard { static issuer = … }`). **2.2.0 resolution:** the project sketches were withdrawn in favor of ideation fixtures, so no battery family had a confirmed real-world inventory — the package ships as a scaffold with zero mid-classes (no stubs, D-16 lesson); candidates recorded: `OAuthGuard`, `WebAuthnGuard`, `CapabilityGuard`, `TenantGuard`. First batteries land in a 2.2.x once the first consuming app's guard inventory exists. Per-route parameterization (`{use, state}`) deferred.
+**Batteries (tier 2, `@diamondjs/guards`):** converters are the data batteries; guards are the policy batteries. Abstract mid-classes configured at the app tier via static fields (`class ExampleSSO extends OAuthGuard { static issuer = … }`). **2.2.0 resolution:** the project sketches were withdrawn in favor of ideation fixtures, so no battery family had a confirmed real-world inventory — the package ships as a scaffold with zero mid-classes (no stubs, D-16 lesson) — it re-exports the `GuardContext` and `Destination` types and nothing else; candidates recorded: `OAuthGuard`, `WebAuthnGuard`, `CapabilityGuard`, `TenantGuard`. First batteries land in a 2.2.x once the first consuming app's guard inventory exists. Per-route parameterization (`{use, state}`) deferred.
 
 ### 17.8 Pending (departure-safety semaphore)
 
@@ -1309,18 +1345,18 @@ Outlet names are a **statically-declared closed set**. No public dynamic registr
 
 The `beforeunload` handler is installed only while the count > 0 and removed at zero — **a persistent handler disables bfcache; this conditionality is correctness, not economy**. Browsers show generic dialog text; labels are for logs/UI only.
 
-In-app pushState navs: phase-1 check — `Pending.active` → `window.confirm`, abort cleanly on decline. **Known gap, documented:** SPA Back (popstate) is not intercepted (the deferred canLeave problem); departure with active holds narrates `Print('WARNING', 'departure with active holds: <labels>')`. Holds are not cancellation; in-flight promises run to completion.
+In-app pushState navs: phase-1 check — `Pending.active` → `window.confirm`, abort cleanly on decline. **Known gap, documented:** SPA Back (popstate) is not intercepted (the deferred canLeave problem); departure with active holds narrates `Print('WARNING', 'departure with active holds: <labels>')`, from the popstate path and from the `beforeunload` handler alike. Holds are not cancellation; in-flight promises run to completion.
 
 Every acquire/release narrates via `Print('STATE', …)`.
 
 
 ### 17.9 Links & startup
 
-**Link pattern (spec §6.3 is the verbatim authority):** static `href` attribute + click interceptor — same-origin, primary button, no modifier keys → `preventDefault` + `navigate()`. Middle-click, modifier clicks, and external hrefs pass through untouched. So do anchors that are not in-app navigation: an anchor with a `download` attribute, a `target` other than `_self`, or a `rel` containing `external`, and any href whose scheme is not `http` / `https` (`blob:`, `data:`, `mailto:`, `tel:`). *(2.2.4, #14)*
+**Link pattern** (the reason §6.3 keeps `href` off the allowlist)**:** static `href` attribute + click interceptor — a click on an `<a href>`, same-origin, primary button, no modifier keys, not already `defaultPrevented` → `preventDefault` + `navigate()`. Middle-click, modifier clicks, and external hrefs pass through untouched. So do anchors that are not in-app navigation: an anchor with a `download` attribute, a `target` other than `_self`, or a `rel` containing `external`, and any href whose scheme is not `http` / `https` (`blob:`, `data:`, `mailto:`, `tel:`). *(2.2.4, #14)*
 
 **URLs behave as in HTML.** `navigate(url)` parses its argument as a URL: an app-relative path, optionally followed by a query and a hash. An intercepted link calls `navigate()` with the link's path, query and hash, so a link and the equivalent `navigate()` call are one code path. Matching is path-only (§17.4). The query and hash are carried into the history entry unchanged, and a route's declared `query` converters parse the query of the URL being navigated to. Initial load and `popstate` keep the location's query and hash. *(2.2.4, #20/#28)*
 
-**Fragments and scroll.** A link whose URL differs from the current one only by its fragment — including `href="#"` — is not intercepted: the browser scrolls (to the target, or to the top for an empty fragment) and no route work happens. A `popstate` that changes only the hash is likewise ignored. After a route navigation commits, the router scrolls to the element the hash identifies; a navigation without a hash starts at the top; the initial load is left to the browser. On Back / Forward the scroll position recorded for the entry being returned to is restored once the page has mounted; an entry the router never left has none, and its hash target, if any, applies instead. *(2.2.4, #28)*
+**Fragments and scroll.** A link whose URL differs from the current one only by its fragment — including `href="#"` — is not intercepted: the browser scrolls (to the target, or to the top for an empty fragment) and no route work happens. A `popstate` that changes only the hash is likewise ignored. After a route navigation commits, the router scrolls to the element the hash identifies (`#top`, case-insensitive, is the top, as in HTML; a hash naming no element counts as no hash); a push without a hash starts at the top; on the initial load a hash target is scrolled to once the page is in place and, without one, the position is left to the browser. A page whose template root is a structural has that branch placed before the hash lookup (§5.4.4, #38). On Back / Forward the scroll position recorded for the entry being returned to is restored once the page has mounted; an entry the router never left has none, and its hash target, if any, applies instead. *(2.2.4, #28)*
 
 The browser's `history.scrollRestoration` setting is left alone. Because `navigate()` reads a URL, its pathname is percent-encoded as a link's would be (`navigate('/café')` writes `/caf%C3%A9`).
 
@@ -1342,6 +1378,8 @@ class Router {
 }
 ```
 
+`start()` is idempotent; `stop()` disposes every occupant deepest-first and removes the click and `popstate` listeners.
+
 ### 17.11 Tooling: route-check
 
 Standalone bin (stink-check posture), ships in `@diamondjs/dev` *(bin moved there in 2.2.2)*. **Errors speak route IDs.** Rules, each with pass+fail fixtures:
@@ -1359,11 +1397,11 @@ route-check loads consumer `.ts` route modules through tsx. Template (`*.diamond
 
 ### 17.13 run_mode / `__DIAMOND_DEV__`
 
-The Parcel transformer reads `<projectRoot>/app/config/config.json` → `app.settings.run_mode` (`"dev" | "prod"`) once per build. Dev/prod is a **build-time property**; flipping requires a rebuild. Fail-closed defaults: absent file or absent key → `prod`. Malformed JSON that exists but cannot parse → **build error**, never a silent prod default. Compiled template modules receive `const __DIAMOND_DEV__ = <bool>` and mirror it onto `globalThis` for the runtime's dev-gated surfaces.
+The Parcel transformer reads `<projectRoot>/app/config/config.json` → `app.settings.run_mode` (`"dev" | "prod"`) once per build. Dev/prod is a **build-time property**; flipping requires a rebuild. Fail-closed defaults: absent file or absent key → `prod`. Malformed JSON, or a `run_mode` other than `"dev"` / `"prod"` → **build error**, never a silent prod default. Compiled template modules receive `const __DIAMOND_DEV__ = <bool>` and mirror it onto `globalThis` for the runtime's dev-gated surfaces.
 
-### 17.14 Normative reference route map (open input #1 — RESOLVED, ideation mode)
+### 17.14 Normative reference route map
 
-Joe's original project route sketches were withdrawn in favor of **ideation-mode fixtures** (ratified): a hypothetical, project-agnostic application — **"Conveyor", a generic ingest-pipeline app** — whose tree exercises every structural shape the grammar offers: single child, multiple sibling children alternating in one outlet, children nested inside children (depth 3), static-beats-param specificity, converter parse-fail fall-through, a two-hop redirect chain, guard chains with subtree coverage, and a terminal wildcard. This map is the normative worked example; `packages/runtime/tests/router-reference-map.test.ts` exercises it verbatim, including the all-vectors leak-free exit criterion.
+The reference map is an **ideation-mode fixture**: a hypothetical, project-agnostic application — **"Conveyor", a generic ingest-pipeline app** — whose tree exercises every structural shape the grammar offers: single child, multiple sibling children alternating in one outlet, children nested inside children (depth 3), static-beats-param specificity, converter parse-fail fall-through, a two-hop redirect chain, guard chains with subtree coverage, and a terminal wildcard. This map is the normative worked example; `packages/runtime/tests/router-reference-map.test.ts` exercises it verbatim, including the all-vectors leak-free exit criterion.
 
 ```ts
 const routes = {
@@ -1456,7 +1494,7 @@ const routes = {
 
 Normative behaviors this tree pins down: `/pipeline/runs/latest` beats `/pipeline/runs/:runId` (static beats param, regardless of declaration order); `/pipeline/runs/oops` fails `IntConverter` and falls through to `not-found`; `/legacy/dashboard` resolves through two redirect hops spanning both internal Destination arms (`route-path` → `route-id`) to `home`; navigating between `pipeline` siblings never remounts `PipelineShell` (**occupancy diffs on the params each route's own resolved path consumes** — a child-only param change never remounts the parent); `/pipeline/runs/1042/notes/7` mounts a multi-outlet plan from one URL — `main` + `pipeline-body` + the root-declared `panel` (root outlets are always a legal target, even for deep children); `OperatorGuard` is evaluated once per navigation into the subtree; `[OperatorGuard, AdminGuard]` runs in declared chain order. `IntConverter` and `SlugConverter` ship in `@diamondjs/converters` as of v2.2.1.
 
-### 17.15 basePath (open input #2 — RESOLVED: yes, both deployments)
+### 17.15 basePath
 
 `new Router(routes, { basePath })`. Deployments at the domain root omit it (default `''`). An app served from a folder one-or-N levels deep sets `basePath` to the **public prefix as the browser sees it** — e.g. `'/tools/reports'`.
 
@@ -1517,7 +1555,7 @@ STATE: <ts> - <caller> - ~~~ route table: id | path | outlet | params | guards |
 STATE: <ts> - <caller> - ~~~ home | / | main | - | - | - ~~~
 STATE: <ts> - <caller> - ~~~ workspace | /w | main | - | ExampleSSO | - ~~~
 STATE: <ts> - <caller> - ~~~   item-detail | /w/items/:id | workspace-body | id:IntConverter | - | - ~~~
-STATE: <ts> - <caller> - ~~~ legacy-home | /old | → redirect 'home' ~~~
+STATE: <ts> - <caller> - ~~~ legacy-home | /old | → route-id 'home' ~~~
 ```
 
 ### Appendix E — Rejected alternatives (recorded so they stay dead)
@@ -1549,6 +1587,9 @@ Each entry lists what this specification gained or changed in that release. The 
 - §13.1 / §13.5 / §13.6: static text takes no variable and is emitted as `append` arguments, one call per parent; mounted-output shape is markup plus the listed framework nodes.
 - §4.5: template component composition, C-1…C-10, recorded as a proposal for v2.3.1; §12.3 lists its proposed codes.
 - §4: the Lifecycle Contract — six phases, one callback each; `mount`/`unmount`/`dispose` final with a construction-time override guard; `update()` removed; instance and mount scopes; `mounted` means connected; child-first delivery; rollback by inventory; generations; terminal `faulted`/`disposed`; the lifecycle record and its emissions; `DiamondCore.child` (§4.2, §4.4–§4.7, §17.2); `whileMounted`; public `Scope` operations. Closes lifecycle defects P-1…P-6 and #38; records D-24 (deferred to v2.3.1).
+- §5.4.4: a root-level structural is placed by the connection drain, before `mounted()` and before the router's hash scroll (#38, D-25). §7.2: `captureScope` disposes on throw; `effect()` registers into the current scope.
+- §11: `Scope`, `ScopeFailure`, `fold`, `Phase`, `Cause` and `LifecycleRecord` exported; the scope operations and `child` on `DiamondCore`; `trackRange` gains `nodes()`. §12.5: lifecycle emissions and the detached-root warning; the new runtime throws. §14: figures at `07cf171`.
+- §15: `Print` carries the lifecycle emissions. §16: D-23 kept open, D-24 recorded; the lifecycle defects and D-22 listed as closed; D-26, D-27 and D-28 recorded by the 2.3.0 audit of this document against the code. Appendix A: the lifecycle and whitespace rows. Appendices E/F: the rejected lifecycle alternatives and the record's out-of-scope list.
 
 **2.2.4**
 - §5.2: literal `${` (#29) and literal author text in compiled output (#19).
