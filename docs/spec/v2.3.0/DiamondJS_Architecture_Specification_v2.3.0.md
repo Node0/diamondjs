@@ -1,10 +1,10 @@
 # DiamondJS — Architecture & Design Specification v2.3.0
 
-**Status:** Draft · the contract for v2.3.0: v2.2.4 plus the Lifecycle Contract (as merged from PR #39), preserved template text (#15) and template component composition (D-21). §4.5 is **proposed, pending ratification**; everything else is ratified decision.
+**Status:** Draft · the contract for v2.3.0: v2.2.4 plus the Lifecycle Contract (PR #39) and preserved template text (#15). §4.5 records the template component composition proposal, deferred to v2.3.1.
 **Author:** Joe Hacobian
 **Supersedes:** the v2.2.4 specification (`docs/spec/v2.2.4/`), and through it the v2.1 spec, Amendment A3, the v2.2 Router Specification and Work Order. Those remain the *rationale* archive; this document is the single authoritative *reference*. `diff` against the v2.2.4 file shows exactly what 2.3.0 changes.
 
-**Consolidation basis:** the v2.1 spec → Amendment A3 (v2.1.1 conformance patch, v2.2.0 logging/measurement rulings) → the v2.2 Router Specification (v2.2.0, with the v2.2.1 Destination record folded in) → the 2.2.2–2.2.4 fixes → the 2.3.0 changes: the Lifecycle Contract design record (LC-1…LC-16) as implemented in PR #39, preserved text (#15), and template component composition (proposed). Section numbers §1–§16 keep their v2.1 meaning so that every `§n` citation in source comments and earlier records still resolves; the router becomes §17 and keeps the Router Specification's own numbering (Router Specification §9 is §17.9 here); the appendices move to §18. Appendix G is the version changelog.
+**Consolidation basis:** the v2.1 spec → Amendment A3 (v2.1.1 conformance patch, v2.2.0 logging/measurement rulings) → the v2.2 Router Specification (v2.2.0, with the v2.2.1 Destination record folded in) → the 2.2.2–2.2.4 fixes → the 2.3.0 changes: the Lifecycle Contract design record (LC-1…LC-16) as implemented in PR #39, and preserved text (#15). Section numbers §1–§16 keep their v2.1 meaning so that every `§n` citation in source comments and earlier records still resolves; the router becomes §17 and keeps the Router Specification's own numbering (Router Specification §9 is §17.9 here); the appendices move to §18. Appendix G is the version changelog.
 
 ---
 
@@ -257,9 +257,9 @@ export class Ticker extends Component {
 
 **The override guard (LC-3).** The `Component` constructor throws if the subclass overrides `mount` or `unmount`, naming the replacement callback. This is the migration's fail-loud point: every 2.2.x component that wrote `override mount(host) { super.mount(host); … }` fails at construction, not silently at runtime. Migration: `override mount(host) { super.mount(host); … }` becomes `override mounted() { … }`, and `override unmount() { …; super.unmount() }` becomes `override unmounting() { … }`.
 
-### 4.5 Template component composition *(2.3.0, D-21)* — **PROPOSED, pending ratification**
+### 4.5 Template component composition *(D-21)* — **proposed for v2.3.1, not shipped**
 
-> **Not yet ratified.** This section records the composition design brief (decisions C-1…C-10) as revised against the Lifecycle Contract. Each decision is the recommendation, not a ruling; the author rules on each before the compiler work begins, and this banner is removed then. Until it is, §12.3 and §16 describe the 2.2.4 boundary (`component-composition-unsupported`) as still in force.
+> **Deferred to v2.3.1.** This section records the composition design brief (decisions C-1…C-10) as revised against the Lifecycle Contract. Each decision is the recommendation, not a ruling; the author rules on them in v2.3.1. In 2.3.0 the 2.2.4 boundary stands: the compiler errors `component-composition-unsupported` on an imported hyphenated tag, and children are mounted imperatively or with `DiamondCore.child` (§4.4).
 
 A parent template instantiates a child component by writing its tag. **Props flow down as one-way writes to the child's `@reactive` fields; events flow up as standard DOM events on the host; there is no implicit event bus.** The runtime seam is `DiamondCore.child` (§4.4, shipped with the Lifecycle Contract); the compiler emits the calls.
 
@@ -589,7 +589,7 @@ Whitespace consumed as **syntax** is exactly:
 - **(a)** between an `if`/`else-if` and an `else-if` that follows it — only when one follows, and only ASCII whitespace (§5.4.1);
 - **(b)** directly inside `<switch>`, between cases (§5.4.3);
 - **(c)** before the first root and after the last root of a component template. A component's template mounts inside its host (§4.4), so the whitespace around a component's tag belongs to the parent template and is kept there;
-- **(d)** whitespace-only content between a component tag's open and close tags (§4.5 C-9, proposed).
+- **(d)** with composition (v2.3.1): whitespace-only content between a component tag's open and close tags (§4.5 C-9, proposed). In 2.3.0 a hyphenated tag is a plain element, and its content is content.
 
 Everything inside an element is content — `<case>` and `<default>` bodies included. NBSP, narrow and thin spaces, tabs and line breaks are kept as written; parse5's own normalization (the single newline HTML drops after `<pre>` and `<textarea>`, CRLF → LF) is the only normalization. Punctuation adjacency and intentional word fragments are kept: `un<em>break</em>able` and `<strong>Stop</strong>!` acquire no space.
 
@@ -927,11 +927,11 @@ The compiler returns `diagnostics: Diagnostic[]` on `CompileResult`; each is `{ 
 | `converter-missing-parse` | error | a converter used on an inbound leg resolves but has no `static parse` within 3 hops |
 | `pipe-transform-standalone` | error | a standalone module has pipe heads uncovered by `@import` (`location: null`) |
 | `component-composition-unsupported` *(v2.1.1, D-21)* | error | a hyphenated tag whose PascalCase form is imported by the component module — **retired** when §4.5 is ratified |
-| `component-self-closing` *(proposed, §4.5 C-10)* | error | a self-closing component tag |
-| `component-children-unsupported` *(proposed, C-9)* | error | non-whitespace content between a component tag's open and close tags |
-| `component-prop-two-way` *(proposed, C-4)* | error | `.bind` / `.two-way` / `.from-view` on a component tag |
-| `component-ref-in-repeat` *(proposed, C-7)* | error | `ref` inside `repeat.for` |
-| `component-prop-reserved` *(proposed, C-5)* | error | a prop named for a base-class member |
+| `component-self-closing` *(proposed for v2.3.1, §4.5 C-10)* | error | a self-closing component tag |
+| `component-children-unsupported` *(proposed for v2.3.1, C-9)* | error | non-whitespace content between a component tag's open and close tags |
+| `component-prop-two-way` *(proposed for v2.3.1, C-4)* | error | `.bind` / `.two-way` / `.from-view` on a component tag |
+| `component-ref-in-repeat` *(proposed for v2.3.1, C-7)* | error | `ref` inside `repeat.for` |
+| `component-prop-reserved` *(proposed for v2.3.1, C-5)* | error | a prop named for a base-class member |
 
 ### 12.4 Security-gate diagnostics (compile-time `gateSink`)
 
@@ -1030,7 +1030,7 @@ DiamondCore.bind(el_input_0, 'value',
 
 ### 13.6 Mounted-output shape
 
-The DOM a template produces equals its markup with directives erased, plus exactly these framework nodes: one trailing comment anchor per structural directive; the inspectable comment of a statically-dead switch; and the `<!---->` start marker in front of a body that begins with a structural (§5.4.4). A composed component's host element is ordinary markup — the tag the author wrote (§4.5, proposed). Text is not a framework node: it is exactly the parser's (§5.9).
+The DOM a template produces equals its markup with directives erased, plus exactly these framework nodes: one trailing comment anchor per structural directive; the inspectable comment of a statically-dead switch; and the `<!---->` start marker in front of a body that begins with a structural (§5.4.4). A composed component's host element is ordinary markup — the tag the author wrote (§4.5, proposed for v2.3.1). Text is not a framework node: it is exactly the parser's (§5.9).
 
 ---
 
@@ -1048,7 +1048,7 @@ Nine workspace packages, lockstep at **2.3.0**: `@diamondjs/primafacie`, `@diamo
 | `@diamondjs/dev` (toolchain) | 545 | 800 | 68.1% |
 | **Total (production)** | **5,342** | **9,500** | **56.2%** |
 
-Figures are the 2.2.4 baseline at `82bb8bc`. The Lifecycle Contract brings the runtime to **2,027** production LOC (+281 against its +300 ceiling; 81.1% of budget) and the suite to 922 tests across 63 files, with the lifecycle tests run under both toolchain shapes (`npm run test:lifecycle`) and ten Playwright acceptance tests against Chromium. Composition is budgeted at ~200 runtime LOC plus its compiler share, which leaves the runtime about 270 lines under its ceiling; 2.3.0 figures are measured at release. Warning thresholds in `check-loc-budget.ts`: runtime 2,250, compiler 4,500, parcel 250, converters 400, primafacie 350, dev 700. The dev-toolchain budget (800) entered with 2.2.2, raising the total from 8,700 to 9,500. `@diamondjs/guards` has a stated budget of 400 but no row in the budget tool yet. The suite at `82bb8bc` is 859 tests across 57 files, passing on Node 20.18.1 and Node 22.
+Figures are the 2.2.4 baseline at `82bb8bc`. The Lifecycle Contract brings the runtime to **2,027** production LOC (+281 against its +300 ceiling; 81.1% of budget) and the suite to 922 tests across 63 files, with the lifecycle tests run under both toolchain shapes (`npm run test:lifecycle`) and ten Playwright acceptance tests against Chromium. Composition (v2.3.1) is budgeted at ~200 runtime LOC plus its compiler share, which leaves the runtime about 270 lines under its ceiling; 2.3.0 figures are measured at release. Warning thresholds in `check-loc-budget.ts`: runtime 2,250, compiler 4,500, parcel 250, converters 400, primafacie 350, dev 700. The dev-toolchain budget (800) entered with 2.2.2, raising the total from 8,700 to 9,500. `@diamondjs/guards` has a stated budget of 400 but no row in the budget tool yet. The suite at `82bb8bc` is 859 tests across 57 files, passing on Node 20.18.1 and Node 22.
 
 The batteries (`@diamondjs/converters`, and `@diamondjs/guards` once it carries mid-classes) are kept separate from the runtime; `ParseResult` stays in the runtime so batteries and user converters import the same contract and it cannot drift.
 
@@ -1074,7 +1074,7 @@ Shipped v2.3.0 meets the contracts above except for the items below. Each is dis
 
 ### Open defects (fix-the-code)
 
-- **D-24 — `fold` is a standalone exported function** *(recorded 2.3.0)*. §3.1 #6 requires runtime code to be class methods or static namespaces, never lone exported functions; `fold(history)` ships as one. Fix: a static (`Component.fold`) or a method on the record.
+- **D-24 — `fold` is a standalone exported function** *(recorded 2.3.0)*. §3.1 #6 requires runtime code to be class methods or static namespaces, never lone exported functions; `fold(history)` ships as one. Disposition deferred to v2.3.1: a static (`Component.fold`), a method on the record, or an accepted exception.
 
 - **D-23 — `createTemplate()` and `element` are typed `HTMLElement`** *(recorded 2.2.4)*. A template with two or more roots returns a `DocumentFragment`, and the managed range (§5.4.4) may begin with a comment. §4.4 types both as `Node`. Fix: correct the declarations.
 
@@ -1094,7 +1094,7 @@ Shipped v2.3.0 meets the contracts above except for the items below. Each is dis
 
 - **D-19 — `generateNodes` re-accretion.** The complexity debt is closed, but the v2.1 switch guard restored the loop to depth 3 / CC 8–10; a fifth structural sibling clause reopens it. The proven remedy is the same extraction (fold the switch guard into `generateStructural`-style dispatch). *(No disposition recorded since v2.1.)*
 
-- **D-21 — Template component composition.** Proposed for 2.3.0 (§4.5). Until it is ratified and shipped, the compiler errors `component-composition-unsupported` on an imported hyphenated tag; the runtime seam (`DiamondCore.child`) ships with the Lifecycle Contract.
+- **D-21 — Template component composition.** Proposed for v2.3.1 (§4.5). Until then, the compiler errors `component-composition-unsupported` on an imported hyphenated tag; the runtime seam (`DiamondCore.child`) ships with the Lifecycle Contract.
 
 - **SPA Back is not intercepted by `Pending`** (§17.8). Departure with active holds through Back narrates a `WARNING`; the `canLeave` veto is deferred (Appendix F).
 
@@ -1498,7 +1498,7 @@ Normative rules:
 | Lifecycle | constructor, `mount`, `update`, `unmount` (overridable) | constructor, `constructed`, `mounting`, `mounted`, `unmounting`, `unmounted`; `mount`/`unmount`/`dispose` final; `update` removed (2.3.0) |
 | In-app navigation | — | static `href` + interceptor; `router.navigate(url)` (v2.2.0; URL form 2.2.4) |
 | Template whitespace | trimmed | kept exactly as parsed (2.3.0) |
-| Child component | `<child-component name.bind=…>` (design text, never shipped) | `<child-component name.to-view=…>` + `ref`, events via `emit` (2.3.0, proposed) |
+| Child component | `<child-component name.bind=…>` (design text, never shipped) | `<child-component name.to-view=…>` + `ref`, events via `emit` (proposed for v2.3.1) |
 
 ### Appendix B — Framework positioning
 
@@ -1508,7 +1508,7 @@ Against Aurelia 2.0: same template syntax lineage, but no DI (explicit imports),
 
 DiamondJS is the SemVer canary for the project fleet: the substrate everything else (Crystallizer, NetPad, the neuron tooling) builds on gets the honest compatibility contract first, and downstream expresses its dependency precisely (`@diamondjs/*@^2.2.0`). The v2.0 major captured the wholesale binding-language and security-model break; v2.1 was additive (switch, spread, collection/delegate, error-into, @import, source maps, primafacie, root cleanup); v2.2 added the router. Because the raw-path architecture means post-stability security hardening turns new raw call sites into audited escape hatches rather than breaking changes, the eventual clean stable line can hold — which is the argument for doing the foundational churn now, pre-stability, where it costs almost nothing.
 
-**2.3.0 breaks compatibility in a minor release, by the author's decision.** The Lifecycle Contract makes `mount()`/`unmount()` final (overriding them throws at construction), removes `update()`, makes `unmount()` on an instance that is not mounted throw, and requires a connected host for `mounted()` and for root-level structurals to render. Preserved template text gives indented inline-block siblings the normal HTML gap unless their parent is flex or grid (§5.9). These ship in a minor rather than a major because the only consumer is the author's own application, and the lifecycle migration is mechanical and fails loud (§4.4). The changelog lists them under **Breaking**. The spec version tracks the published package version, release for release.
+The lifecycle hooks (§4.4) shipped in v2.3.0. The spec version tracks the published package version, release for release.
 
 ### Appendix D — Route-table line format
 
@@ -1534,7 +1534,7 @@ STATE: <ts> - <caller> - ~~~ legacy-home | /old | → redirect 'home' ~~~
 
 **Router:** `canLeave` with popstate veto semantics (history stamping ships now as forward-compat); keep-alive/route caching; stacked overlay routing; transitions; data resolvers; compiler-lowered `<outlet>`; `ctx.state` request-scoped store; parameterized guards (`{ use, state }`); the `challenge` decision type; guards battery mid-classes (scaffolded; first families land with the first consuming app's guard inventory). ~~base-path~~ — shipped in 2.2.0 (§17.15). ~~Scroll restoration~~ — shipped in 2.2.4 (§17.9).
 
-**Components:** slots / content projection; `ref` inside `repeat.for` (§4.5, proposed).
+**Components (v2.3.1):** template component composition, C-1…C-10 (§4.5); `fold` as a static (D-24). Beyond v2.3.1: slots / content projection; `ref` inside `repeat.for`.
 
 **Lifecycle (out of scope for the Lifecycle Contract record, LC-16):** a mutation journal / value rollback; a `Request` async-operation battery (beside `Pending`, separate package); retained delivery of writes to not-yet-connected targets; a `visible` / has-a-box phase; compiler site ids; a persistence exporter for the lifecycle ring (that is `wsSink`); any prop-batch callback.
 
@@ -1547,8 +1547,8 @@ Each entry lists what this specification gained or changed in that release. The 
 **2.3.0** *(this document)*
 - §5.9: template text kept exactly as the HTML parser produces it; whitespace consumed as syntax limited to (a)–(d); the lossless property; closes D-22 (#15).
 - §13.5 / §13.6: static text emitted as `append` arguments; mounted-output shape is markup plus the listed framework nodes.
-- §4.5: template component composition, C-1…C-10 — **proposed**; §12.3 proposed codes.
-- §4: the Lifecycle Contract — six phases, one callback each; `mount`/`unmount`/`dispose` final with a construction-time override guard; `update()` removed; instance and mount scopes; `mounted` means connected; child-first delivery; rollback by inventory; generations; terminal `faulted`/`disposed`; the lifecycle record and its emissions; `DiamondCore.child` (§4.2, §4.4–§4.7, §17.2); `whileMounted`; public `Scope` operations. Closes lifecycle defects P-1…P-6 and #38; records D-24.
+- §4.5: template component composition, C-1…C-10, recorded as a proposal for v2.3.1; §12.3 lists its proposed codes.
+- §4: the Lifecycle Contract — six phases, one callback each; `mount`/`unmount`/`dispose` final with a construction-time override guard; `update()` removed; instance and mount scopes; `mounted` means connected; child-first delivery; rollback by inventory; generations; terminal `faulted`/`disposed`; the lifecycle record and its emissions; `DiamondCore.child` (§4.2, §4.4–§4.7, §17.2); `whileMounted`; public `Scope` operations. Closes lifecycle defects P-1…P-6 and #38; records D-24 (deferred to v2.3.1).
 
 **2.2.4**
 - §5.2: literal `${` (#29) and literal author text in compiled output (#19).
