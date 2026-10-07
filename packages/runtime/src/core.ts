@@ -128,8 +128,9 @@ export class DiamondCore {
     }
   }
 
+  /** A branch has no instance to fault (§4.6); its cleanup failures are recorded through Print (D-26). */
   private static report(failures: ScopeFailure[]): void {
-    for (const f of failures) console.error('[Diamond] Cleanup error:', f.error)
+    for (const f of failures) Print('FAILURE', `[Diamond] cleanup #${f.index} threw: ${String(f.error)}`)
   }
 
   /**

@@ -57,6 +57,9 @@ describe('switch — parsing', () => {
     ['<switch on="s" class="x"><case if="a">x</case></switch>', 'switch-extraneous-attr'],
     ['<switch on="s"><div>x</div></switch>', 'switch-bad-child'],
     ['<switch on="s">loose text<case if="a">x</case></switch>', 'switch-bad-child'],
+    // D-28: only ASCII whitespace is syntax between cases; an NBSP is text.
+    ['<switch on="s"> <case if="a">x</case></switch>', 'switch-bad-child'],
+    ['<switch on="s"><case if="a">x</case> </switch>', 'switch-bad-child'],
     ['<switch on="s"><case>x</case></switch>', 'case-no-if'],
     ['<switch on="s"><case if="a" class="y">x</case></switch>', 'switch-extraneous-attr'],
     ['<switch on="s"><default>x</default><default>y</default></switch>', 'switch-multiple-default'],
