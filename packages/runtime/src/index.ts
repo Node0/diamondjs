@@ -21,8 +21,8 @@
  */
 
 // Core API
-export { DiamondCore } from './core'
-export { Component } from './component'
+export { DiamondCore, Scope, type ScopeFailure } from './core'
+export { Component, fold, type Phase, type Cause, type LifecycleRecord } from './component'
 
 // Collection-at-scale (v2.1, DDR §7.2 / 2.1a)
 export { Collection, type CollectionOptions } from './collection'

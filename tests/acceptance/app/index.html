@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Lifecycle acceptance</title>
+  <script type="importmap">
+    {
+      "imports": {
+        "@diamondjs/runtime": "/packages/runtime/dist/index.mjs",
+        "@diamondjs/primafacie": "/packages/primafacie/dist/index.mjs"
+      }
+    }
+  </script>
+  <style>
+    body { margin: 0; font: 14px system-ui; }
+    .scroller { height: 100px; overflow: auto; border: 1px solid #999; }
+    .tall { height: 1000px; }
+    .spacer { height: 2000px; }
+    .track { width: 240px; height: 24px; background: #ddd; }
+    .hidden { display: none; }
+    .list p { margin: 0; height: 20px; }
+    .sentinel { height: 1px; }
+  </style>
+</head>
+<body>
+  <!-- The outlet is created by app.js: this page is not a Diamond template and must not read as one. -->
+  <script type="module" src="/tests/acceptance/app/app.js"></script>
+</body>
+</html>

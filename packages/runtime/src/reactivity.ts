@@ -45,6 +45,9 @@ export class ReactivityEngine {
   /** Properties already warned by the inbound smell check (warn-once) */
   private smellWarned = new WeakMap<object, Set<PropertyKey>>()
 
+  /** Effects created and not yet disposed — counted in dev builds only (test harness). */
+  liveEffects = 0
+
   /**
    * Create a reactive proxy for an object.
    * Uses WeakMap cache to ensure the same proxy is returned for
@@ -235,11 +238,14 @@ export class ReactivityEngine {
 
     // Run immediately to collect dependencies
     effectFn()
+    const counted = (globalThis as { __DIAMOND_DEV__?: unknown }).__DIAMOND_DEV__ === true
+    if (counted) this.liveEffects++
 
     // Return cleanup function. The disposed flag makes the scheduler drop
     // this effect if it was queued before disposal (§16 D-7) — flushing it
     // would re-arm tracking and re-subscribe a dead effect.
     return () => {
+      if (counted && !effectFn.disposed) this.liveEffects--
       effectFn.disposed = true
       this.cleanupEffect(effectFn)
     }

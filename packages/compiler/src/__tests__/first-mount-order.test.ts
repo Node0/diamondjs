@@ -137,15 +137,15 @@ describe('end-to-end: compiled structurals render synchronously on mount', () =>
     c.unmount()
   })
 
-  it('a structural at the template ROOT renders after one microtask (runtime guard)', async () => {
+  it('a structural at the template ROOT renders synchronously into a connected host (connection drain)', () => {
     const c = componentFrom('<div if="ready">ROOT</div>', { ready: true })
-    const host = document.createElement('div')
+    const host = document.body.appendChild(document.createElement('div'))
     c.mount(host)
-    await new Promise<void>((r) => setTimeout(r, 0))
     // #17: a body that begins with a structural mounts behind a start marker,
     // so unmount() can remove the branch that rendered before the anchor.
     expect(host.innerHTML).toBe('<!----><div>ROOT</div><!--if-->')
     c.unmount()
     expect(host.innerHTML).toBe('')
+    host.remove()
   })
 })

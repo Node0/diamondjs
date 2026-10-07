@@ -120,7 +120,7 @@ npx parcel src/index.html
  
 No `vite.config.js`. No `webpack.config.js`. Just `.parcelrc` with two lines.
  
-> **Why both tsconfig flags:** `@reactive` installs a getter/setter that a field *assignment* flows through. `useDefineForClassFields` is TypeScript's default for ES2022+ targets (and what Parcel's SWC emits), and it *defines* the field as an own property instead — shadowing the accessor. The runtime detects and repairs this at `mount()` (with a one-time warning in dev builds), but set the flag so your compiled output is what it says it is.
+> **Why both tsconfig flags:** `@reactive` installs a getter/setter that a field *assignment* flows through. `useDefineForClassFields` is TypeScript's default for ES2022+ targets (and what Parcel's SWC emits), and it *defines* the field as an own property instead — shadowing the accessor. The runtime detects and repairs this at `constructed()` (with a one-time warning in dev builds), but set the flag so your compiled output is what it says it is.
  
 ---
  
@@ -131,21 +131,45 @@ No `vite.config.js`. No `webpack.config.js`. Just `.parcelrc` with two lines.
 Every component is a TypeScript/JavaScript class that extends `Component`. Templates are separate `.html` files compiled at build time. The compiler generates an instance `createTemplate()` method that uses `this` to reference your properties and methods — the same `this` you use everywhere else in the class.
  
 ```typescript
-import { Component, reactive } from '@diamondjs/runtime';
- 
-export class UserProfile extends Component {
-  @reactive name = '';
-  @reactive email = '';
-  lastSaved = 0;             // Not reactive — internal bookkeeping
- 
-  async save() {
-    await api.updateUser({ name: this.name, email: this.email });
-    this.lastSaved = Date.now();
+import { Component, DiamondCore, reactive } from '@diamondjs/runtime'
+
+export class MyComponent extends Component {
+  @reactive name = ''                 // reactive → drives the UI
+  @reactive count = 0
+  private saved = 0                   // bare → inert bookkeeping
+
+  constructor() { super() }           // the object exists; acquire nothing here
+
+  override constructed() {            // @reactive is live under any toolchain; no element yet
+    this.count = 1
+  }
+  override mounting() {               // about to appear: generation assigned, no template yet
+    this.saved = Date.now()
+  }
+  override mounted() {                // in the document: measure, focus, observe
+    this.getElement()?.querySelector('input')?.focus()
+  }
+  override unmounting() {             // still in the document; the generation is already invalid
+    this.saved = 0
+  }
+  override unmounted() {              // detached, state preserved; may be mounted again
+    this.count++
+  }
+
+  handleClick() { this.name = 'Updated' }   // `this` is always the component
+
+  // Compiler-generated from my-component.html; written out so the fixture mounts.
+  createTemplate(): HTMLElement {
+    const div = document.createElement('div')
+    const input = document.createElement('input')
+    DiamondCore.bind(input, 'value', () => this.name, (v) => (this.name = v as string))
+    div.appendChild(input)
+    return div
   }
 }
 ```
  
-Four lifecycle hooks, and that's it: `constructor` → `mount` → `update` → `unmount`.
+Six lifecycle phases, one callback each: `constructor` → `constructed()` → `mounting()` → `mounted()` → `unmounting()` → `unmounted()`. The names promise states: `mounted()` runs only when your element is in the document — children first, root-level `if`/`repeat` output already placed — so measuring, focusing and observers belong there, with no `requestAnimationFrame` dance. `mount()`, `unmount()` and `dispose()` are final; overriding them throws at construction and names the callback to use. A failed mount rolls back by inventory (every binding, listener, effect and child the attempt acquired is released) and the error is rethrown; `phase`, `generation` and `history()` tell you where an instance stands.
  
 ### Reactivity
  
@@ -575,7 +599,7 @@ The entire framework fits in an LLM context window. That's not an accident — i
 - `if` / `switch` / `repeat` render synchronously on first mount (compiler attaches anchors before the call; runtime guards the detached case)
 - `<select>` bound after its `<option>` children — the initial model value selects, static or `repeat.for`-generated
 - Static `<a href="/path">` is the link pattern and passes `stink-check`; `role` is inert metadata like `data-*` / `aria-*`
-- `@reactive` repaired at `mount()` under `useDefineForClassFields: true`, with a once-per-class dev-build report
+- `@reactive` repaired at `constructed()` under `useDefineForClassFields: true`, with a once-per-class dev-build report
 - `route-check` loads page components' `*.diamond.html` / `*.css` imports as inert stubs (ESM and CommonJS consumers)
 
 **Second hardening pass (v2.2.4)**
@@ -588,6 +612,14 @@ The entire framework fits in an LLM context window. That's not an accident — i
 - URLs behave as in HTML: `navigate(url)` takes a query and hash and shares the link's code path; a navigation scrolls to its hash target or starts at the top; Back / Forward restore the scroll position; `href="#"` passes through
 - A `@reactive` array re-renders on `push()`, `splice()` and every other in-place mutation, not only on reassignment
 - `route-check` runs on Node 20 and Node 22 for ESM and CommonJS consumers
+
+**Lifecycle contract (unreleased, next minor)**
+
+- Six phases, one callback each: `constructed()`, `mounting()`, `mounted()`, `unmounting()`, `unmounted()`; `mounted` means connected, delivered child-first
+- `mount()` / `unmount()` / `dispose()` are final; `update()` is retired (props are reactive writes)
+- Rollback by inventory: a throw anywhere in a mount releases everything the attempt acquired; `phase`, `generation`, `history()`, `domPing()`
+- Two scopes: `debounce` / `throttle` cancels survive a remount; `whileMounted(fn)` declines a stale callback after `unmount()`
+- A page whose template root is a structural scrolls to its hash target on navigation
 - A fresh clone builds with a single `npm run build`
 
 **Known issues (v2.2.4)** — details in [CHANGELOG.md](CHANGELOG.md)

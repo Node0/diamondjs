@@ -70,8 +70,9 @@ describe('TaskBoard (Collection + delegate)', () => {
     const out = host.querySelector('p')!
 
     board.unmount()
-    list.querySelector('li')!.dispatchEvent(new Event('click', { bubbles: true }))
+    expect(list.querySelector('li')).toBeNull() // the rows left with their inventory
+    board.picked.label = 'changed'
     await tick()
-    expect(out.textContent).toBe('Picked: nothing yet')
+    expect(out.textContent).toBe('Picked: nothing yet') // the binding is disposed
   })
 })

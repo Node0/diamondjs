@@ -128,8 +128,9 @@ describe('DiamondCore.switch', () => {
     expect(host.textContent).toBe('x')
 
     cleanup()
+    expect(host.innerHTML).toBe('<!--switch-->') // the branch's range is in its inventory: disposed means detached
     state.label = 'y'
     await tick()
-    expect(host.textContent).toBe('x') // branch binding disposed with the scope
+    expect(host.textContent).toBe('') // and its binding is disposed with the scope
   })
 })

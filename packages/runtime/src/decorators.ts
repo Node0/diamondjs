@@ -10,7 +10,7 @@ import { Print } from '@diamondjs/primafacie'
 
 /**
  * Keys decorated @reactive, recorded per prototype (legacy decorators) or per
- * instance (TC39 field decorators never see a prototype). Component.mount()
+ * instance (TC39 field decorators never see a prototype). ensureConstructed()
  * reads them to repair fields that a [[Define]]-emitting toolchain turned into
  * own data properties (issue #11).
  */
@@ -64,7 +64,7 @@ function defineReactiveAccessor(target: object, key: string): void {
  * That relies on the field being ASSIGNED ([[Set]]). With [[Define]] semantics
  * (`useDefineForClassFields: true` — TypeScript's default for ES2022+ targets,
  * and what Parcel 2.16 / SWC emit) the field becomes an own data property that
- * shadows the accessor; the decorator records the key and Component.mount()
+ * shadows the accessor; the decorator records the key and ensureConstructed()
  * repairs it (adoptDefinedReactiveFields). TC39 field decorators cannot install
  * an accessor at all — they only see the instance — so that path records the
  * key too and relies on the same repair.
@@ -124,8 +124,8 @@ function hasInheritedSetter(instance: object, key: string): boolean {
  * accessor the legacy decorator installed on the prototype (the TC39 field path
  * never had one). Bindings then read a plain property, nothing is tracked, and
  * no if/bind/repeat ever re-renders — silently. The base constructor runs
- * before those fields exist, so Component.mount() — the first framework entry
- * point after construction — calls this: each shadowed value is captured,
+ * before those fields exist, so ensureConstructed() — the first framework
+ * entry point after construction, run by mount() or the construction site — calls this: each shadowed value is captured,
  * the own property deleted, an accessor supplied where the prototype has none,
  * and the value re-assigned so it lands in the reactive store. Zero cost when
  * the toolchain already emits [[Set]] assignments: no decorated key is then an
@@ -158,7 +158,7 @@ function reportDefineSemantics(instance: object, keys: string[]): void {
     'WARNING',
     `[Diamond] ${(ctor as { name?: string }).name || 'Component'}: @reactive field(s) [${keys.join(', ')}] ` +
       `were emitted with [[Define]] class-field semantics — the own data property shadowed the ` +
-      `reactive accessor. Repaired at mount(). Set "useDefineForClassFields": false (with ` +
+      `reactive accessor. Repaired at constructed(). Set "useDefineForClassFields": false (with ` +
       `"experimentalDecorators": true) in tsconfig.json so the toolchain emits [[Set]] assignments.`
   )
 }
