@@ -177,8 +177,9 @@ describe('repeat(): compiler call order', () => {
 
 describe('Component whose template ROOT is a structural', () => {
   // The compiler cannot pre-attach a root anchor (there is no parent yet);
-  // Component.mount() appends it after createTemplate() returns. The runtime
-  // guard is what makes this case render.
+  // Component.mount() appends it after createTemplate() returns. The placement
+  // waits in the mount scope and runs in the connection drain — synchronously,
+  // once the host is in the document (Lifecycle Contract, P-3).
   class RootIf extends Component {
     state = DiamondCore.reactive({ ready: true })
     createTemplate(): HTMLElement {
@@ -188,15 +189,15 @@ describe('Component whose template ROOT is a structural', () => {
     }
   }
 
-  it('renders the branch after mount()', async () => {
-    const host = document.createElement('div')
+  it('renders the branch synchronously on mount() into a connected host', () => {
+    const host = document.body.appendChild(document.createElement('div'))
     const c = new RootIf()
     c.mount(host)
-    await tick()
     // #17: a body that begins with a structural mounts behind a start marker,
     // so unmount() can remove the branch that rendered before the anchor.
     expect(host.innerHTML).toBe('<!----><span>ROOT-READY</span><!--if-->')
     c.unmount()
     expect(host.innerHTML).toBe('')
+    host.remove()
   })
 })

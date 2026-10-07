@@ -36,6 +36,7 @@
  */
 
 import { Component } from './component'
+import { DiamondCore } from './core'
 import { Guard, type GuardClass, type GuardContext } from './guard'
 import { Pending } from './pending'
 import { Print } from '@diamondjs/primafacie'
@@ -209,7 +210,7 @@ export class Router {
     const occupied = [...this.occupancy.entries()].sort(
       (a, b) => b[1].depth - a[1].depth
     )
-    for (const [name, occ] of occupied) this.unmountOutlet(name, occ)
+    for (const [name, occ] of occupied) this.unmountOutlet(name, occ, true)
   }
 
   /**
@@ -645,10 +646,13 @@ export class Router {
 
   /**
    * Transactional by ordering: (a) all incoming components CONSTRUCT first —
-   * a constructor throw aborts with the previous route fully intact; (b)
-   * outgoing unmount deepest-first; (c) incoming mount parent-first,
-   * discovering each component's declared outlets as it lands. A mount throw
-   * rolls back: newly mounted unmount, previous occupants remount.
+   * each in a scope of its own, constructed() run before any mount — a throw
+   * aborts with the previous route fully intact and the attempt disposed
+   * (P-5); (b) outgoing unmount deepest-first; (c) incoming mount
+   * parent-first, discovering each component's declared outlets as it lands.
+   * A mount throw rolls back: the attempt is disposed, previous occupants
+   * remount. Once the commit stands, the departed occupants are disposed —
+   * they are gone for good.
    */
   private commit(
     plan: Map<string, { route: FlatRoute; params: Record<string, unknown> }>
@@ -674,20 +678,22 @@ export class Router {
       .filter(([, occ]) => !keepIds.has(`${occ.routeId}|${occ.paramsKey}`))
       .sort((a, b) => b[1].depth - a[1].depth) // deepest first
 
-    // (a) Construct all incoming first — throw here leaves everything intact.
-    const constructed = incoming
-      .map((inc) => ({
-        ...inc,
-        component: new (inc.route.def as Extract<RouteDefinition, { component: unknown }>).component(
-          inc.params
-        ) as Component,
-      }))
-      .sort((a, b) => a.route.depth - b.route.depth) // parent first
+    // (a) Construct all incoming first — a throw leaves everything intact.
+    const constructed: Array<(typeof incoming)[number] & { component: Component }> = []
+    try {
+      for (const inc of incoming) {
+        constructed.push({ ...inc, component: this.construct(inc.route, inc.params) })
+      }
+    } catch (e) {
+      for (const c of constructed) c.component.dispose()
+      throw e
+    }
+    constructed.sort((a, b) => a.route.depth - b.route.depth) // parent first
 
-    // (b) Unmount outgoing, deepest-first.
+    // (b) Unmount outgoing, deepest-first (disposed once the commit stands).
     const removed: Array<[string, Occupant]> = []
     for (const [name, occ] of outgoing) {
-      this.unmountOutlet(name, occ)
+      this.unmountOutlet(name, occ, false)
       removed.push([name, occ])
     }
 
@@ -714,12 +720,15 @@ export class Router {
         mounted.push({ outlet: inc.outlet, component: inc.component, routeId: inc.route.id })
       }
     } catch (e) {
-      // Roll back: unmount what just mounted (deepest-first), remount what
-      // was removed (parent-first). Previous route stays the visible truth.
+      // Roll back by inventory (LC-7): what just mounted leaves deepest-first,
+      // every instance of the attempt is disposed (the one that threw has
+      // already rolled itself back), and what was removed remounts
+      // parent-first. Previous route stays the visible truth.
       for (const m of [...mounted].reverse()) {
         const occ = this.occupancy.get(m.outlet)
-        if (occ) this.unmountOutlet(m.outlet, occ)
+        if (occ) this.unmountOutlet(m.outlet, occ, true)
       }
+      for (const c of constructed) c.component.dispose()
       for (const [name, occ] of [...removed].sort((a, b) => a[1].depth - b[1].depth)) {
         const entry = this.outlets.get(name)
         if (!entry) continue
@@ -730,10 +739,36 @@ export class Router {
       }
       throw e
     }
+    for (const [, occ] of removed) occ.component.dispose()
   }
 
-  private unmountOutlet(name: string, occ: Occupant): void {
-    occ.component.unmount()
+  /**
+   * Construct a route component in a scope of its own (P-5): a constructor
+   * throw disposes what it acquired and nothing is registered; on success
+   * the scope's entries follow the instance and constructed() runs now, so
+   * every incoming component is `constructed` before any of them mounts.
+   */
+  private construct(route: FlatRoute, params: Record<string, unknown>): Component {
+    const Ctor = (route.def as Extract<RouteDefinition, { component: unknown }>).component
+    const scope = DiamondCore.openScope()
+    let component: Component
+    try {
+      component = new Ctor(params) as Component
+    } catch (e) {
+      scope.dispose()
+      throw e
+    } finally {
+      DiamondCore.closeScope(scope)
+    }
+    component.adopt(scope)
+    component.ensureConstructed()
+    return component
+  }
+
+  /** An occupant leaves its outlet: unmounted, or disposed when it leaves for good. */
+  private unmountOutlet(name: string, occ: Occupant, final: boolean): void {
+    if (final) occ.component.dispose()
+    else occ.component.unmount()
     this.occupancy.delete(name)
     const entry = this.outlets.get(name)
     if (entry) entry.active = null

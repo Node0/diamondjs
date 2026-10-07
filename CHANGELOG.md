@@ -4,6 +4,33 @@ All notable changes to DiamondJS are recorded here. The format follows [Keep a C
 
 Each release's *why* lives in its design record under `docs/spec/vX.Y.Z/`; the narrative account of how it was built is `impl_docs/project_update_log.md`.
 
+## [Unreleased]
+
+The lifecycle names promised states and the code delivered actions: `mount()` meant "template built and appended", which is in the document only for a root or a route component, and nothing told a component when it actually reached the document. Every real app worked around it by hand. The lifecycle is now a contract (spec §4.2, §4.4, §4.6; the Lifecycle Contract design record).
+
+### Breaking
+- **`mount()`, `unmount()` and the new `dispose()` are final.** A subclass that overrides `mount` or `unmount` throws at construction, naming the callback to use instead. Migration: `override mount(host) { super.mount(host); … }` becomes `override mounted() { … }`; `override unmount() { …; super.unmount() }` becomes `override unmounting() { … }`.
+- **`update()` is removed.** Nothing in the runtime, compiler or router called it; props arrive as writes to a child's `@reactive` fields, and the child's own reactivity is the notification.
+- **`unmount()` on an instance that is not mounted throws** (it used to be a silent no-op).
+- **A structural at a template root is placed by the connection drain**, not on a microtask: a component mounted into a host that is *not* in the document no longer renders a root-level `if` / `repeat` / `switch` output until it is connected (dev builds report the detached root once). Root hosts must be connected — which every real app already does; tests that mounted into `document.createElement('div')` append the host to `document.body` instead.
+- **A disposed branch is a detached one.** When a structural's branch or row, or a hand-written `captureScope`, is disposed, its nodes leave the DOM along with its effects and listeners.
+
+### Added
+- **Six phases, one callback each:** `constructed()`, `mounting()`, `mounted()`, `unmounting()`, `unmounted()`, plus the terminal `faulted` and `disposed`. `mounted()` runs only when the component's range is in the document, root-level structurals are placed and its children's `mounted()` have run (child-first) — so measuring, focusing and observers belong there. `@reactive` fields are repaired at `constructed()`, before any callback reads them.
+- **`phase` and `generation`** (reactive), **`history()`** (the last 32 transitions as `LifecycleRecord`s), **`fold()`**, **`domPing()`** (dev verification of the snapshot against the DOM), **`ensureConstructed()`**.
+- **Rollback by inventory.** Every framework acquisition registers into the current scope at creation; a throw anywhere in a mount — `mounting()`, `createTemplate()` at any point, the append, `mounted()` — disposes that scope (LIFO, each cleanup in its own `try`) and the instance returns to `constructed` (first mount) or `unmounted` (remount). A cleanup that throws faults the instance; `faulted` and `disposed` are terminal.
+- **Two scopes.** `debounce` / `throttle` cancels live in the instance scope: they run at `unmount()` and are kept, so a class-field one-liner works again after a remount (the documented "re-mount caveat" is gone).
+- **`whileMounted(fn)`** binds a callback to the current mount generation; after `unmount()` the wrapper declines and records `stale` — for `requestAnimationFrame`, fetch and other callbacks the inventory cannot cancel.
+- **`DiamondCore.child(instance, host)`**, the runtime call compiled composition (D8) will emit: the child is disposed with the parent's scope and delivered child-first when the parent connects. **`Scope`**, `DiamondCore.openScope` / `closeScope` / `withScope` / `drain` are public for the same reason `captureScope` is.
+- Transitions emit through `Print`: failures `FAILURE`, faults `CRITICAL`, stale callbacks `WARNING`, successes `STATE` in dev builds.
+- Lifecycle tests run under both toolchain shapes (TC39 decorators + `[[Define]]` fields, and legacy decorators + `[[Set]]`): `npm run test:lifecycle`.
+
+### Fixed
+- **A throw inside `createTemplate()` left the component flagged as mounted and leaked everything acquired before the throw** — the router's rollback only unmounted components that had finished mounting. (`captureScope` lost its scope on a throw for the same reason.)
+- **A page whose template root is a structural did not scroll to its hash target** (#38): the root-level branch was placed on a microtask, after the router's scroll step. Placements now run in the connection drain, before `mounted()` and before the scroll.
+- **A remounted component had no `debounce` / `throttle` cancels** — the first `unmount()` emptied the flat cleanup list.
+- **A constructor throw during a route commit dropped the already-constructed incoming components without disposal.** Each incoming component is now constructed in a scope of its own and `constructed()` runs before any of them mounts; a failed commit disposes the whole attempt, and a departed occupant is disposed once the commit stands.
+
 ## [2.2.4] — 2026-10-06
 
 The same application kept surfacing defects as it grew: a router that claimed links it should have left alone and did not scroll, bodies that could not be removed, template text that could not say what its author meant, a list that did not grow when pushed to, and a build gate that failed on Node 22. Ten issues are fixed in this patch (#14, #17–#20, #25–#29). No API is removed; the behaviour changes are listed under **Changed**.

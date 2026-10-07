@@ -166,16 +166,6 @@ describe('Component', () => {
     })
   })
 
-  describe('update', () => {
-    it('should update props via Object.assign', () => {
-      const component = new TestComponent()
-      expect(component.name).toBe('World')
-
-      component.update({ name: 'Alice' })
-      expect(component.name).toBe('Alice')
-    })
-  })
-
   describe('createTemplate', () => {
     it('should throw if createTemplate not implemented', () => {
       const host = document.createElement('div')

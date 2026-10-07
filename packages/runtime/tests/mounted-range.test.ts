@@ -168,6 +168,7 @@ describe('switch(): multi-root case bodies (#17)', () => {
 
   it('removes the output of a body whose ONLY root is a nested structural', async () => {
     const { host, anchor } = mountAnchor('switch')
+    document.body.appendChild(host) // the nested if is placed by the connection drain
     const state = DiamondCore.reactive({ mode: 'a', show: true })
     DiamondCore.switch(anchor, () => state.mode, [
       {
@@ -181,12 +182,12 @@ describe('switch(): multi-root case bodies (#17)', () => {
       },
       { match: (v) => v === 'b', make: () => el('i', 'B') },
     ])
-    await tick() // the nested if places on the next microtask (detached anchor)
-    expect(host.textContent).toBe('X')
+    expect(host.textContent).toBe('X') // placed synchronously: the switch's anchor is in the document
 
     state.mode = 'b'
     await tick()
     expect(host.innerHTML).toBe('<i>B</i><!--switch-->')
+    host.remove()
   })
 
   it('leaves siblings outside the range alone', async () => {

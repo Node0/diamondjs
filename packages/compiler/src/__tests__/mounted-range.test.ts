@@ -31,13 +31,18 @@ function componentFrom<S extends object>(template: string, state: S): Component 
 
 function mounted<S extends object>(template: string, state: S) {
   const c = componentFrom(template, state)
-  const host = document.createElement('main')
+  // In the document: a body whose only root is a structural is placed by the
+  // connection drain (Lifecycle Contract), which needs a connected host.
+  const host = document.body.appendChild(document.createElement('main'))
   c.mount(host)
   return { c, host, state: c.state }
 }
 
 const errors = vi.spyOn(console, 'error')
-afterEach(() => errors.mockClear())
+afterEach(() => {
+  errors.mockClear()
+  document.body.innerHTML = ''
+})
 
 describe('compiled <switch>: multi-root bodies (#17)', () => {
   it('the issue repro: a two-root case is replaced on switch-away and rebuilt on switch-back', async () => {

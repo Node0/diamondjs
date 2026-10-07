@@ -9,8 +9,53 @@ import { reactivityEngine } from './reactivity'
 import { SAFE_SINKS, canonicalizeSinkKey, isInertMetadataKey } from './security'
 import { Print } from '@diamondjs/primafacie'
 import { Collection, type CollectionOptions } from './collection'
+import type { Component } from './component'
 
 type CleanupFn = () => void
+
+export interface ScopeFailure {
+  index: number
+  error: unknown
+}
+
+/**
+ * The inventory of one lifetime (Lifecycle Contract LC-7/LC-8). Every
+ * framework-owned acquisition made while the scope is current — bind/on/
+ * effect cleanups, structural disposers, child instances, tracked ranges,
+ * registerCleanup — lands in `list`. Failure recovery and teardown are the
+ * same call, `dispose()`: LIFO, each cleanup in its own try, failures
+ * collected and returned, the list empty afterwards. `children` (D8 child
+ * instances) and `scopes` (structural branches placed while this scope's
+ * tree was detached) wait here for the connection drain; `pending` holds
+ * root-level structural placements deferred until it.
+ */
+export class Scope {
+  list: CleanupFn[] = []
+  children: Component[] = []
+  scopes: Scope[] = []
+  pending: Array<() => void> = []
+  /** The managed range's live nodes (set by Component.mount; read by domPing). */
+  nodes: (() => Node[]) | null = null
+  /** The scope that was current when this one opened (restored by closeScope). */
+  prev: Scope | null = null
+
+  add(fn: CleanupFn): void {
+    this.list.push(fn)
+  }
+
+  dispose(): ScopeFailure[] {
+    const failures: ScopeFailure[] = []
+    for (let i = this.list.length - 1; i >= 0; i--) {
+      try {
+        this.list[i]()
+      } catch (error) {
+        failures.push({ index: i, error })
+      }
+    }
+    this.list.length = this.children.length = this.scopes.length = this.pending.length = 0
+    return failures
+  }
+}
 
 /**
  * DiamondCore - The main runtime API class
@@ -23,44 +68,68 @@ type CleanupFn = () => void
  */
 export class DiamondCore {
   /**
-   * Active cleanup scope. When set, bind()/on()/if()/repeat() register their
-   * teardown here so a structural directive can dispose a branch's effects and
-   * listeners when it removes that subtree. Null at the component root (matching
-   * the existing no-auto-cleanup-at-root behavior of compiled templates).
+   * The current scope. bind()/on()/effect()/if()/switch()/repeat()/spread()/
+   * delegate()/child() register their teardown here: a component's mount scope while its template builds, a
+   * branch's scope inside a structural's make(). Null outside any component
+   * (hand-written templates): acquisitions there are the author's to dispose.
    */
-  private static currentScope: CleanupFn[] | null = null
+  private static currentScope: Scope | null = null
 
-  /** Register a cleanup with the active scope (no-op at the root). */
+  /** Register a cleanup with the current scope (no-op outside any scope). */
   private static track(cleanup: CleanupFn): void {
-    if (this.currentScope) this.currentScope.push(cleanup)
+    this.currentScope?.add(cleanup)
   }
 
-  /**
-   * Run `fn` while collecting every cleanup registered by bind/on/if/repeat
-   * during it. Returns the produced value plus a single cleanup that disposes
-   * all of them. Used by structural directives to tear down a removed subtree.
-   */
-  static captureScope<T>(fn: () => T): { value: T; cleanup: CleanupFn } {
+  /** Open a fresh scope and make it current. */
+  static openScope(): Scope {
+    const scope = new Scope()
+    scope.prev = this.currentScope
+    this.currentScope = scope
+    return scope
+  }
+
+  /** Restore the scope that was current when `scope` opened. */
+  static closeScope(scope: Scope): void {
+    this.currentScope = scope.prev
+  }
+
+  /** Run `fn` with `scope` current — a lifecycle callback's acquisitions land there. */
+  static withScope<T>(scope: Scope, fn: () => T): T {
     const prev = this.currentScope
-    const scope: CleanupFn[] = []
     this.currentScope = scope
     try {
-      const value = fn()
-      return {
-        value,
-        cleanup: () => {
-          for (const c of scope.splice(0)) {
-            try {
-              c()
-            } catch (error) {
-              console.error('[Diamond] Cleanup error:', error)
-            }
-          }
-        },
-      }
+      return fn()
     } finally {
       this.currentScope = prev
     }
+  }
+
+  /** Whether a scope is current, i.e. this call is nested in a framework parent. */
+  static inScope(): boolean {
+    return this.currentScope !== null
+  }
+
+  /**
+   * Run `fn` in a fresh scope. Returns the produced value, the scope, and one
+   * cleanup that disposes it. Structural directives build each branch this
+   * way. A throw inside `fn` disposes what was acquired before it (P-2) and
+   * rethrows.
+   */
+  static captureScope<T>(fn: () => T): { value: T; cleanup: CleanupFn; scope: Scope } {
+    const scope = this.openScope()
+    try {
+      const value = fn()
+      return { value, scope, cleanup: () => this.report(scope.dispose()) }
+    } catch (e) {
+      scope.dispose()
+      throw e
+    } finally {
+      this.closeScope(scope)
+    }
+  }
+
+  private static report(failures: ScopeFailure[]): void {
+    for (const f of failures) console.error('[Diamond] Cleanup error:', f.error)
   }
 
   /**
@@ -103,7 +172,14 @@ export class DiamondCore {
    * // Later: cleanup() to stop tracking
    */
   static effect(fn: () => void): CleanupFn {
-    return reactivityEngine.createEffect(fn)
+    const cleanup = reactivityEngine.createEffect(fn)
+    this.track(cleanup) // LC-7: an effect is an acquisition of the current scope
+    return cleanup
+  }
+
+  /** Dev/test-only: effects created and not yet disposed (`__DIAMOND_DEV__`). */
+  static __liveEffects(): number {
+    return reactivityEngine.liveEffects
   }
 
   /**
@@ -156,7 +232,7 @@ export class DiamondCore {
     let cleanupEffect: CleanupFn = () => {}
     if (getter) {
       const isAttribute = property.includes('-')
-      cleanupEffect = this.effect(() => {
+      cleanupEffect = reactivityEngine.createEffect(() => {
         const value = getter()
         if (isAttribute) {
           if (value == null) element.removeAttribute(property)
@@ -236,12 +312,13 @@ export class DiamondCore {
     branches: Array<{ when: () => boolean; make: () => Node }>
   ): void {
     this.unstable.add(anchor)
-    let active: { node: Node; remove: CleanupFn; cleanup: CleanupFn } | null = null
+    const owner = this.currentScope
+    let active: { node: Node; cleanup: CleanupFn } | null = null
     let activeIndex = -1
 
     // Conditions are read here (before make()) so the master effect tracks their
     // dependencies; make() creates nested effects that reset the active effect.
-    const cleanup = this.effect(() => {
+    const cleanup = reactivityEngine.createEffect(() => {
       let matched = -1
       for (let i = 0; i < branches.length; i++) {
         if (branches[i].when()) {
@@ -252,9 +329,9 @@ export class DiamondCore {
       if (matched === activeIndex) return
 
       // Dispose the outgoing branch eagerly (same shape as repeat's
-      // gone.cleanup()); it is rebuilt from make() if re-activated.
+      // gone.cleanup()); its range leaves the DOM first (the scope's last
+      // entry, LIFO). It is rebuilt from make() if re-activated.
       if (active) {
-        active.remove()
         active.cleanup()
         active = null
       }
@@ -262,8 +339,10 @@ export class DiamondCore {
       if (matched < 0) return
 
       const captured = this.captureScope(() => branches[matched].make())
-      active = { ...this.trackRange(captured.value, anchor), cleanup: captured.cleanup }
-      this.placeBefore(anchor, [active.node], () => (active ? [active.node] : []))
+      const range = this.trackRange(captured.value, anchor)
+      captured.scope.add(range.remove)
+      active = { node: range.node, cleanup: captured.cleanup }
+      this.placeBefore(anchor, [range.node], () => (active ? [active.node] : []), [captured.scope], owner)
     })
 
     this.track(cleanup)
@@ -273,33 +352,92 @@ export class DiamondCore {
   }
 
   /**
-   * Insert `nodes` before `anchor` — now when the anchor is in a tree, else on
-   * the next microtask. A structural's master effect runs synchronously inside
-   * the if()/switch()/repeat() call that creates it; when that call precedes
-   * the anchor's own appendChild (a structural at a template root, which
+   * Insert `nodes` before `anchor` — now when the anchor is in a tree, else
+   * later. A structural's master effect runs synchronously inside the
+   * if()/switch()/repeat() call that creates it; when that call precedes the
+   * anchor's own appendChild (a structural at a template root, which
    * Component.mount() attaches only after createTemplate() returns; or a
    * hand-written template), `anchor.parentNode` is still null and a bare
-   * insertBefore would silently drop the first render — the branch appeared
-   * only on the next condition change. The deferred pass re-reads `live()` so
-   * a branch replaced or disposed in between is never resurrected, and inserts
-   * in current order (re-inserting a placed node before its anchor is a no-op
-   * move, so repeat's reorder-while-detached is handled too).
+   * insertBefore would silently drop the first render. Inside a component the
+   * placement waits in the owning scope's `pending` and runs in the
+   * connection drain (P-3: the nodes are in the document before mounted()
+   * runs); outside any scope it runs on the next microtask, as before. The
+   * deferred pass re-reads `live()` so a branch replaced or disposed in
+   * between is never resurrected, and inserts in current order (re-inserting
+   * a placed node before its anchor is a no-op move, so repeat's
+   * reorder-while-detached is handled too). After every placement the placed
+   * branches' scopes are settled: delivered if the anchor is in the document,
+   * else left with the owner for its drain.
    */
   private static placeBefore(
     anchor: Comment,
     nodes: Iterable<Node>,
-    live: () => Iterable<Node>
+    live: () => Iterable<Node>,
+    scopes: Scope[],
+    owner: Scope | null
   ): void {
     const parent = anchor.parentNode
     if (parent) {
       for (const node of nodes) parent.insertBefore(node, anchor)
+      this.settle(anchor, scopes, owner)
       return
     }
-    queueMicrotask(() => {
+    const place = (): void => {
       const p = anchor.parentNode
       if (!p) return
       for (const node of live()) p.insertBefore(node, anchor)
-    })
+      this.settle(anchor, scopes, owner)
+    }
+    if (owner) owner.pending.push(place)
+    else queueMicrotask(place)
+  }
+
+  private static settle(anchor: Comment, scopes: Scope[], owner: Scope | null): void {
+    if (anchor.isConnected) for (const s of scopes) this.deliverBranch(s)
+    else if (owner) owner.scopes.push(...scopes)
+  }
+
+  /**
+   * The connection drain (Lifecycle Contract §5.3). Runs when a scope's tree
+   * reaches the document: child components first (LC-6), then branches that
+   * were placed while the tree was detached, then root-level structural
+   * placements that waited for a parent. Every delivered child runs its own
+   * mounted() before the caller does. Throws through: a direct child whose
+   * mounted() fails has rolled itself back, and the failure is the caller's.
+   */
+  static drain(scope: Scope): void {
+    for (const child of scope.children.splice(0)) child.deliver()
+    for (const s of scope.scopes.splice(0)) this.deliverBranch(s)
+    for (const place of scope.pending.splice(0)) place()
+  }
+
+  /**
+   * A structural branch contains its children's failures: a child whose
+   * mounted() throws has rolled itself back and emitted the failure; the
+   * branch is disposed (its nodes leave the DOM, LIFO) and the enclosing
+   * component stays mounted and interactive.
+   */
+  private static deliverBranch(scope: Scope): void {
+    try {
+      this.drain(scope)
+    } catch {
+      this.report(scope.dispose())
+    }
+  }
+
+  /**
+   * Instantiate a child component under the current scope (D8, §7). The child
+   * is disposed with the scope and delivered child-first when the scope's
+   * tree connects; its host is detached at this point, so it stays `mounting`
+   * until then.
+   */
+  static child(instance: Component, host: HTMLElement): void {
+    const scope = this.currentScope
+    if (scope) {
+      scope.add(() => instance.dispose())
+      scope.children.push(instance)
+    }
+    instance.mount(host)
   }
 
   /**
@@ -325,7 +463,10 @@ export class DiamondCore {
    * The walk is bounded: it ends at `last`, at `stop` (the owning structural's
    * anchor, never removed) or at the end of the parent, whichever comes first.
    */
-  static trackRange(body: Node, stop?: Node): { node: Node; remove: CleanupFn } {
+  static trackRange(
+    body: Node,
+    stop?: Node
+  ): { node: Node; remove: CleanupFn; nodes: () => Node[] } {
     const isFragment = body.nodeType === 11
     let first = isFragment ? body.firstChild : body
     const last = isFragment ? body.lastChild : body
@@ -340,14 +481,20 @@ export class DiamondCore {
       first = start
     }
     if (first) this.unstable.add(first)
+    const walk = (visit: (n: Node) => void): void => {
+      for (let n = first; n && n !== stop; ) {
+        const next = n === last ? null : n.nextSibling
+        visit(n)
+        n = next
+      }
+    }
     return {
       node,
-      remove: () => {
-        for (let n = first; n && n !== stop; ) {
-          const next = n === last ? null : n.nextSibling
-          n.parentNode?.removeChild(n)
-          n = next
-        }
+      remove: () => walk((n) => n.parentNode?.removeChild(n)),
+      nodes: () => {
+        const out: Node[] = []
+        walk((n) => out.push(n))
+        return out
       },
     }
   }
@@ -375,14 +522,15 @@ export class DiamondCore {
     defaultMake?: () => Node
   ): void {
     this.unstable.add(anchor)
+    const owner = this.currentScope
     // Index cases.length denotes the default branch (when present)
-    let active: { node: Node; remove: CleanupFn; cleanup: CleanupFn } | null = null
+    let active: { node: Node; cleanup: CleanupFn } | null = null
     let activeIndex = -1
 
     // onGetter + match predicates run inside the master effect, so both the
     // on-value's deps and any expression-case deps are tracked (same
     // reads-before-builds reasoning as if()).
-    const cleanup = this.effect(() => {
+    const cleanup = reactivityEngine.createEffect(() => {
       const v = onGetter()
       let matched = -1
       for (let i = 0; i < cases.length; i++) {
@@ -397,7 +545,6 @@ export class DiamondCore {
       // Dispose the outgoing branch eagerly (same shape as repeat's
       // gone.cleanup()); it is rebuilt from make() if re-activated.
       if (active) {
-        active.remove()
         active.cleanup()
         active = null
       }
@@ -406,8 +553,10 @@ export class DiamondCore {
 
       const make = matched === cases.length ? defaultMake! : cases[matched].make
       const captured = this.captureScope(() => make())
-      active = { ...this.trackRange(captured.value, anchor), cleanup: captured.cleanup }
-      this.placeBefore(anchor, [active.node], () => (active ? [active.node] : []))
+      const range = this.trackRange(captured.value, anchor)
+      captured.scope.add(range.remove)
+      active = { node: range.node, cleanup: captured.cleanup }
+      this.placeBefore(anchor, [range.node], () => (active ? [active.node] : []), [captured.scope], owner)
     })
 
     this.track(cleanup)
@@ -433,18 +582,20 @@ export class DiamondCore {
     makeItem: (item: T, index: number) => Node
   ): void {
     this.unstable.add(anchor)
+    const owner = this.currentScope
     let current = new Map<unknown, { node: ChildNode; cleanup: CleanupFn }>()
     const isIdentityKeyed = (item: unknown): boolean =>
       (typeof item === 'object' && item !== null) || typeof item === 'function'
 
     // itemsGetter() is read first so the master effect tracks the collection.
-    const cleanup = this.effect(() => {
+    const cleanup = reactivityEngine.createEffect(() => {
       const items = Array.from(itemsGetter() ?? [])
       const next = new Map<unknown, { node: ChildNode; cleanup: CleanupFn }>()
       const ordered: ChildNode[] = []
       // Per-pass occurrence counts so the Nth duplicate of a primitive maps
       // stably to the previous pass's Nth duplicate (D-2).
       const occurrences = new Map<unknown, number>()
+      const fresh: Scope[] = []
 
       items.forEach((item, i) => {
         let key: unknown = item
@@ -458,12 +609,12 @@ export class DiamondCore {
           current.delete(key)
         } else {
           const captured = this.captureScope(() => makeItem(item, i))
-          entry = {
-            node: captured.value as ChildNode,
-            cleanup: captured.cleanup,
-          }
+          const node = captured.value as ChildNode
+          captured.scope.add(() => node.remove()) // the row leaves the DOM first (LIFO)
+          entry = { node, cleanup: captured.cleanup }
           // node → item registry powers delegate() (v2.1, DDR §7.2 / 2.1b)
-          this.itemRegistry.set(entry.node, item)
+          this.itemRegistry.set(node, item)
+          fresh.push(captured.scope)
         }
         next.set(key, entry)
         ordered.push(entry.node)
@@ -471,7 +622,6 @@ export class DiamondCore {
 
       // Dispose items that disappeared
       for (const gone of current.values()) {
-        gone.node.remove()
         gone.cleanup()
         this.itemRegistry.delete(gone.node)
       }
@@ -479,7 +629,7 @@ export class DiamondCore {
       // Insert / reorder nodes into document order before the anchor (the
       // deferred pass reads `current`, i.e. the latest pass's rows in order)
       current = next
-      this.placeBefore(anchor, ordered, () => Array.from(current.values(), (e) => e.node))
+      this.placeBefore(anchor, ordered, () => Array.from(current.values(), (e) => e.node), fresh, owner)
     })
 
     this.track(cleanup)
@@ -521,7 +671,7 @@ export class DiamondCore {
       else el[canonicalizeSinkKey(key)] = entry.prior
     }
 
-    const cleanup = this.effect(() => {
+    const cleanup = reactivityEngine.createEffect(() => {
       const obj = objGetter() ?? {}
       const seen = new Set<string>()
 
