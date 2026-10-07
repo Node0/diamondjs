@@ -2,9 +2,9 @@
  
 ## 🛠️ Current Status
  
-**✅ v2.2.4 shipped — published to npm.** Release notes: [CHANGELOG.md](CHANGELOG.md).
+**✅ v2.3.0 shipped — published to npm.** Release notes: [CHANGELOG.md](CHANGELOG.md).
  
-DiamondJS has moved from design into a shipped, spec-governed 2.x series. Every release lands with its design record: the v2.0 DDR, Amendment A2 (v2.1), Amendment A3 + the Router section (v2.2), and the Destinations record (v2.2.1).
+DiamondJS has moved from design into a shipped, spec-governed 2.x series. Every release lands with its design record: the v2.0 DDR, Amendment A2 (v2.1), Amendment A3 + the Router section (v2.2), the Destinations record (v2.2.1), and the Lifecycle Contract design record (v2.3.0).
  
 - ✅ **v2.0** — Security-by-default binding language: single auditable sink allowlist (fail-closed), `raw` escape hatch + stink gate, `.calls`/`.capture`, converter pipes with `ParseResult`, `[Diamond]` hint comments
 - ✅ **v2.1** — Scale and completeness: `switch`/`case`/`default`, gated attribute spread, `Collection<T>` at 100K+ items, `DiamondCore.delegate()`, two-way converter chains, `error-into`, VLQ source maps, `@diamondjs/primafacie` logging
@@ -14,7 +14,8 @@ DiamondJS has moved from design into a shipped, spec-governed 2.x series. Every 
 - ✅ **v2.2.2** — The bootstrap npm publication: all nine `@diamondjs/*` packages live on the registry (verified from clean-room npm *and* Bun installs). `@diamondjs/dev` now ships the complete toolchain — compiler, Parcel transformer, Parcel, TypeScript, and `stink-check`/`route-check` as published bins. Plus the preflight repairs it forced: the phantom `@parcel/source-map` devDependency, a stale lockfile, a lint gate that had never actually run, per-package READMEs, and the license reconciled to MIT everywhere
 - ✅ **v2.2.3** — First-real-app hardening: the first application built on the published constellation surfaced five defects in its first day (#7–#11), all fixed upstream — `if`/`switch`/`repeat` render on first mount, `<select>` binds after its options, static `<a href>` passes the sink gate (+ `role` inert), `@reactive` survives `useDefineForClassFields: true`, `route-check` loads template/style imports. Plus `npm pkg fix` manifest normalization and the first `CHANGELOG.md`
 - ✅ **v2.2.4** — Second hardening pass from the same application (#14, #17–#20, #25–#29): the link interceptor leaves non-navigation anchors and same-page fragment links to the browser and keeps a link's query and hash; router URLs behave as in HTML (`navigate(url)`, scroll to the fragment after a navigation, Back / Forward restore the position); a reactive array re-renders on `push()` and every other in-place mutation; multi-root and structural-only bodies are removed through their mounted range; author text reaches compiled output through one encoder (backslashes, multi-line attribute expressions); a literal `${` can be written as `\${` or with an entity; `route-check` works on Node 22; a fresh clone builds in one `npm run build`
-**5,342 / 9,500 production LOC (56.2%) · 859 tests passing · the whole framework still fits in an LLM context window.**
+- ✅ **v2.3.0** — The lifecycle contract and preserved template text (PRs #39, #40; #15, #38): six phases with one callback each (`constructed`, `mounting`, `mounted`, `unmounting`, `unmounted`), `mounted` meaning connected and delivered child-first, `mount()` / `unmount()` / `dispose()` final, rollback by inventory, two scopes so a class-field `debounce` survives a remount, `whileMounted(fn)`, `DiamondCore.child` as the seam for compiled composition; template text kept exactly as the HTML parser produces it; one consolidated specification per version under `docs/spec/`
+**5,645 / 9,500 production LOC (59.4%) · 960 tests passing · the whole framework still fits in an LLM context window.**
  
 ---
  
@@ -30,9 +31,9 @@ DiamondJS has moved from design into a shipped, spec-governed 2.x series. Every 
 - [ ] Tag `v2.2.2` retroactively (published 2026-08-20 without a git tag; `v2.2.3` onward are tagged)
 ---
  
-## 🎯 v2.3.0 — Composition & reach
+## 🎯 v2.3.1 — Composition & reach
  
-- [ ] **Template text preserved exactly** (#15) — the compiler stops trimming and dropping whitespace: text is kept as the HTML parser produces it, and collapsing is CSS's job. Decision recorded on the issue; lands on the #17 / #18 groundwork from v2.2.4
+- [x] ~~Template text preserved exactly (#15)~~ — landed in v2.3.0 (see above)
 - [ ] **Template-driven component composition** — the signed v2.3 milestone (D-21 closes for real): `<child-component>` instantiation from templates, explicit props-down/events-up, compiler-owned cleanup, its own DDR section before any code
 - [ ] **Scaffolding CLI** — packages are published as of v2.2.2; what remains is the interactive `npm create diamond` script covering flat/nested component modes, `app/config/config.json`, and a routed app-shell starter
 - [ ] **`--standalone` build flag** — compile an entire app into a single `.html` file that opens from anywhere (file://, USB stick, air-gapped review). Includes intelligent pre-compilation asset analysis to prevent WASM inclusion issues — WASM modules can't inline as data URIs in all contexts, so the analyzer detects them and fails loud with guidance rather than emitting a silently broken file

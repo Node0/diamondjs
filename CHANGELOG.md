@@ -4,7 +4,7 @@ All notable changes to DiamondJS are recorded here. The format follows [Keep a C
 
 Each release's *why* lives in its design record under `docs/spec/vX.Y.Z/`; the narrative account of how it was built is `impl_docs/project_update_log.md`.
 
-## [Unreleased]
+## [2.3.0] — 2026-10-07
 
 The lifecycle names promised states and the code delivered actions: `mount()` meant "template built and appended", which is in the document only for a root or a route component, and nothing told a component when it actually reached the document. Every real app worked around it by hand. The lifecycle is now a contract (spec §4.2, §4.4, §4.6; the Lifecycle Contract design record, filed under `docs/spec/v2.3.0/`). The oldest open defect goes with it: template text is now preserved exactly (#15, spec §5.9).
 
@@ -129,6 +129,7 @@ Security-by-default binding language: a single fail-closed sink allowlist, the `
 
 Earlier work (Phase 0, v1.3 → v1.5.1) is chronicled in `impl_docs/project_update_log.md`.
 
+[2.3.0]: https://github.com/Node0/diamondjs/releases/tag/v2.3.0
 [2.2.4]: https://github.com/Node0/diamondjs/releases/tag/v2.2.4
 [2.2.3]: https://github.com/Node0/diamondjs/releases/tag/v2.2.3
 [2.2.2]: https://github.com/Node0/diamondjs/commit/431d824

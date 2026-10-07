@@ -1,6 +1,6 @@
 # DiamondJS — Architecture & Design Specification v2.3.0
 
-**Status:** Complete, for ratification · describes `main` with the D-26…D-28 fixes merged (last code change `bc55a7e`) — the content of v2.3.0: v2.2.4 plus the Lifecycle Contract (PR #39) and preserved template text (#15, PR #40). The `v2.3.0` tag and publication are pending; nothing in this document waits on them. §4.5 records the template component composition proposal, deferred to v2.3.1.
+**Status:** Complete, for ratification · describes v2.3.0 as tagged (`v2.3.0`, published 2026-10-07; last code change `bc55a7e`): v2.2.4 plus the Lifecycle Contract (PR #39) and preserved template text (#15, PR #40). §4.5 records the template component composition proposal, deferred to v2.3.1.
 **Author:** Joe Hacobian
 **Supersedes:** the v2.2.4 specification (`docs/spec/v2.2.4/`), and through it the v2.1 spec, Amendment A3, the v2.2 Router Specification and Work Order. Those remain the *rationale* archive; this document is the single authoritative *reference*. `diff` against the v2.2.4 file shows exactly what 2.3.0 changes.
 

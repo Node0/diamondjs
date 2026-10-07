@@ -96,7 +96,7 @@ DiamondJS takes a different position: **complexity belongs in the compiler, not 
  
 ## Quick Start
  
-> All `@diamondjs/*` packages are live on npm — current release **v2.2.4** (October 2026; first published as v2.2.2 in August 2026). `bun add @diamondjs/app` works too — Bun installs from the npm registry. Release notes: [CHANGELOG.md](CHANGELOG.md).
+> All `@diamondjs/*` packages are live on npm — current release **v2.3.0** (October 2026; first published as v2.2.2 in August 2026). `bun add @diamondjs/app` works too — Bun installs from the npm registry. Release notes: [CHANGELOG.md](CHANGELOG.md).
  
 ```bash
 # Create a new project
@@ -698,9 +698,9 @@ The entire framework fits in an LLM context window. That's not an accident — i
  
 ## Current Status
  
-**Specification**: [v2.2.4](docs/spec/v2.2.4/DiamondJS_Architecture_Specification_v2.2.4.md) for the published release, one document consolidating the v2.1 spec, Amendment A3 and the v2.2 Router Specification. [v2.3.0](docs/spec/v2.3.0/DiamondJS_Architecture_Specification_v2.3.0.md) is complete and describes `main` (the lifecycle contract and preserved template text; release pending); earlier versions are under [`docs/spec/`](docs/spec/).
+**Specification**: [v2.3.0](docs/spec/v2.3.0/DiamondJS_Architecture_Specification_v2.3.0.md) for the published release, one document consolidating the v2.1 spec, Amendment A3 and the v2.2 Router Specification with the lifecycle contract and preserved template text; the Lifecycle Contract design record sits beside it. [v2.2.4](docs/spec/v2.2.4/DiamondJS_Architecture_Specification_v2.2.4.md) describes the previous release; earlier versions are under [`docs/spec/`](docs/spec/).
  
-**Implementation**: v2.2.4 — the second hardening patch from the same application (#14, #17–#20, #25–#29): the link interceptor leaves non-navigation anchors and same-page fragment links to the browser and keeps a link's query and hash; router URLs behave as in HTML (`navigate(url)`, scroll to the fragment, Back / Forward restore the position); a reactive array re-renders on `push()`; multi-root and structural-only bodies are removed through their mounted range; author text reaches compiled output through one encoder; template text can finally say a literal `${` (`\${`, or an entity); `route-check` works on Node 22; and a fresh clone builds in one pass. Beneath it, v2.2.3 — the first-real-app hardening patch on top of v2.2.2. The first application built on the published constellation surfaced five defects in its first day (#7–#11), all fixed upstream: structural directives render synchronously on first mount, `<select>` is bound after its options, a static `<a href>` passes the sink gate, `@reactive` survives `useDefineForClassFields: true`, and `route-check` loads page components' template imports. Beneath it, v2.2.2 — the routing release on top of v2.1's scale-and-completeness work, **published to npm** (all nine `@diamondjs/*` packages, August 2026), with `@diamondjs/dev` shipping the complete toolchain: compiler, Parcel transformer, Parcel, TypeScript, and the `stink-check`/`route-check` gates as real bins. The full navigation stack: multi-outlet router with specificity matching and atomic two-phase commit, typed URL params through the converter/`ParseResult` contract, class-based guards with a fail-closed execution envelope, the four-arm `Destination` vocabulary shared by redirects and guard denials, `Pending` departure safety, `basePath` for sub-path deployments, the `route-check` build gate, dev-mode route-table narration via `run_mode`/`__DIAMOND_DEV__`, and the logging consolidation (one vocabulary: everything emits through `Print`; browser→server WebSocket log relay with datestamped server files). Plus the v2.1.1 conformance patch: eager disposal of detached `if`/`switch` branches, the scheduler stale-flush retention fix, `repeat` duplicate-primitive reconciliation, static-attribute sink gating, and fail-loud diagnostics for unshipped component composition.
+**Implementation**: v2.3.0 — the lifecycle contract and preserved template text (PRs #39 and #40; issues #15 and #38): six phases with one callback each, `mounted` meaning connected and delivered child-first, `mount()` / `unmount()` / `dispose()` final, rollback by inventory so a throw anywhere in a mount releases everything the attempt acquired, two scopes so a class-field `debounce` survives a remount, and template text kept exactly as the HTML parser produces it. Beneath it, v2.2.4 — the second hardening patch from the same application (#14, #17–#20, #25–#29): the link interceptor leaves non-navigation anchors and same-page fragment links to the browser and keeps a link's query and hash; router URLs behave as in HTML (`navigate(url)`, scroll to the fragment, Back / Forward restore the position); a reactive array re-renders on `push()`; multi-root and structural-only bodies are removed through their mounted range; author text reaches compiled output through one encoder; template text can finally say a literal `${` (`\${`, or an entity); `route-check` works on Node 22; and a fresh clone builds in one pass. Beneath it, v2.2.3 — the first-real-app hardening patch on top of v2.2.2. The first application built on the published constellation surfaced five defects in its first day (#7–#11), all fixed upstream: structural directives render synchronously on first mount, `<select>` is bound after its options, a static `<a href>` passes the sink gate, `@reactive` survives `useDefineForClassFields: true`, and `route-check` loads page components' template imports. Beneath it, v2.2.2 — the routing release on top of v2.1's scale-and-completeness work, **published to npm** (all nine `@diamondjs/*` packages, August 2026), with `@diamondjs/dev` shipping the complete toolchain: compiler, Parcel transformer, Parcel, TypeScript, and the `stink-check`/`route-check` gates as real bins. The full navigation stack: multi-outlet router with specificity matching and atomic two-phase commit, typed URL params through the converter/`ParseResult` contract, class-based guards with a fail-closed execution envelope, the four-arm `Destination` vocabulary shared by redirects and guard denials, `Pending` departure safety, `basePath` for sub-path deployments, the `route-check` build gate, dev-mode route-table narration via `run_mode`/`__DIAMOND_DEV__`, and the logging consolidation (one vocabulary: everything emits through `Print`; browser→server WebSocket log relay with datestamped server files). Plus the v2.1.1 conformance patch: eager disposal of detached `if`/`switch` branches, the scheduler stale-flush retention fix, `repeat` duplicate-primitive reconciliation, static-attribute sink gating, and fail-loud diagnostics for unshipped component composition.
  
 | Package | Production LOC | Budget | Usage |
 |---------|---------------:|-------:|------:|
@@ -712,9 +712,9 @@ The entire framework fits in an LLM context window. That's not an accident — i
 | @diamondjs/dev (toolchain) | 545 | 800 | 68.1% |
 | **Total** | **5,342** | **9,500** | **56.2%** |
  
-**859 tests across 57 files**, all passing.
+**960 tests across 64 files**, all passing.
  
-### What works today (v2.2.4)
+### What works today (v2.3.0)
 
 **Template & binding language (v2.0 + v2.1)**
 
@@ -797,7 +797,7 @@ The entire framework fits in an LLM context window. That's not an accident — i
 - A `@reactive` array re-renders on `push()`, `splice()` and every other in-place mutation, not only on reassignment
 - `route-check` runs on Node 20 and Node 22 for ESM and CommonJS consumers
 
-**Lifecycle contract (unreleased, next minor)**
+**Lifecycle contract (v2.3.0)**
 
 - Six phases, one callback each: `constructed()`, `mounting()`, `mounted()`, `unmounting()`, `unmounted()`; `mounted` means connected, delivered child-first
 - `mount()` / `unmount()` / `dispose()` are final; `update()` is retired (props are reactive writes)
@@ -806,7 +806,7 @@ The entire framework fits in an LLM context window. That's not an accident — i
 - A page whose template root is a structural scrolls to its hash target on navigation
 - A fresh clone builds with a single `npm run build`
 
-**Preserved template text (unreleased, next minor)**
+**Preserved template text (v2.3.0)**
 
 - Template text is kept exactly as the HTML parser produces it (#15): `press <em>Start job</em> on` keeps its spaces; NBSP, thin spaces, tabs and line breaks stay as written
 - Compiled output appends each parent's children in one `append(...)` call, static text as string arguments — the generated code reads as the markup did

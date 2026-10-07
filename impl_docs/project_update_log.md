@@ -892,7 +892,9 @@ The 2.2.4 synopsis left two things open: #15, decided but not implemented, and a
 - Turbine's migration to the new callbacks — a prepared patch in a separate repo, not applied.
 
 ### Release mechanics
-- Pending at the time of this entry: the lockstep bump 2.2.4 → 2.3.0, `CHANGELOG.md` `[Unreleased]` → `[2.3.0]`, the spec's Status line ("as tagged"), the annotated tag, serial publication, the GitHub release.
+- Lockstep bump 2.2.4 → 2.3.0 across root, hello-world and all nine manifests (exact pins in app/dev/all; `^` ranges in compiler/converters/guards/parcel-plugin/runtime), lockfile regenerated with `--package-lock-only` (version lines only), `check-meta` green.
+- `CHANGELOG.md`: `[Unreleased]` → `[2.3.0] — 2026-10-07`, the section written as the work merged (Breaking / Added / Changed / Fixed). The v2.3.0 specification's Status line now reads "describes v2.3.0 as tagged". README / ROADMAP / FAQ / `docs/spec/README.md` reconciled: current release, the what-works headings that read "unreleased, next minor", the test count, and the composition milestone moved to v2.3.1 as the spec rules.
+- No release PR this time. With every piece already merged, the release commit went straight to `main` on Joe's word ("Main is now ready for v2.3.0 publishing on npm"), the annotated tag `v2.3.0` on it, and the publication from the tagged commit. The full gate chain ran on the release commit first: `npm ci`, build, the workspace suite, lint, typecheck, `check-loc`, `stink:check`, `check-meta`, the lifecycle suite under both toolchain shapes, and the Playwright acceptance run.
 
 ### Final state (at `bc55a7e`)
 ```
